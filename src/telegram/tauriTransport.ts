@@ -3404,7 +3404,11 @@ export class TauriTelegramTransport implements TelegramTransport {
       mapped.content.dataCenterId === undefined
       ? { ...mapped, content: { ...mapped.content, dataCenterId: this.dataCenterId } }
       : mapped;
-    if (!message?.outgoing || message.delivery !== "sent") return message;
+    if (!message || message.delivery !== "sent") return message;
+    if (chatType?.["@type"] === "chatTypePrivate" && tdId(chatType.user_id) === this.currentUserId) {
+      return { ...message, delivery: "read" as const };
+    }
+    if (!message.outgoing) return message;
     const lastReadId = tdId(
       this.rawChats.get(message.chatId)?.last_read_outbox_message_id,
     );

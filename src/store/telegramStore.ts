@@ -1335,15 +1335,21 @@ export const createTelegramStore = (
       typeof document === "undefined" || document.visibilityState === "visible";
 
     const markChatRead = (chatId: string, activeOnly = true) => {
+      const generation = accountGeneration;
       const previous = readRequestChains.get(chatId) ?? Promise.resolve();
       let succeeded = false;
       const operation = previous
         .catch(() => undefined)
         .then(async () => {
+          const state = get();
+          const chat = state.chats.get(chatId);
+          const saved = chat?.kind === "saved";
           if (
-            get().authorization.kind !== "ready" ||
-            (activeOnly && get().activeChatId !== chatId) ||
-            !documentIsVisible()
+            generation !== accountGeneration ||
+            state.authorization.kind !== "ready" ||
+            (activeOnly && state.activeChatId !== chatId) ||
+            (!saved && !documentIsVisible()) ||
+            (saved && (state.connectionStatus !== "online" || chat.unreadCount === 0))
           ) {
             return;
           }
@@ -1351,6 +1357,7 @@ export const createTelegramStore = (
           succeeded = true;
         })
         .catch((error) => {
+          if (generation !== accountGeneration) return;
           set({ operationError: error instanceof Error ? error.message : translate("无法更新已读状态") });
         });
       const tracked = operation.finally(() => {
@@ -1596,12 +1603,20 @@ export const createTelegramStore = (
     };
 
     const scheduleChatRead = (chatId: string, delayMs = 120) => {
+      const generation = accountGeneration;
       const currentTimer = readTimers.get(chatId);
       if (currentTimer) globalThis.clearTimeout(currentTimer);
       readTimers.set(chatId, globalThis.setTimeout(() => {
         readTimers.delete(chatId);
-        void markActiveConversationRead(chatId);
+        if (generation !== accountGeneration) return;
+        // Saved Messages belongs to the account itself and is read even in the background.
+        if (get().chats.get(chatId)?.kind === "saved") void markChatRead(chatId, false);
+        else void markActiveConversationRead(chatId);
       }, delayMs));
+    };
+
+    const scheduleSavedMessagesRead = (chat: Chat) => {
+      if (chat.kind === "saved" && chat.unreadCount > 0) scheduleChatRead(chat.id);
     };
 
     const maybeAutoCacheArchiveMedia = (message: Message) => {
@@ -1687,6 +1702,7 @@ export const createTelegramStore = (
           }
           if (get().connectionStatus === "online") {
             for (const chat of get().chats.values()) {
+              scheduleSavedMessagesRead(chat);
               if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
             }
           }
@@ -1742,6 +1758,7 @@ export const createTelegramStore = (
           }
           if (get().authorization.kind === "ready") {
             for (const chat of get().chats.values()) {
+              scheduleSavedMessagesRead(chat);
               if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
             }
           }
@@ -1836,6 +1853,7 @@ export const createTelegramStore = (
             : get().activeTopicId,
         });
         for (const chat of incomingChats) {
+          scheduleSavedMessagesRead(chat);
           if ((chat.unreadReactionCount ?? 0) > 0) {
             void refreshUnreadReactionAttention(chat.id);
           } else if ((previousChats.get(chat.id)?.unreadReactionCount ?? 0) > 0) {
@@ -2544,6 +2562,7 @@ export const createTelegramStore = (
           }
           if (authorization.kind === "ready" && get().connectionStatus === "online") {
             for (const chat of chats.values()) {
+              scheduleSavedMessagesRead(chat);
               if ((chat.unreadReactionCount ?? 0) > 0) void refreshUnreadReactionAttention(chat.id);
             }
           }

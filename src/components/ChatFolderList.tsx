@@ -1,6 +1,6 @@
 import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { Archive, CheckCheck, LoaderCircle, Pin, Search } from "lucide-react";
+import { Archive, LoaderCircle, Pin, Search } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState,
   type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent } from "react";
 import { useTelegramStore } from "../store/telegramStore";
@@ -438,7 +438,6 @@ const ChatRow = memo(function ChatRow({
               <span className="chat-preview-message">{translate("草稿：")}{draftPreview}</span>
             ) : (
               <>
-                {chat.kind === "saved" && <CheckCheck size={14} strokeWidth={2} />}
                 <span className="chat-preview-message">
                   {!previewConcealed && previewSenderName && chat.kind === "group" && (
                     <span className="chat-preview-sender">{`${previewSenderName}: `}</span>

@@ -3983,7 +3983,9 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
   expect((await menu.boundingBox())?.width).toBe(160);
   await forwardItem.hover();
   const quickForward = page.getByRole("menu", { name: "快速转发" });
-  await expect(quickForward.getByRole("menuitem").first()).toContainText("产品讨论");
+  await expect(quickForward.getByRole("menuitem").first()).toHaveText("收藏夹");
+  await expect(quickForward.getByRole("menuitem").nth(1)).toContainText("产品讨论");
+  await expect(quickForward.getByRole("menuitem").first().locator(".avatar-icon")).toBeVisible();
   await expect(quickForward.getByRole("menuitem").first().locator(".avatar")).toBeVisible();
   expect(await quickForward.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -8906,6 +8908,10 @@ test("saved and direct messages align to the conversation edges", async ({ page 
   const savedMessage = page.locator('[data-message-id="s-2"]');
   await expect(savedMessage).toBeVisible();
   await expect(savedMessage).toHaveClass(/is-outgoing/);
+  await expect(savedMessage.locator(".message-delivery-status")).toHaveAttribute("data-delivery", "read");
+  const savedChat = page.locator('.chat-list[data-active=true] [data-chat-id="chat-saved"]');
+  await expect(savedChat.locator(".avatar-icon")).toBeVisible();
+  await expect(savedChat.locator(".avatar img, .chat-preview svg")).toHaveCount(0);
 
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");

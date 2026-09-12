@@ -1749,6 +1749,24 @@ describe("TauriTelegramTransport startup", () => {
     expect(requests.filter((request) => request["@type"] === "getChat")).toHaveLength(1);
   });
 
+  it("treats successfully saved messages as read without an outbox read receipt", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { currentUserId: string };
+    internal.currentUserId = "7";
+    internal.upsertChat({ ...rawChat(7, 1_700_000_007), last_read_outbox_message_id: 0 });
+    for (const outgoing of [true, false]) {
+      const raw = { ...rawMessage(10), is_outgoing: outgoing };
+      expect(internal.mapMessage(raw)).toMatchObject({ delivery: "read", outgoing });
+      expect(internal.mapMessage({ ...raw, sending_state: { "@type": "messageSendingStatePending" } }))
+        .toMatchObject({ delivery: "sending" });
+      expect(internal.mapMessage({ ...raw, sending_state: { "@type": "messageSendingStateFailed" } }))
+        .toMatchObject({ delivery: "failed" });
+    }
+    internal.upsertChat(rawChat(8, 1_700_000_008));
+    expect(internal.mapMessage({ ...rawMessage(10), chat_id: 8, is_outgoing: true }))
+      .toMatchObject({ delivery: "sent" });
+  });
+
   it("keeps mention-only chats unread until the mentioned message is viewed", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

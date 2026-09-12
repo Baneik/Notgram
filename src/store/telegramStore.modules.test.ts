@@ -169,6 +169,21 @@ describe("telegram store message state", () => {
 });
 
 describe("telegram store cache and accounts", () => {
+  it.each([3, 4])("restores the built-in Saved Messages avatar from version %i portable caches", (version) => {
+    const photo = { label: "Me", color: "#aabbcc", imagePath: "C:\\avatars\\self.jpg", fileId: 55, canDownload: true };
+    const snapshot = structuredClone(mockSnapshot);
+    const saved = snapshot.chats.find(chat => chat.kind === "saved")!;
+    saved.avatar = photo;
+    const self = snapshot.users.find(user => user.id === snapshot.currentUserId)!;
+    self.avatar = photo;
+    const restored = migrateCachedSnapshot({ ...snapshot, version, savedAt: new Date().toISOString() }).snapshot!;
+
+    expect(restored.chats.find(chat => chat.kind === "saved")?.avatar)
+      .toEqual({ label: "我", color: "#3390ec", icon: "saved" });
+    expect(restored.users.find(user => user.id === self.id)?.avatar).toEqual(photo);
+    expect(saved.avatar).toEqual(photo);
+  });
+
   it("migrates version 1 snapshots and safely rejects damaged cache data", () => {
     const managedLegacyChat = {
       ...mockSnapshot.chats[0],

@@ -1,4 +1,5 @@
 import type { Chat, Message, TelegramSnapshot, User } from "./types";
+import { savedMessagesAvatar } from "./savedMessages";
 import mediaPreviewUrl from "../../src-tauri/icons/icon.png";
 
 export const mockProfilePhotoUrl = mediaPreviewUrl;
@@ -150,7 +151,7 @@ const chats: Chat[] = [
     kind: "saved",
     folderIds: ["main"],
     title: "收藏夹",
-    avatar: { label: "我", color: "#3390ec", icon: "saved" },
+    avatar: savedMessagesAvatar(),
     preview: "TDLib integration notes.md",
     previewSenderId: "self",
     updatedAt: "2026-08-01T08:15:00+08:00",

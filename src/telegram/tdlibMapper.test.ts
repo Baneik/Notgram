@@ -432,6 +432,7 @@ describe("TDLib mapper", () => {
         id: 99,
         type: { "@type": "chatTypePrivate", user_id: 7 },
         title: "Example User",
+        photo: { small: { id: 55, local: { is_downloading_completed: true, path: "C:\\avatars\\self.jpg" } } },
         positions: [
           { list: { "@type": "chatListMain" }, order: "100", is_pinned: true },
         ],
@@ -466,6 +467,8 @@ describe("TDLib mapper", () => {
       pinnedFolderIds: ["main"],
       folderIds: ["main"],
     });
+    expect(chat?.avatar.imagePath).toBeUndefined();
+    expect(chat?.avatar.fileId).toBeUndefined();
   });
 
   it("maps user presence and incoming text messages", () => {

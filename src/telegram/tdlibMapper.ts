@@ -33,6 +33,7 @@ import { messagePreviewText } from "./messageContent";
 import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
 import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 import { sanitizeIdentityText } from "./identityText";
+import { savedMessagesAvatar } from "./savedMessages";
 
 export type TdObject = Record<string, unknown>;
 
@@ -2032,10 +2033,9 @@ export const mapTdChat = (
     management,
     folderIds: [...folderIds],
     title: kind === "saved" ? translate("收藏夹") : title,
-    avatar: {
-      label: kind === "saved" ? translate("我") : initials(title),
-      color: kind === "saved" ? "#3390ec" : colorFor(id),
-      ...(kind === "saved" ? { icon: "saved" as const } : {}),
+    avatar: kind === "saved" ? savedMessagesAvatar() : {
+      label: initials(title),
+      color: colorFor(id),
       ...avatarFile(asTdObject(raw.photo)?.small),
     },
     peerId,

@@ -1,6 +1,7 @@
 import { messageCanBeCached } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
 import { retainedMessageForCache } from "../telegram/retainedMessages";
+import { savedMessagesAvatar } from "../telegram/savedMessages";
 import type {
   CachedTelegramSnapshot,
   Chat,
@@ -64,10 +65,12 @@ const sanitizeCachedChat = (chat: Chat): Chat => {
     ...chat,
     ...(chat.previewCacheable === false ? { preview: "", previewSenderId: undefined } : {}),
     title,
-    avatar: {
-      ...chat.avatar,
-      label: avatarLabel(chat.avatar.label, title),
-    },
+    avatar: chat.kind === "saved"
+      ? savedMessagesAvatar()
+      : {
+          ...chat.avatar,
+          label: avatarLabel(chat.avatar.label, title),
+        },
   };
 };
 

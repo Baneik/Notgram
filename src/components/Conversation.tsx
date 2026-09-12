@@ -715,7 +715,11 @@ export function Conversation({
 
   const displayMessages = useMemo(
     () => chat?.kind === "saved"
-      ? messages.map((message) => message.outgoing ? message : { ...message, outgoing: true })
+      ? messages.map((message) => message.outgoing && message.delivery !== "sent" ? message : {
+          ...message,
+          outgoing: true,
+          delivery: message.delivery === "sent" ? "read" : message.delivery,
+        })
       : messages,
     [chat?.kind, messages],
   );
