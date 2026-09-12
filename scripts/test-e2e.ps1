@@ -10,6 +10,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $nodePath = (Get-Command node.exe).Source
 $viteCli = Join-Path $repositoryRoot "node_modules\vite\bin\vite.js"
 $playwrightCli = Join-Path $repositoryRoot "node_modules\playwright\cli.js"
+$logDirectory = Join-Path $repositoryRoot "logs"
 $serverProcess = $null
 $exitCode = 1
 $originalTransport = [Environment]::GetEnvironmentVariable(
@@ -49,11 +50,14 @@ try {
     }
 
     $env:VITE_TELEGRAM_TRANSPORT = "mock"
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     $serverProcess = Start-Process `
         -FilePath $nodePath `
         -ArgumentList @($viteCli, "--host", "127.0.0.1", "--port", "1422") `
         -WorkingDirectory $repositoryRoot `
         -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $logDirectory "e2e-vite.log") `
+        -RedirectStandardError (Join-Path $logDirectory "e2e-vite-error.log") `
         -PassThru
 
     $available = $false

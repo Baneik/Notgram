@@ -6562,7 +6562,7 @@ test("attachment entry points share classification, previews, spoilers, and loca
 
   await preview.getByRole("checkbox", { name: "剧透" }).uncheck();
   await preview.getByRole("button", { name: "移除 dropped-image.png" }).click();
-  await page.locator('input[type="file"]').setInputFiles("public/mock-video.mp4");
+  await page.locator('input[type="file"]').setInputFiles("tests/fixtures/public/mock-video.mp4");
   await expect(preview.getByText("mock-video.mp4", { exact: true })).toBeVisible();
   const videoPopupPromise = page.waitForEvent("popup");
   await preview.getByRole("button", { name: "预览 mock-video.mp4" }).click();

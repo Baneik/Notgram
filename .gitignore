@@ -1,16 +1,18 @@
 node_modules/
 dist/
-artifacts/
+/artifacts/
 target/
-src-tauri/target/
-src-tauri/gen/schemas/
+/src-tauri/gen/schemas/
 
 # Local project notes and credentials
-project.md
+/project.md
 .env
 .env.*
 !.env.example
-docs/tdlib-feature-selection.md
+/docs/tdlib-feature-selection.md
+*.key
+*.pfx
+*.p12
 
 # Bundled/generated native binaries
 src-tauri/tdlib/*.dll
@@ -21,14 +23,13 @@ vendor/tdlib-build/
 vendor/tdlib-install/
 
 # Runtime and development output
-.dev-server*.log
 *.log
 logs/
 *.tsbuildinfo
 coverage/
 playwright-report/
 test-results/
-.native-smoke/
+/.native-smoke/
 
 # Editor and operating-system files
 .idea/
