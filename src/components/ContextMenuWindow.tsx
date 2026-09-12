@@ -7,17 +7,18 @@ import {
   AtSign,
   Check,
   ChevronRight,
-  Copy,
+  ClipboardCopy,
   Download,
-  Edit3,
+  Flag,
   FolderInput,
   Forward,
   LogOut,
   MessageCircle,
+  MessageCircleReply,
+  Pencil,
   Pin,
   PictureInPicture2,
-  Reply,
-  Repeat2,
+  RefreshCw,
   Search,
   Trash2,
   UserPlus,
@@ -55,17 +56,18 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   archive: Archive,
   at: AtSign,
   check: Check,
-  copy: Copy,
+  copy: ClipboardCopy,
   download: Download,
-  edit: Edit3,
+  edit: Pencil,
   folder: FolderInput,
   forward: Forward,
   leave: LogOut,
   message: MessageCircle,
   pin: Pin,
   "play-window": PictureInPicture2,
-  reply: Reply,
-  repeat: Repeat2,
+  reply: MessageCircleReply,
+  retry: RefreshCw,
+  flag: Flag,
   search: Search,
   trash: Trash2,
   "user-plus": UserPlus,
@@ -284,6 +286,16 @@ export function ContextMenuWindow() {
                 onClick={() => {
                   if (item.actionable || !item.children) select(item);
                   else setExpandedId(expanded ? undefined : item.id);
+                }}
+                onAuxClick={(event) => {
+                  if (event.button !== 1 || !item.middleClickActionId) return;
+                  event.preventDefault();
+                  channelRef.current?.postMessage({
+                    type: "action",
+                    id,
+                    actionId: item.middleClickActionId,
+                  } satisfies NativeContextMenuMessage);
+                  if (!item.keepOpen) void close();
                 }}
               >
                 {item.avatar ? (

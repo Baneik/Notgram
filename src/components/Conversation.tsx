@@ -3047,21 +3047,12 @@ export function Conversation({
           keyboardNavigation={actionMenu.keyboardNavigation}
           onReply={() => startReply(actionMessageForMenu, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessageForMenu)}
-          onForward={() => openForwardDialog([actionMessageForMenu.id])}
+          onForward={() => openForwardDialog(actionAlbumMessageIds.length > 1 ? actionAlbumMessageIds : [actionMessageForMenu.id])}
           forwardTargets={actionForwardTargets}
           onQuickForward={(target) => {
             closeActionMenu(false);
-            void forwarding.quickForward([actionMessageForMenu.id], target);
+            void forwarding.quickForward(actionAlbumMessageIds.length > 1 ? actionAlbumMessageIds : [actionMessageForMenu.id], target);
           }}
-          onForwardAlbum={actionAlbumMessageIds.length > 1
-            ? () => openForwardDialog(actionAlbumMessageIds)
-            : undefined}
-          onQuickForwardAlbum={actionAlbumMessageIds.length > 1
-            ? (target) => {
-                closeActionMenu(false);
-                void forwarding.quickForward(actionAlbumMessageIds, target);
-              }
-            : undefined}
           onRepeat={chat.kind === "group" && topic?.isClosed !== true && !actionMessageForMenu.outgoing
             ? () => void repeatMessage(actionMessageForMenu)
             : undefined}
@@ -3098,10 +3089,6 @@ export function Conversation({
               }
             : undefined}
           onCopy={() => void copyMessage(actionMessageForMenu)}
-          onSelect={() => {
-            forwarding.startSelection(actionMessageForMenu);
-            setActionMenu(undefined);
-          }}
           onReport={!actionMessageForMenu.isLocallyDeleted
             ? () => { setReportTarget(actionMessageForMenu); setActionMenu(undefined); }
             : undefined}

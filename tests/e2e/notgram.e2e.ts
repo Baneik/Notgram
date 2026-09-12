@@ -4028,7 +4028,7 @@ test("forwarding ranks quick targets and sends to multiple chats with a descript
   ]);
 });
 
-test("conversation multi-select uses full message rows and albums can merge-forward", async ({ page }) => {
+test("conversation multi-select uses full message rows and album forwarding uses the whole group", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "更多操作" }).click();
@@ -4078,8 +4078,9 @@ test("conversation multi-select uses full message rows and albums can merge-forw
 
   const albumItem = await revealVirtualMessage(page, "p-tall");
   await albumItem.locator(".message-bubble-shell").click({ button: "right" });
-  await page.getByRole("menu", { name: "消息操作" })
-    .getByRole("menuitem", { name: "合并转发", exact: true }).click();
+  const albumMenu = page.getByRole("menu", { name: "消息操作" });
+  await expect(albumMenu.getByRole("menuitem", { name: "合并转发", exact: true })).toHaveCount(0);
+  await albumMenu.getByRole("menuitem", { name: "转发", exact: true }).click();
   const albumDialog = page.getByRole("dialog", { name: "转发 2 条消息" });
   await albumDialog.locator(".forward-target-row").filter({ hasText: "Mia Chen" }).click();
   await albumDialog.getByRole("button", { name: "转发", exact: true }).click();
@@ -4219,15 +4220,15 @@ test("message reactions stay in the bubble and reveal the reacting users", async
   });
 });
 
-test("repeat forwards an incoming message directly to the current group only", async ({ page }) => {
+test("middle-clicking forward repeats an incoming message directly to the current group only", async ({ page }) => {
   await page.goto("/");
 
   const incoming = await revealVirtualMessage(page, "p-4");
   await incoming.locator(".message-bubble-shell").click({ button: "right" });
   let menu = page.getByRole("menu", { name: "消息操作" });
   await expect(menu.getByRole("menuitem").nth(1)).toHaveText("转发");
-  await expect(menu.getByRole("menuitem").nth(2)).toHaveText("复读");
-  await menu.getByRole("menuitem", { name: "复读", exact: true }).click();
+  await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "转发", exact: true }).click({ button: "middle" });
 
   await expect(menu).toBeHidden();
   await expect(page.getByRole("dialog", { name: /转发 \d+ 条消息/ })).toHaveCount(0);
@@ -4260,7 +4261,7 @@ test("repeat forwards an incoming message directly to the current group only", a
   const forumIncoming = await revealVirtualMessage(page, "forum-general-1");
   await forumIncoming.locator(".message-bubble-shell").click({ button: "right" });
   menu = page.getByRole("menu", { name: "消息操作" });
-  await menu.getByRole("menuitem", { name: "复读", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "转发", exact: true }).click({ button: "middle" });
   await expect.poll(() => page.evaluate(async (storePath) => {
     const module = await import(storePath) as {
       telegramStore: { getState: () => { messages: Map<string, Message[]> } };
@@ -4719,6 +4720,8 @@ test("message deletion keeps safety actions separate and exposes only allowed sc
   await incoming.locator(".message-bubble-shell").click({ button: "right" });
   let menu = page.getByRole("menu", { name: "消息操作" });
   await expect(menu.getByRole("menuitem", { name: "举报" })).toBeVisible();
+  const initialLabels = (await menu.getByRole("menuitem").allTextContents()).map((label) => label.trim());
+  expect(initialLabels.slice(-2)).toEqual(["删除", "举报"]);
   await menu.getByRole("menuitem", { name: "删除" }).click();
 
   let dialog = page.getByRole("dialog", { name: "删除消息" });
@@ -5454,7 +5457,6 @@ test("channel discussion actions use the linked group and preserve composer focu
   await expect(messageMenu.getByRole("menuitem", { name: "回复" })).toBeVisible();
   await expect(messageMenu.getByRole("menuitem", { name: "转发", exact: true })).toBeVisible();
   await expect(messageMenu.getByRole("menuitem", { name: "复制" })).toBeVisible();
-  await expect(messageMenu.getByRole("menuitem", { name: "选择" })).toBeVisible();
   await expect(messageMenu.getByRole("menuitem", { name: "删除" })).toBeVisible();
   await messageMenu.getByRole("menuitem", { name: "回复" }).click();
   await expect(panel.locator(".composer-context")).toContainText("请看");
@@ -5474,12 +5476,8 @@ test("channel discussion actions use the linked group and preserve composer focu
 
   await incoming.locator(".message-bubble-shell").click({ button: "right" });
   messageMenu = page.getByRole("menu", { name: "消息操作" });
-  await messageMenu.getByRole("menuitem", { name: "选择" }).click();
-  const selectionToolbar = panel.getByRole("toolbar", { name: "消息选择操作" });
-  await expect(selectionToolbar).toBeVisible();
-  await outgoing.click();
-  await expect(panel.locator(".message-row.is-selected")).toHaveCount(2);
-  await selectionToolbar.getByRole("button", { name: "取消选择" }).click();
+  await expect(messageMenu.getByRole("menuitem", { name: "选择" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await expect(composer).toBeFocused();
 
   const senderAvatar = incoming.locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' message-group ')]")
@@ -10206,8 +10204,8 @@ test("messages support pin lists, notification scope, and auto-delete settings",
   const target = await revealVirtualMessage(page, "p-1");
   await target.locator(".message-bubble-shell").click({ button: "right" });
   const messageMenu = page.getByRole("menu", { name: "消息操作" });
-  await expect(messageMenu.getByRole("menuitem", { name: "置顶消息" })).toBeVisible();
-  await messageMenu.getByRole("menuitem", { name: "置顶消息" }).click();
+  await expect(messageMenu.getByRole("menuitem", { name: "置顶" })).toBeVisible();
+  await messageMenu.getByRole("menuitem", { name: "置顶" }).click();
   const pinDialog = page.getByRole("dialog", { name: "置顶消息" });
   await expect(pinDialog).toBeVisible();
   await pinDialog.getByLabel("静音置顶通知").check();

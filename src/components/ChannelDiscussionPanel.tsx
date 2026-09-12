@@ -810,22 +810,14 @@ export function ChannelDiscussionPanel({
           onReply={() => startReply(actionMessage, actionMenu.replyQuote)}
           onEdit={() => startEditing(actionMessage)}
           onForward={() => {
-            forwarding.openDialogForMessages([actionMessage.id]);
+            forwarding.openDialogForMessages(actionAlbumMessageIds.length > 1 ? actionAlbumMessageIds : [actionMessage.id]);
             setActionMenu(undefined);
           }}
           forwardTargets={forwardTargets}
           onQuickForward={(target) => {
             setActionMenu(undefined);
-            void forwarding.quickForward([actionMessage.id], target);
+            void forwarding.quickForward(actionAlbumMessageIds.length > 1 ? actionAlbumMessageIds : [actionMessage.id], target);
           }}
-          onForwardAlbum={actionAlbumMessageIds.length > 1 ? () => {
-            forwarding.openDialogForMessages(actionAlbumMessageIds);
-            setActionMenu(undefined);
-          } : undefined}
-          onQuickForwardAlbum={actionAlbumMessageIds.length > 1 ? (target) => {
-            setActionMenu(undefined);
-            void forwarding.quickForward(actionAlbumMessageIds, target);
-          } : undefined}
           onRepeat={!actionMessage.outgoing ? () => {
             setActionMenu(undefined);
             void onForwardMessages(
@@ -840,10 +832,6 @@ export function ChannelDiscussionPanel({
           }}
           onCopy={() => {
             void copyMessageContent(actionMessage).then(closeActionMenu).catch(() => undefined);
-          }}
-          onSelect={() => {
-            forwarding.startSelection(actionMessage);
-            setActionMenu(undefined);
           }}
           onPin={actionMessage.permissions?.canPin ? () => void openPinDialog(actionMessage) : undefined}
           onUnpin={actionMessage.permissions?.canPin ? () => void unpinMessage(actionMessage) : undefined}

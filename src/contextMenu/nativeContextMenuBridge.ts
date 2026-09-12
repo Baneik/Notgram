@@ -21,12 +21,13 @@ export type NativeContextMenuIcon =
   | "edit"
   | "folder"
   | "forward"
+  | "flag"
   | "leave"
   | "message"
   | "pin"
   | "play-window"
   | "reply"
-  | "repeat"
+  | "retry"
   | "search"
   | "trash"
   | "user-plus";
@@ -41,6 +42,8 @@ export interface NativeContextMenuItem {
   avatar?: Avatar;
   separatorBefore?: boolean;
   actionable?: boolean;
+  /** Action to invoke when the item receives a middle-click. */
+  middleClickActionId?: string;
   keepOpen?: boolean;
   status?: boolean;
   children?: NativeContextMenuItem[];
@@ -192,7 +195,7 @@ const showNativeContextMenu = async (
       publishDescriptor();
     } else if (message.type === "action" && message.id === id) {
       const item = descriptor.items.flatMap(item => [item, ...(item.children ?? [])])
-        .find(item => item.id === message.actionId);
+        .find(item => item.id === message.actionId || item.middleClickActionId === message.actionId);
       if (!item || item.disabled || item.status) return;
       if (item.keepOpen) onKeepOpenAction(message.actionId);
       else finish(message.actionId);

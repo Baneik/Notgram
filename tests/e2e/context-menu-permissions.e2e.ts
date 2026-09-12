@@ -105,11 +105,11 @@ for (const native of [false, true]) {
     await menu.getByRole("menuitem", { name: "重试", exact: true }).click();
     await expect(menu.getByRole("status")).toHaveText("正在读取操作权限");
     await expect(menu.getByRole("menuitem", { name: "重试", exact: true })).toHaveCount(0);
-    await menu.getByRole("menuitem", { name: "选择", exact: true }).focus();
+    await menu.getByRole("menuitem", { name: "复制", exact: true }).focus();
     await page.evaluate(() => { window.__menuProbe.releases.splice(0).forEach(release => release()); });
     await expect(menu.getByRole("menuitem", { name: "回复", exact: true })).toBeEnabled();
     expect(await node!.evaluate(element => element.isConnected)).toBe(true);
-    await expect(menu.getByRole("menuitem", { name: "选择", exact: true })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "复制", exact: true })).toBeFocused();
     if (native) {
       expect(await page.evaluate(() => window.__menuCommands.filter(command => command === "notgram_open_context_menu_window").length)).toBe(1);
       // Descriptor updates must retain blur dismissal after the initial grace period.
@@ -145,6 +145,30 @@ test("permission timeout exposes retry and a closed request cannot overwrite a n
   expect(await calls(page)).toBe(before);
   await page.evaluate(() => { window.__menuProbe.releases.splice(0).forEach(release => release()); });
   await expect(menu.getByRole("menuitem", { name: "回复", exact: true })).toBeEnabled();
+});
+
+test("native forward item repeats on middle-click", async ({ page }) => {
+  await prepare(page);
+  const surface = await nativeMenu(page);
+  await openMenu(page, "p-4");
+  const menu = surface.getByRole("menu", { name: "消息操作", exact: true });
+  await expect(menu.getByRole("menuitem", { name: "复读", exact: true })).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "转发", exact: true }).dispatchEvent("auxclick", { button: 1 });
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async (storePath) => {
+    const module = await import(storePath) as {
+      telegramStore: {
+        getState: () => {
+          messages: Map<string, Array<{
+            outgoing: boolean;
+            forwardInfo?: { source?: { messageId?: string } };
+          }>>;
+        };
+      };
+    };
+    return module.telegramStore.getState().messages.get("chat-product")
+      ?.some(message => message.outgoing && message.forwardInfo?.source?.messageId === "p-4");
+  }, "/src/store/telegramStore.ts")).toBe(true);
 });
 
 test("live message replacement is bounded and invalidated permissions can recover", async ({ page }) => {

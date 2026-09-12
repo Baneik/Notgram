@@ -4,19 +4,19 @@ import {
   AlertCircle,
   BellOff,
   Check,
-  Copy,
+  ClipboardCopy,
   ChevronLeft,
   ChevronRight,
   Download,
-  Edit3,
   Flag,
   Forward,
   LoaderCircle,
+  MessageCircleReply,
+  Pencil,
   Pin,
   PinOff,
   PictureInPicture2,
-  Reply,
-  Repeat2,
+  RefreshCw,
   AtSign,
   MessageCircle,
   Search,
@@ -80,15 +80,15 @@ export function SenderActionMenu({
     <ContextMenuSurface label={translate("成员操作")} point={position} onClose={onDismiss}>
       <ContextMenuPanel>
         <button type="button" role="menuitem" disabled={!onMention} onClick={() => { onDismiss(); onMention?.(); }}>
-          <AtSign size={16} strokeWidth={1.9} />
+          <AtSign size={17} strokeWidth={2.1} />
           <span>@{senderName}</span>
         </button>
         <button type="button" role="menuitem" disabled={!onPrivateChat} onClick={() => { onDismiss(); onPrivateChat?.(); }}>
-          <MessageCircle size={16} strokeWidth={1.9} />
+          <MessageCircle size={17} strokeWidth={2.1} />
           <span>{translate("私聊")}</span>
         </button>
         <button type="button" role="menuitem" onClick={() => { onDismiss(); onSearch(); }}>
-          <Search size={16} strokeWidth={1.9} />
+          <Search size={17} strokeWidth={2.1} />
           <span>{translate("搜索 {{value0}} 的消息", { value0: senderName })}</span>
         </button>
       </ContextMenuPanel>
@@ -105,8 +105,6 @@ interface MessageActionMenuProps {
   onForward: () => void;
   forwardTargets: Chat[];
   onQuickForward: (target: Chat) => void;
-  onForwardAlbum?: () => void;
-  onQuickForwardAlbum?: (target: Chat) => void;
   onRepeat?: () => void;
   onDelete: () => void;
   onPin?: () => void;
@@ -114,7 +112,6 @@ interface MessageActionMenuProps {
   onPlayInWindow?: () => void;
   onDownload?: () => void;
   onCopy: () => void;
-  onSelect?: () => void;
   onDismiss: () => void;
   onClose: () => void;
   onReport?: () => void;
@@ -130,8 +127,6 @@ export function MessageActionMenu({
   onForward,
   forwardTargets,
   onQuickForward,
-  onForwardAlbum,
-  onQuickForwardAlbum,
   onRepeat,
   onDelete,
   onPin,
@@ -139,7 +134,6 @@ export function MessageActionMenu({
   onPlayInWindow,
   onDownload,
   onCopy,
-  onSelect,
   onDismiss,
   onClose,
   onReport,
@@ -149,7 +143,7 @@ export function MessageActionMenu({
   const permissionLabel = permissionStatus === "unavailable" ? translate("连接恢复后自动重试")
     : permissionStatus === "loading" ? translate("正在读取操作权限") : translate("无法读取操作权限");
   const menuRef = useRef<HTMLDivElement>(null);
-  const [expandedForwardAction, setExpandedForwardAction] = useState<"forward" | "merge-forward">();
+  const [expandedForwardAction, setExpandedForwardAction] = useState<"forward">();
   const quickForwardTargets = forwardTargets.slice(0, MAX_QUICK_FORWARD_TARGETS);
   const fallbackPosition = {
     left: Math.max(8, Math.min(position.left, window.innerWidth - 160 - 8)),
@@ -164,47 +158,30 @@ export function MessageActionMenu({
     icon: "message" as const,
     avatar: target.avatar,
   }));
-  const quickMergeForwardItems = quickForwardTargets.map((target) => ({
-    id: `quick-merge-forward:${encodeURIComponent(target.id)}`,
-    label: target.title,
-    icon: "message" as const,
-    avatar: target.avatar,
-  }));
   const nativeItems: NativeContextMenuItem[] = permissions ? [
     ...(permissions.canReply ? [{ id: "reply", label: translate("回复"), icon: "reply" as const }] : []),
     ...(permissions.canForward ? [{
       id: "forward",
       label: translate("转发"),
       icon: "forward" as const,
+      middleClickActionId: onRepeat ? "repeat" : undefined,
       actionable: true,
       children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
-    ...(permissions.canForward && onForwardAlbum ? [{
-      id: "merge-forward",
-      label: translate("合并转发"),
-      icon: "forward" as const,
-      actionable: true,
-      children: quickMergeForwardItems.length > 0 ? quickMergeForwardItems : undefined,
-    }] : []),
-    ...(permissions.canForward && onRepeat
-      ? [{ id: "repeat", label: translate("复读"), icon: "repeat" as const }]
-      : []),
     { id: "copy", label: translate("复制"), icon: "copy" },
-    ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(permissions.canEdit && isEditableMessageContent(message.content)
       ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const }]
       : []),
+    ...(!loading && message.isPinned ? (onUnpin ? [{ id: "unpin", label: translate("取消置顶"), icon: "pin" as const }] : [])
+      : !loading && onPin ? [{ id: "pin-message", label: translate("置顶"), icon: "pin" as const }] : []),
+    ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
     ...(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers
       ? [{ id: "delete", label: translate("删除"), icon: "trash" as const, danger: true }]
       : []),
-    ...(!loading && message.isPinned ? (onUnpin ? [{ id: "unpin", label: translate("取消置顶"), icon: "pin" as const }] : [])
-      : !loading && onPin ? [{ id: "pin-message", label: translate("置顶消息"), icon: "pin" as const }] : []),
-    ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
-    ...(onReport ? [{ id: "report", label: translate("举报"), icon: "trash" as const, danger: true }] : []),
+    ...(onReport ? [{ id: "report", label: translate("举报"), icon: "flag" as const, danger: true }] : []),
   ] : [
     { id: "copy", label: translate("复制"), icon: "copy" },
-    ...(onSelect ? [{ id: "select", label: translate("选择"), icon: "check" as const }] : []),
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
     {
@@ -213,7 +190,7 @@ export function MessageActionMenu({
       icon: permissionStatus === "loading" ? "loading" : "alert",
       status: true,
     },
-    ...(permissionStatus === "retryable" ? [{ id: "retry-permissions", label: translate("重试"), icon: "repeat" as const, keepOpen: true }] : []),
+    ...(permissionStatus === "retryable" ? [{ id: "retry-permissions", label: translate("重试"), icon: "retry" as const, keepOpen: true }] : []),
   ];
   const nativeMenu = useNativeContextMenu({
     label: translate("消息操作"),
@@ -224,19 +201,13 @@ export function MessageActionMenu({
     if (actionId === "retry-permissions") retryPermissions();
     else if (actionId === "reply") onReply();
     else if (actionId === "forward") onForward();
-    else if (actionId === "merge-forward") onForwardAlbum?.();
+    else if (actionId === "repeat") onRepeat?.();
     else if (actionId.startsWith("quick-forward:")) {
       const targetId = decodeURIComponent(actionId.slice("quick-forward:".length));
       const target = quickForwardTargets.find((candidate) => candidate.id === targetId);
       if (target) onQuickForward(target);
-    } else if (actionId.startsWith("quick-merge-forward:")) {
-      const targetId = decodeURIComponent(actionId.slice("quick-merge-forward:".length));
-      const target = quickForwardTargets.find((candidate) => candidate.id === targetId);
-      if (target) onQuickForwardAlbum?.(target);
     }
-    else if (actionId === "repeat") onRepeat?.();
     else if (actionId === "copy") onCopy();
-    else if (actionId === "select") onSelect?.();
     else if (actionId === "edit") onEdit();
     else if (actionId === "delete") onDelete();
     else if (actionId === "pin-message") onPin?.();
@@ -273,15 +244,9 @@ export function MessageActionMenu({
       {!permissions ? (
         <>
           <button key="copy" type="button" role="menuitem" onClick={onCopy}>
-            <Copy size={16} strokeWidth={1.9} />
+            <ClipboardCopy size={17} strokeWidth={2.1} />
             <span>{translate("复制")}</span>
           </button>
-          {onSelect && (
-            <button key="select" type="button" role="menuitem" onClick={onSelect}>
-              <Check size={16} strokeWidth={1.9} />
-              <span>{translate("选择")}</span>
-            </button>
-          )}
           {onDownload && (
             <button key="download" type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
@@ -294,7 +259,7 @@ export function MessageActionMenu({
           </div>
           {permissionStatus === "retryable" && (
             <button type="button" role="menuitem" onClick={retryPermissions}>
-              <Repeat2 size={16} />{translate("重试")}
+              <RefreshCw size={16} strokeWidth={2.1} />{translate("重试")}
             </button>
           )}
         </>
@@ -302,7 +267,7 @@ export function MessageActionMenu({
         <>
           {permissions.canReply && (
             <button type="button" role="menuitem" onClick={onReply}>
-              <Reply size={16} strokeWidth={1.9} />
+              <MessageCircleReply size={17} strokeWidth={2.1} />
               <span>{translate("回复")}</span>
             </button>
           )}
@@ -319,8 +284,13 @@ export function MessageActionMenu({
                 aria-haspopup="menu"
                 aria-expanded={expandedForwardAction === "forward"}
                 onClick={onForward}
+                onAuxClick={(event) => {
+                  if (event.button !== 1 || !onRepeat) return;
+                  event.preventDefault();
+                  onRepeat();
+                }}
               >
-                <Forward size={16} strokeWidth={1.9} />
+                <Forward size={17} strokeWidth={2.1} />
                 <span>{translate("转发")}</span>
                 <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
               </button>
@@ -336,98 +306,60 @@ export function MessageActionMenu({
               )}
             </div>
           ) : permissions.canForward ? (
-            <button type="button" role="menuitem" onClick={onForward}>
-              <Forward size={16} strokeWidth={1.9} />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onForward}
+              onAuxClick={(event) => {
+                if (event.button !== 1 || !onRepeat) return;
+                event.preventDefault();
+                onRepeat();
+              }}
+            >
+              <Forward size={17} strokeWidth={2.1} />
               <span>{translate("转发")}</span>
             </button>
           ) : null}
-          {permissions.canForward && onForwardAlbum && quickForwardTargets.length > 0 ? (
-            <div
-              className="message-action-menu-group"
-              onMouseEnter={() => setExpandedForwardAction("merge-forward")}
-              onMouseLeave={() => setExpandedForwardAction(undefined)}
-            >
-              <button
-                className="has-submenu"
-                type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                aria-expanded={expandedForwardAction === "merge-forward"}
-                onClick={onForwardAlbum}
-              >
-                <Forward size={16} strokeWidth={1.9} />
-                <span>{translate("合并转发")}</span>
-                <ChevronRight className="context-menu-chevron" size={15} strokeWidth={1.9} />
-              </button>
-              {expandedForwardAction === "merge-forward" && (
-                <div className="message-action-submenu" role="menu" aria-label={translate("快速合并转发")}>
-                  {quickForwardTargets.map((target) => (
-                    <button type="button" role="menuitem" key={target.id} onClick={() => onQuickForwardAlbum?.(target)}>
-                      <Avatar avatar={target.avatar} size="small" />
-                      <span>{target.title}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : permissions.canForward && onForwardAlbum ? (
-            <button type="button" role="menuitem" onClick={onForwardAlbum}>
-              <Forward size={16} strokeWidth={1.9} />
-              <span>{translate("合并转发")}</span>
-            </button>
-          ) : null}
-          {permissions.canForward && onRepeat && (
-            <button type="button" role="menuitem" onClick={onRepeat}>
-              <Repeat2 size={16} strokeWidth={1.9} />
-              <span>{translate("复读")}</span>
-            </button>
-          )}
           <button key="copy" type="button" role="menuitem" onClick={onCopy}>
-            <Copy size={16} strokeWidth={1.9} />
+            <ClipboardCopy size={17} strokeWidth={2.1} />
             <span>{translate("复制")}</span>
           </button>
-          {onSelect && (
-            <button key="select" type="button" role="menuitem" onClick={onSelect}>
-              <Check size={16} strokeWidth={1.9} />
-              <span>{translate("选择")}</span>
-            </button>
-          )}
           {onDownload && (
             <button key="download" type="button" role="menuitem" onClick={onDownload}>
-              <Download size={16} strokeWidth={1.9} />
+              <Download size={17} strokeWidth={2.1} />
               <span>{translate("下载")}</span>
             </button>
           )}
           {permissions.canEdit && isEditableMessageContent(message.content) && (
             <button type="button" role="menuitem" onClick={onEdit}>
-              <Edit3 size={16} strokeWidth={1.9} />
+              <Pencil size={17} strokeWidth={2.1} />
               <span>{translate("编辑")}</span>
-            </button>
-          )}
-          {(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers) && (
-            <button className="is-danger" type="button" role="menuitem" onClick={onDelete}>
-              <Trash2 size={16} strokeWidth={1.9} />
-              <span>{translate("删除")}</span>
             </button>
           )}
           {!loading && message.isPinned ? onUnpin && (
             <button type="button" role="menuitem" onClick={onUnpin}>
-              <PinOff size={16} strokeWidth={1.9} />
+              <PinOff size={17} strokeWidth={2.1} />
               <span>{translate("取消置顶")}</span>
             </button>
           ) : !loading && onPin && (
             <button type="button" role="menuitem" onClick={onPin}>
-              <Pin size={16} strokeWidth={1.9} />
-              <span>{translate("置顶消息")}</span>
+              <Pin size={17} strokeWidth={2.1} />
+              <span>{translate("置顶")}</span>
             </button>
           )}
           {onPlayInWindow && (
             <button type="button" role="menuitem" onClick={onPlayInWindow}>
-              <PictureInPicture2 size={16} strokeWidth={1.9} />
+              <PictureInPicture2 size={17} strokeWidth={2.1} />
               <span>{translate("以小窗播放")}</span>
             </button>
           )}
-          {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={16} strokeWidth={1.9} /><span>{translate("举报")}</span></button>}
+          {(permissions.canDeleteOnlyForSelf || permissions.canDeleteForAllUsers) && (
+            <button className="is-danger" type="button" role="menuitem" onClick={onDelete}>
+              <Trash2 size={17} strokeWidth={2.1} />
+              <span>{translate("删除")}</span>
+            </button>
+          )}
+          {onReport && <button className="is-danger" type="button" role="menuitem" onClick={onReport}><Flag size={17} strokeWidth={2.1} /><span>{translate("举报")}</span></button>}
         </>
       )}
     </div>
