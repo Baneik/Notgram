@@ -70,4 +70,18 @@ describe("conversation activity", () => {
     expect(quickForwardChatsAt(chats, "account-a", records).map(({ id }) => id))
       .toEqual(Array.from({ length: 10 }, (_, index) => `group-${index}`));
   });
+
+  it("keeps Saved Messages first in the quick forwarding submenu", () => {
+    const chats = [
+      chat("group", "2026-08-01T10:00:00Z", "group"),
+      chat("saved", "2026-08-01T09:00:00Z", "saved"),
+    ];
+    const records = [{
+      accountId: "account-a", chatId: "group", sentMessageCount: 10,
+      activeDurationMs: 0, updatedAt: "2026-08-22T10:00:00Z",
+    }];
+
+    expect(quickForwardChatsAt(chats, "account-a", records).map(({ id }) => id))
+      .toEqual(["saved", "group"]);
+  });
 });

@@ -26,6 +26,8 @@ export type AuthorizationState =
 export interface Avatar {
   label: string;
   color: string;
+  /** Built-in avatar treatment for chats without a user-provided photo. */
+  icon?: "saved";
   imagePath?: string;
   fileId?: number;
   canDownload?: boolean;

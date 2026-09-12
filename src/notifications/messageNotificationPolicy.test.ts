@@ -25,6 +25,10 @@ describe("message notification policy", () => {
     expect(shouldNotifyMessage(incomingMessage)).toBe(true);
   });
 
+  it("never notifies messages received in Saved Messages", () => {
+    expect(shouldNotifyMessage({ ...incomingMessage, chatKind: "saved" })).toBe(false);
+  });
+
   it("suppresses outgoing, globally disabled, explicitly muted, and visible active messages", () => {
     expect(shouldNotifyMessage({ ...incomingMessage, outgoing: true })).toBe(false);
     expect(shouldNotifyMessage({

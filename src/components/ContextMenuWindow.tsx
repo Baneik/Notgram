@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
   AlertCircle,
+  Bookmark,
   LoaderCircle,
   AtSign,
   Check,
@@ -304,7 +305,7 @@ export function ContextMenuWindow() {
                     style={{ backgroundColor: item.avatar.color }}
                     aria-hidden="true"
                   >
-                    <span>{item.avatar.label}</span>
+                    {item.avatar.icon === "saved" ? <Bookmark className="avatar-icon" size="42%" strokeWidth={2.2} fill="currentColor" /> : <span>{item.avatar.label}</span>}
                     {avatarSource && <StableImage src={avatarSource} alt="" />}
                   </span>
                 ) : item.checked ? (
@@ -355,7 +356,7 @@ export function ContextMenuWindow() {
                     style={{ backgroundColor: child.avatar.color }}
                     aria-hidden="true"
                   >
-                    <span>{child.avatar.label}</span>
+                    {child.avatar.icon === "saved" ? <Bookmark className="avatar-icon" size="42%" strokeWidth={2.2} fill="currentColor" /> : <span>{child.avatar.label}</span>}
                     {childAvatarSource && <StableImage src={childAvatarSource} alt="" />}
                   </span>
                 ) : child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}

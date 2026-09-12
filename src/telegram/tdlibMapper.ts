@@ -2034,7 +2034,8 @@ export const mapTdChat = (
     title: kind === "saved" ? translate("收藏夹") : title,
     avatar: {
       label: kind === "saved" ? translate("我") : initials(title),
-      color: colorFor(id),
+      color: kind === "saved" ? "#3390ec" : colorFor(id),
+      ...(kind === "saved" ? { icon: "saved" as const } : {}),
       ...avatarFile(asTdObject(raw.photo)?.small),
     },
     peerId,

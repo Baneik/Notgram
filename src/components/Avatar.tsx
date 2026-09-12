@@ -1,4 +1,5 @@
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { Bookmark } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Avatar as AvatarModel } from "../telegram/types";
 import { useVisibleFile } from "../hooks/useVisibleFile";
@@ -38,7 +39,7 @@ export function Avatar({ avatar, size = "medium", active = true, preload = false
       style={{ backgroundColor: avatar.color }}
       aria-hidden="true"
     >
-      <span>{avatar.label}</span>
+      {avatar.icon === "saved" ? <Bookmark className="avatar-icon" size="42%" strokeWidth={2.2} fill="currentColor" /> : <span>{avatar.label}</span>}
       {imageSource && imageSource !== failedSource && (
         <StableImage
           key={imageSource}

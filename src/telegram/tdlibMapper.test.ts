@@ -456,6 +456,7 @@ describe("TDLib mapper", () => {
       id: "99",
       kind: "saved",
       title: "收藏夹",
+      avatar: { color: "#3390ec", icon: "saved" },
       preview: "hello",
       previewSenderId: "7",
       unreadCount: 2,

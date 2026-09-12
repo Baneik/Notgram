@@ -1,5 +1,5 @@
 import { translate } from "../i18n";
-import type { Message } from "../telegram/types";
+import type { ChatKind, Message } from "../telegram/types";
 
 export const isMessageStreaming = (message: Pick<Message, "isPending" | "content">) =>
   message.isPending === true || (
@@ -36,6 +36,7 @@ export class MessageNotificationStreamTracker {
 }
 
 export interface MessageNotificationContext {
+  chatKind?: ChatKind;
   outgoing: boolean;
   notificationsEnabled: boolean;
   muted: boolean;
@@ -90,6 +91,7 @@ const predatesNotificationSession = (sentAt?: string, notBeforeMs?: number) => {
 };
 
 export const shouldNotifyMessage = ({
+  chatKind,
   outgoing,
   notificationsEnabled,
   muted,
@@ -102,6 +104,7 @@ export const shouldNotifyMessage = ({
   streaming,
 }: MessageNotificationContext) =>
   notificationsEnabled &&
+  chatKind !== "saved" &&
   !outgoing &&
   !streaming &&
   !muted &&

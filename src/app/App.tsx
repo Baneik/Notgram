@@ -433,6 +433,7 @@ export function App() {
         )
       ) return;
       if (!shouldNotifyMessage({
+        chatKind: chat?.kind,
         outgoing: message.outgoing,
         notificationsEnabled: preferences.notificationsEnabled,
         muted: isMessageConversationMuted({

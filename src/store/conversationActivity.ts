@@ -106,9 +106,15 @@ export const quickForwardChatsAt = (
   chats: Iterable<Chat>,
   accountId: string,
   records: readonly ConversationActivityRecord[],
-) => sortChatsByConversationActivity(chats, accountId, records)
-  .filter((chat) => chat.kind === "group")
-  .slice(0, MAX_QUICK_FORWARD_TARGETS);
+) => {
+  const ordered = sortChatsByConversationActivity(chats, accountId, records);
+  const saved = ordered.find((chat) => chat.kind === "saved");
+  const groups = ordered.filter((chat) => chat.kind === "group");
+  return [
+    ...(saved ? [saved] : []),
+    ...groups,
+  ].slice(0, MAX_QUICK_FORWARD_TARGETS);
+};
 
 export const conversationActivityStore = createStore<ConversationActivityState>((set, get) => ({
   records: readRecords(),

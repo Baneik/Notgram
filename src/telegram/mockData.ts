@@ -150,7 +150,7 @@ const chats: Chat[] = [
     kind: "saved",
     folderIds: ["main"],
     title: "收藏夹",
-    avatar: { label: "我", color: "#d16f45" },
+    avatar: { label: "我", color: "#3390ec", icon: "saved" },
     preview: "TDLib integration notes.md",
     previewSenderId: "self",
     updatedAt: "2026-08-01T08:15:00+08:00",
