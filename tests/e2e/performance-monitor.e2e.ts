@@ -54,14 +54,14 @@ test("the settings window synchronizes monitoring with existing and newly opened
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const settings = await context.newPage();
-  await settings.goto("/settings-window.html");
+  await settings.goto("/windows/settings-window.html");
   await settings.getByRole("button", { name: "性能监控", exact: true }).click();
   const toggle = settings.getByRole("switch", { name: "性能监控", exact: true });
   await toggle.click();
   await expect.poll(() => enabledIn(page)).toBe(false);
   await settings.close();
   const reopened = await context.newPage();
-  await reopened.goto("/settings-window.html");
+  await reopened.goto("/windows/settings-window.html");
   await reopened.getByRole("button", { name: "性能监控", exact: true }).click();
   const reopenedToggle = reopened.getByRole("switch", { name: "性能监控", exact: true });
   await expect(reopenedToggle).not.toBeChecked();

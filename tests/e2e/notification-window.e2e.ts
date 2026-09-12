@@ -39,7 +39,7 @@ const injectNotifications = async (
 
 test("desktop notifications stack, animate, and keep controls within the window", async ({ page }) => {
   await page.setViewportSize({ width: 380, height: 440 });
-  await page.goto("/notification-window.html");
+  await page.goto("/windows/notification-window.html");
   await expect(page.getByRole("region", { name: "桌面通知" })).toBeVisible();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await injectNotifications(page);
@@ -98,7 +98,7 @@ test("desktop notifications stack, animate, and keep controls within the window"
 
 test("desktop notifications honor reduced motion", async ({ page }) => {
   await page.setViewportSize({ width: 380, height: 440 });
-  await page.goto("/notification-window.html");
+  await page.goto("/windows/notification-window.html");
   await expect(page.getByRole("region", { name: "桌面通知" })).toBeVisible();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await injectNotifications(page, { reduceMotion: true });
@@ -110,7 +110,7 @@ test("desktop notifications honor reduced motion", async ({ page }) => {
 test("a conversation notification reuses its card and expires ten seconds after the latest message", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-08-19T03:00:00.000Z") });
   await page.setViewportSize({ width: 380, height: 220 });
-  await page.goto("/notification-window.html");
+  await page.goto("/windows/notification-window.html");
   await expect(page.getByRole("region", { name: "桌面通知" })).toBeVisible();
 
   const replaceConversationNotification = async (revision: number, body: string) => {

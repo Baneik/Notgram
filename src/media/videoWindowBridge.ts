@@ -49,7 +49,7 @@ export const createVideoWindowId = () => {
 };
 
 export const videoWindowRoute = (id: string) => (
-  `/video-window.html?id=${encodeURIComponent(id)}`
+  `/windows/video-window.html?id=${encodeURIComponent(id)}`
 );
 
 export const videoWindowSize = (width: number, height: number) => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { videoWindowRoute, videoWindowSize } from "./videoWindowBridge";
 
 it("routes browser playback to the isolated video entry", () => {
-  expect(videoWindowRoute("video 1")).toBe("/video-window.html?id=video%201");
+  expect(videoWindowRoute("video 1")).toBe("/windows/video-window.html?id=video%201");
 });
 
 describe("video playback window sizing", () => {

@@ -552,7 +552,7 @@ test("settings isolate wheel input from the covered conversation list", async ({
 test("standalone settings update the still-interactive main window", async ({ page, context }) => {
   await page.goto("/");
   const settings = await context.newPage();
-  await settings.goto("/settings-window.html");
+  await settings.goto("/windows/settings-window.html");
   await expect(settings.locator(".settings-window-shell")).toBeVisible();
   await expect(settings.locator(".app-shell")).toHaveCount(0);
   await expect(settings.locator(".window-chrome")).toBeVisible();
@@ -579,7 +579,7 @@ test("standalone settings update the still-interactive main window", async ({ pa
 });
 
 test("account settings only show and edit the current profile", async ({ page }) => {
-  await page.goto("/settings-window.html");
+  await page.goto("/windows/settings-window.html");
   const accountCategory = page.getByRole("button", { name: "我的账号", exact: true });
   await expect(accountCategory).toHaveText("我的账号");
   await expect(accountCategory.locator("small")).toHaveCount(0);
@@ -10450,7 +10450,7 @@ test("native context menu rows fill a consistently rounded popup frame", async (
 });
 
 test("native context menu entry reuses its mounted surface across sessions", async ({ page }) => {
-  await page.goto("/context-menu-window.html");
+  await page.goto("/windows/context-menu-window.html");
   const postMenu = (id: string, label: string) => page.evaluate(async ({ id, label }) => {
     const channel = new BroadcastChannel("notgram-context-menu-v2");
     channel.postMessage({
@@ -10480,7 +10480,7 @@ test("native context menu entry reuses its mounted surface across sessions", asy
 });
 
 test("native context menu does not paint initial focus as a permanent hover", async ({ page }) => {
-  await page.goto("/context-menu-window.html");
+  await page.goto("/windows/context-menu-window.html");
   await page.evaluate(async () => {
     const channel = new BroadcastChannel("notgram-context-menu-v2");
     channel.postMessage({
@@ -10519,7 +10519,7 @@ test("native context menu does not paint initial focus as a permanent hover", as
 });
 
 test("native context menu entry renders account avatars and the trailing add action", async ({ page }) => {
-  await page.goto("/context-menu-window.html");
+  await page.goto("/windows/context-menu-window.html");
   await page.evaluate(async () => {
     const channel = new BroadcastChannel("notgram-context-menu-v2");
     channel.postMessage({
@@ -10560,7 +10560,7 @@ test("native context menu entry renders account avatars and the trailing add act
 });
 
 test("native forwarding submenu shows avatars and scrolls after five visible rows", async ({ page }) => {
-  await page.goto("/context-menu-window.html");
+  await page.goto("/windows/context-menu-window.html");
   await page.evaluate(async () => {
     const channel = new BroadcastChannel("notgram-context-menu-v2");
     channel.postMessage({

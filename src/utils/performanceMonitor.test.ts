@@ -79,12 +79,12 @@ describe("performance monitor", () => {
   });
 
   it("distinguishes every webview entry route", () => {
-    expect(performanceWindowKind("?id=preview-1", "/video-window.html")).toBe(2);
+    expect(performanceWindowKind("?id=preview-1", "/windows/video-window.html")).toBe(2);
     expect(performanceWindowKind("?videoWindow=preview-1", "/")).toBe(2);
-    expect(performanceWindowKind("", "/settings-window.html")).toBe(3);
-    expect(performanceWindowKind("?id=preview-1", "/media-viewer-window.html")).toBe(4);
-    expect(performanceWindowKind("", "/context-menu-window.html")).toBe(5);
-    expect(performanceWindowKind("", "/notification-window.html")).toBe(6);
+    expect(performanceWindowKind("", "/windows/settings-window.html")).toBe(3);
+    expect(performanceWindowKind("?id=preview-1", "/windows/media-viewer-window.html")).toBe(4);
+    expect(performanceWindowKind("", "/windows/context-menu-window.html")).toBe(5);
+    expect(performanceWindowKind("", "/windows/notification-window.html")).toBe(6);
     expect(performanceWindowKind("", "/")).toBe(1);
   });
 

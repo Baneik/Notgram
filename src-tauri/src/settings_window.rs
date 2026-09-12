@@ -11,7 +11,7 @@ pub async fn notgram_open_settings_window(app: AppHandle) -> Result<(), String> 
         return Ok(());
     }
 
-    let url = WebviewUrl::App("settings-window.html".into());
+    let url = WebviewUrl::App("windows/settings-window.html".into());
     let mut builder = WebviewWindowBuilder::new(&app, "settings", url)
         .data_directory(crate::distribution::webview_data_directory(&app)?)
         .title("")

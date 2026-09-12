@@ -32,11 +32,11 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: {
         input: {
           main: htmlEntry("./index.html"),
-          settingsWindow: htmlEntry("./settings-window.html"),
-          videoWindow: htmlEntry("./video-window.html"),
-          mediaViewerWindow: htmlEntry("./media-viewer-window.html"),
-          contextMenuWindow: htmlEntry("./context-menu-window.html"),
-          notificationWindow: htmlEntry("./notification-window.html"),
+          settingsWindow: htmlEntry("./windows/settings-window.html"),
+          videoWindow: htmlEntry("./windows/video-window.html"),
+          mediaViewerWindow: htmlEntry("./windows/media-viewer-window.html"),
+          contextMenuWindow: htmlEntry("./windows/context-menu-window.html"),
+          notificationWindow: htmlEntry("./windows/notification-window.html"),
         },
       },
     },

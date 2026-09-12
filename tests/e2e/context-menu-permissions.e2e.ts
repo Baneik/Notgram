@@ -48,7 +48,7 @@ const setConnection = (page: Page, connectionStatus: "offline" | "online" | "syn
 
 const nativeMenu = async (page: Page) => {
   const child = await page.context().newPage();
-  await child.route("**/context-menu-window.html", async route => {
+  await child.route("**/windows/context-menu-window.html", async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: (await response.text()).replace(
       '<script type="module" src="/src/windows/contextMenuWindowEntry.tsx"></script>', `<script type="module">
@@ -61,7 +61,7 @@ const nativeMenu = async (page: Page) => {
       await import("/src/windows/contextMenuWindowEntry.tsx");
     </script>`) });
   });
-  await child.goto("/context-menu-window.html");
+  await child.goto("/windows/context-menu-window.html");
   await expect(child.locator("html")).toHaveClass(/context-menu-window-page/);
   await page.evaluate(async () => {
     const { mockIPC, mockWindows, mockConvertFileSrc } = await import("/node_modules/@tauri-apps/api/mocks.js" as string) as typeof import("@tauri-apps/api/mocks");

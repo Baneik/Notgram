@@ -278,7 +278,7 @@ fn notification_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     WebviewWindowBuilder::new(
         app,
         NOTIFICATION_WINDOW_LABEL,
-        WebviewUrl::App("notification-window.html".into()),
+        WebviewUrl::App("windows/notification-window.html".into()),
     )
     .data_directory(crate::distribution::webview_data_directory(app)?)
     .title("Notgram")

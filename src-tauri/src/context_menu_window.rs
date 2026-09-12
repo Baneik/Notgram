@@ -68,7 +68,7 @@ fn context_menu_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     WebviewWindowBuilder::new(
         app,
         CONTEXT_MENU_WINDOW_LABEL,
-        WebviewUrl::App("context-menu-window.html".into()),
+        WebviewUrl::App("windows/context-menu-window.html".into()),
     )
     .data_directory(crate::distribution::webview_data_directory(app)?)
     .title("Notgram")
