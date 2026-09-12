@@ -102,8 +102,11 @@ Virtual rows contain their sender/day margins, and top spacing belongs to a meas
 responsive breakpoint. Preserve fractional item dimensions instead of rounding each row: independent
 rounding accumulates into a different endpoint than the DOM. The 12px Footer is scrollable content;
 only the final 1px rounding tolerance at the raw scroll maximum may absorb downward wheel input.
-Distant latest navigation approaches that endpoint under one animation owner, without first issuing
-a competing index jump to the endpoint and then backing away to play a finishing animation.
+Latest navigation approaches that endpoint under one application-owned animation or reconciliation
+pass. If the final row is already mounted, the application skips Virtuoso's `LAST/end` command because
+that command measures against the row while the application endpoint includes the Footer. An index
+command is used only when it must mount an unrendered tail; the bounded bottom coordinator then owns
+the final raw maximum correction.
 
 Middle-button autoscroll outlives pointerup and the short wheel/key input timeout. Both row observers
 and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input

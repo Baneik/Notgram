@@ -1063,15 +1063,27 @@ export const useConversationScroll = ({
       }
     } else {
       smoothScrollUntilRef.current = 0;
-      if (needsConvergence) {
+      const latestRowMounted = Boolean(
+        lastVisibleMessageIdRef.current && element.querySelector(
+          `[data-message-id="${CSS.escape(lastVisibleMessageIdRef.current)}"]`,
+        ),
+      );
+      // LAST/end aligns the final message, while the application bottom also
+      // includes the scrollable footer sentinel. Once the final row is already
+      // mounted, issuing both commands gives Virtuoso a chance to pull the
+      // viewport back to its visual endpoint after we pin the raw maximum.
+      // Let the bottom coordinator own that case. Virtuoso is only needed to
+      // bring an unmounted tail into the DOM.
+      const needsVirtuosoPositioning = needsConvergence && !latestRowMounted;
+      if (needsVirtuosoPositioning) {
         traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
           index: "LAST",
           align: "end",
           behavior: "auto",
         });
       }
-      if (!alreadyAtVisualBottom) pinToBottom();
-      if (needsConvergence || options?.onSettled) {
+      if (!alreadyAtVisualBottom && !needsVirtuosoPositioning) pinToBottom();
+      if (needsVirtuosoPositioning || !alreadyAtVisualBottom || options?.onSettled) {
         if (alreadyAtVisualBottom) {
           options?.onSettled?.();
           return;
