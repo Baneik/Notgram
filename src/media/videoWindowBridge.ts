@@ -107,6 +107,7 @@ interface VideoPreviewSession {
   channel: BroadcastChannel;
   descriptor: VideoWindowDescriptor;
   initializationTimer?: ReturnType<typeof globalThis.setTimeout>;
+  onClosed?: () => void;
 }
 
 const VIDEO_PREVIEW_INITIALIZATION_TIMEOUT_MS = 8_000;
@@ -135,7 +136,7 @@ export const closeVideoPreviewWindow = (id: string) => {
   disposeVideoPreviewSession(session, true);
 };
 
-export const openVideoPreviewWindow = async (input: VideoPreviewWindowInput) => {
+export const openVideoPreviewWindow = async (input: VideoPreviewWindowInput, onClosed?: () => void) => {
   if (activeVideoPreviewSession) disposeVideoPreviewSession(activeVideoPreviewSession, true);
 
   const id = createVideoWindowId();
@@ -159,7 +160,7 @@ export const openVideoPreviewWindow = async (input: VideoPreviewWindowInput) => 
     colorTheme: input.colorTheme,
   };
   const channel = new BroadcastChannel(VIDEO_WINDOW_CHANNEL);
-  const session: VideoPreviewSession = { id, channel, descriptor };
+  const session: VideoPreviewSession = { id, channel, descriptor, onClosed };
   activeVideoPreviewSession = session;
   let resolveInitialized: (() => void) | undefined;
   const initialized = new Promise<void>((resolve) => {
@@ -174,6 +175,7 @@ export const openVideoPreviewWindow = async (input: VideoPreviewWindowInput) => 
       resolveInitialized?.();
       resolveInitialized = undefined;
     } else if (message.type === "closed") {
+      session.onClosed?.();
       disposeVideoPreviewSession(session, false);
     }
   };

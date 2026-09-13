@@ -94,6 +94,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
+import { captureActiveComposerFocus, focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import { ReportDialog } from "./ReportDialog";
 import { photoMessages, photoThumbnailWindow } from "../utils/mediaViewerModel";
 import {
@@ -798,9 +799,9 @@ export function Conversation({
     }
     return [...messageIds];
   }, [attentionMessageIds, pinnedViewOpen, renderedMessages]);
-  const focusComposer = useCallback(() => {
-    globalThis.setTimeout(() => composerInputRef.current?.focus(), 0);
-  }, []);
+  const composerFocus = useComposerFocus(composerInputRef, `${activeAccountId}:${conversationIdentity}`,
+    !mobileViewHidden && !pinnedViewOpen && !discussionPost);
+  const focusComposer = composerFocus.request;
 
   const projectionIdentity = `${activeAccountId}:${conversationIdentity}:${pinnedViewOpen}`;
   const committedProjection = useRef<{ identity: string; blocks: VirtualMessageBlock[] } | undefined>(undefined);
@@ -863,13 +864,12 @@ export function Conversation({
     for (const fileId of thumbnailFileIds) {
       void cacheFile(fileId, 32).catch(() => undefined);
     }
+    const restoreFocus = captureActiveComposerFocus(true);
     void openMediaViewerWindow({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
-    }, onDownloadFile, onSaveFileToDownloads, () => {
-      globalThis.setTimeout(() => composerInputRef.current?.focus({ preventScroll: true }), 0);
-    });
+    }, onDownloadFile, onSaveFileToDownloads, restoreFocus);
     if (
       activeContent.fileId !== undefined &&
       activeContent.canDownload !== false &&
@@ -928,7 +928,7 @@ export function Conversation({
 
   const closeChatMenu = useCallback((restoreFocus = true) => {
     setChatMenuOpen(false);
-    if (restoreFocus) globalThis.setTimeout(() => chatMenuButtonRef.current?.focus(), 0);
+    if (restoreFocus) globalThis.setTimeout(() => chatMenuButtonRef.current?.focus({ preventScroll: true }), 0);
   }, []);
 
   useEffect(() => {
@@ -1765,16 +1765,8 @@ export function Conversation({
       historyLoading ||
       selectionMode
     ) return;
-    const selection = globalThis.getSelection();
-    if (selection && !selection.isCollapsed) return;
-    const active = document.activeElement;
-    if (active === composerInputRef.current) return;
-    const activeChatRow = active instanceof Element && Boolean(active.closest(".chat-row"));
-    if (active && active !== document.body && active !== document.documentElement &&
-      active !== composerInputRef.current &&
-      (!activeChatRow || window.matchMedia("(forced-colors: active)").matches)) return;
-    composerInputRef.current?.focus({ preventScroll: true });
-  }, [conversationIdentity, historyLoading, pinnedViewOpen, positioning, selectionMode]);
+    composerFocus.request({ reason: "entry" });
+  }, [composerFocus, conversationIdentity, historyLoading, pinnedViewOpen, positioning, selectionMode, discussionPost]);
 
   useLayoutEffect(() => {
     const anchor = pinnedReturnAnchorRef.current;
@@ -1843,7 +1835,7 @@ export function Conversation({
     const returnFocus = actionMenu?.returnFocus;
     setActionMenu(undefined);
     if (restoreFocus && returnFocus?.isConnected) {
-      globalThis.setTimeout(() => returnFocus.focus(), 0);
+      globalThis.setTimeout(() => returnFocus.focus({ preventScroll: true }), 0);
     }
   }, [actionMenu]);
 
@@ -2144,7 +2136,6 @@ export function Conversation({
 
   const cancelEditing = () => {
     setEditingMessage(undefined);
-    focusComposer();
   };
 
   const cancelReply = () => {
@@ -2154,7 +2145,6 @@ export function Conversation({
     if (currentDraft?.replyToMessageId) {
       onDraftChange(chat.id, currentDraft.text, undefined, undefined);
     }
-    focusComposer();
   };
 
   const startReply = (message: Message, selectedReplyQuote?: MessageReplyQuote) => {
@@ -2285,23 +2275,18 @@ export function Conversation({
   return (
     <section
       ref={conversationRef}
+      data-composer-scope={conversationIdentity}
       className={`conversation ${isChannelConversation ? "is-channel-conversation" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       aria-hidden={mobileViewHidden ? true : undefined}
       inert={mobileViewHidden ? true : undefined}
       onPointerUp={(event) => {
-        if (event.button !== 0 || selectionMode || pinnedViewOpen) return;
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (target.closest("button, a, input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
-        const selection = globalThis.getSelection();
-        if (selection && !selection.isCollapsed) return;
-        composerInputRef.current?.focus({ preventScroll: true });
+        if (!selectionMode && !pinnedViewOpen && !discussionPost) focusComposerFromPointer(event, composerFocus);
       }}
       aria-label={translate("{{value0}} 对话", {
         value0: topic ? translate("{{value0}} 话题", { value0: topic.name }) : chat.title,
       })}
     >
-      <header inert={presentationBlocked} className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
+      <header inert={presentationBlocked || Boolean(discussionPost)} className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
           <>
             <button
@@ -2455,7 +2440,7 @@ export function Conversation({
         />
       )}
 
-      <div inert={presentationBlocked} className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
+      <div inert={presentationBlocked || Boolean(discussionPost)} className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
         {pinnedBannerVisible && (
           <PinnedMessageBanner
             messages={allPinnedMessages}
@@ -3205,6 +3190,8 @@ export function Conversation({
         onTextInsertionApplied={consumeComposerTextInsertion}
         onGeometryChange={reconcileBottomViewport}
         inputRef={composerInputRef}
+        focus={composerFocus}
+        inert={Boolean(discussionPost)}
         connectionStatus={connectionStatus}
         queuedMessageCount={queuedMessageCount}
         failedQueuedMessageCount={failedQueuedMessageCount}

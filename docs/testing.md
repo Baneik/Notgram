@@ -43,6 +43,10 @@ check so a blank page cannot satisfy them. Wait for initial history to settle
 before injecting message fixtures or sending global shortcuts; trace recording
 must not be used as an implicit wait for startup.
 
+Editor and modal focus ownership follows [the focus contract](focus-management.md).
+Its dedicated regression cases live in `focus.e2e.ts`; integration assertions also
+cover composer actions, nested dialogs, and media preview returns.
+
 ## Failure evidence and diagnostics
 
 Local runs keep screenshots on failure and do not record traces by default.

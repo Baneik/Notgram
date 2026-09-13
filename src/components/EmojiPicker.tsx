@@ -30,6 +30,7 @@ interface EmojiPickerProps {
   onAssetSent: () => void;
   onClose: () => void;
   onRequestComposerFocus: () => void;
+  onCaptureComposerFocus: () => () => void;
   onPointerEnter?: PointerEventHandler<HTMLElement>;
   onPointerLeave?: PointerEventHandler<HTMLElement>;
 }
@@ -114,6 +115,7 @@ export function EmojiPicker({
   onAssetSent,
   onClose,
   onRequestComposerFocus,
+  onCaptureComposerFocus,
   onPointerEnter,
   onPointerLeave,
 }: EmojiPickerProps) {
@@ -239,6 +241,7 @@ export function EmojiPicker({
 
   const sendAsset = useCallback(async (asset: EmojiPickerAsset) => {
     if (sendingAssetId) return;
+    const restoreFocus = onCaptureComposerFocus();
     setSendingAssetId(asset.id);
     const sent = asset.kind === "animation"
       ? await sendAnimation(asset, replyToMessageId, replyQuote, chatId, disableNotification)
@@ -247,9 +250,9 @@ export function EmojiPicker({
     if (sent) {
       onClose();
       onAssetSent();
-      onRequestComposerFocus();
+      restoreFocus();
     }
-  }, [chatId, disableNotification, onAssetSent, onClose, onRequestComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+  }, [chatId, disableNotification, onAssetSent, onClose, onCaptureComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
 
   const closeAndRestoreComposerFocus = () => {
     onClose();

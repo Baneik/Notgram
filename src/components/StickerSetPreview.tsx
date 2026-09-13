@@ -11,10 +11,11 @@ import { EmojiAssetVisual } from "./EmojiAssetVisual";
 interface StickerSetPreviewProps {
   stickerSetId: string;
   onClose: () => void;
+  onRestoreFocus?: () => void;
 }
 
-export function StickerSetPreview({ stickerSetId, onClose }: StickerSetPreviewProps) {
-  const dialogRef = useModalFocus<HTMLElement>(onClose);
+export function StickerSetPreview({ stickerSetId, onClose, onRestoreFocus }: StickerSetPreviewProps) {
+  const dialogRef = useModalFocus<HTMLElement>(onClose, false, undefined, false, onRestoreFocus);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
   const emojiRevision = useTelegramStore((state) => state.emojiRevision);
   const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);

@@ -17,6 +17,7 @@ import {
 import { flushSync } from "react-dom";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
+import { rememberActiveComposerFocus } from "../hooks/useComposerFocus";
 import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
@@ -354,6 +355,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
   const [stickerSetPreviewId, setStickerSetPreviewId] = useState<string>();
+  const stickerReturnFocus = useRef<(() => void) | undefined>(undefined);
+  const openStickerSetPreview = useCallback((id: string) => {
+    stickerReturnFocus.current = rememberActiveComposerFocus();
+    setStickerSetPreviewId(id);
+  }, []);
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
     readManagedDownloadRequests,
   );
@@ -1284,7 +1290,7 @@ export function App() {
     const openTelegramLink = (event: Event) => {
       const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
       if (detail && "kind" in detail && detail.kind === "stickerSet") {
-        setStickerSetPreviewId(detail.stickerSet.id);
+        openStickerSetPreview(detail.stickerSet.id);
         return;
       }
       if (detail && isTelegramBotStartLink(detail)) {
@@ -1319,7 +1325,7 @@ export function App() {
     };
     globalThis.addEventListener("notgram:telegram-link-opened", openTelegramLink);
     return () => globalThis.removeEventListener("notgram:telegram-link-opened", openTelegramLink);
-  }, [executeBotStart, loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage]);
+  }, [executeBotStart, loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage, openStickerSetPreview]);
 
   const openProfilePrivateChat = useCallback(async (userId: string) => {
     const chatId = await startPrivateChat(userId);
@@ -1745,7 +1751,7 @@ export function App() {
   return (
     <>
       <main
-        inert={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId)}
+        inert={accountSwitching}
         aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
@@ -2067,7 +2073,7 @@ export function App() {
           }}
           onOpenMention={openMentionProfile}
           onSearchHashtag={searchActiveChatHashtag}
-          onOpenStickerSet={setStickerSetPreviewId}
+          onOpenStickerSet={openStickerSetPreview}
           onStartPrivateChat={(senderId) => { void openProfilePrivateChat(senderId); }}
           onSetChatPinned={(pinned) => activeChatId
             ? setChatPinned(
@@ -2138,11 +2144,9 @@ export function App() {
       <MotionPresence present={Boolean(stickerSetPreviewId)}>
         {stickerSetPreviewId ? <StickerSetPreview
           stickerSetId={stickerSetPreviewId}
+          onRestoreFocus={stickerReturnFocus.current}
           onClose={() => {
             setStickerSetPreviewId(undefined);
-            globalThis.setTimeout(() => {
-              document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus({ preventScroll: true });
-            }, 0);
           }}
         /> : null}
       </MotionPresence>

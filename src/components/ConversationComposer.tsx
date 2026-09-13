@@ -26,6 +26,7 @@ import {
   type RefObject,
 } from "react";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
+import type { ComposerFocus } from "../hooks/useComposerFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import {
   canPreviewOutgoingAttachment,
@@ -90,6 +91,8 @@ interface ConversationComposerProps {
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
+  focus: ComposerFocus;
+  inert?: boolean;
   connectionStatus: ConnectionStatus;
   queuedMessageCount: number;
   failedQueuedMessageCount: number;
@@ -155,6 +158,8 @@ const pendingAttachmentFrom = (attachment: OutgoingAttachment): PendingAttachmen
 const ignoreViewerFileAction = async () => undefined;
 
 export const ConversationComposer = memo(function ConversationComposer({
+  focus,
+  inert = false,
   chatId,
   draftKey = chatId,
   editingMessage,
@@ -191,6 +196,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onSendBotStart,
   enableSilentSending = false,
 }: ConversationComposerProps) {
+  const focusComposer = focus.request;
   useTranslation();
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(draftKey));
@@ -321,9 +327,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         messages: photoPreviewMessages,
         activeMessageId: pending.id,
         colorTheme,
-      }, ignoreViewerFileAction, ignoreViewerFileAction, () => {
-        globalThis.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
-      }).then((id) => {
+      }, ignoreViewerFileAction, ignoreViewerFileAction, focus.capture(true)).then((id) => {
         if (!id) return;
         const stillStaged = generation === attachmentPreviewGenerationRef.current &&
           pendingAttachmentDraftKeyRef.current === draftKey &&
@@ -345,7 +349,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         height: attachment.height,
         duration: attachment.duration,
         colorTheme,
-      }).then((id) => {
+      }, focus.capture(true)).then((id) => {
         if (!id) return;
         const stillStaged = generation === attachmentPreviewGenerationRef.current &&
           pendingAttachmentDraftKeyRef.current === draftKey &&
@@ -362,7 +366,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         };
       });
     }
-  }, [closeAttachmentPreviewSession, colorTheme, draftKey, inputRef, photoPreviewMessages]);
+  }, [closeAttachmentPreviewSession, colorTheme, draftKey, focus, photoPreviewMessages]);
 
   pendingAttachmentsRef.current = pendingAttachments;
   attachmentModeRef.current = attachmentMode;
@@ -463,10 +467,6 @@ export const ConversationComposer = memo(function ConversationComposer({
     previousComposerContextKeyRef.current = composerContextKey;
     onGeometryChange?.();
   }, [composerContextKey, onGeometryChange]);
-
-  const focusComposer = useCallback(() => {
-    globalThis.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [inputRef]);
 
   const clearEmojiOpenTimer = useCallback(() => {
     if (emojiOpenTimerRef.current) globalThis.clearTimeout(emojiOpenTimerRef.current);
@@ -625,11 +625,8 @@ export const ConversationComposer = memo(function ConversationComposer({
     draftRef.current = result.value;
     setDraft(result.value);
     commitInputSideEffects(result.value);
-    globalThis.requestAnimationFrame(() => {
-      inputRef.current?.focus({ preventScroll: true });
-      inputRef.current?.setSelectionRange(result.cursor, result.cursor);
-    });
-  }, [commitInputSideEffects, inputRef]);
+    focusComposer({ cursor: result.cursor });
+  }, [commitInputSideEffects, focusComposer, inputRef]);
 
   useEffect(() => {
     if (!textInsertion || textInsertion.draftKey !== draftKey || editingMessage || appliedTextInsertionRef.current === textInsertion.id) return;
@@ -668,11 +665,8 @@ export const ConversationComposer = memo(function ConversationComposer({
     setDraft(result.value);
     commitInputSideEffects(result.value);
     onTextInsertionApplied?.(textInsertion.id);
-    globalThis.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(result.cursor, result.cursor);
-    });
-  }, [commitInputSideEffects, draftKey, editingMessage, inputRef, onTextInsertionApplied, textInsertion]);
+    focusComposer({ cursor: result.cursor });
+  }, [commitInputSideEffects, draftKey, editingMessage, focusComposer, inputRef, onTextInsertionApplied, textInsertion]);
 
   const finishComposition = useCallback((value: string) => {
     if (!composingRef.current) return;
@@ -696,11 +690,8 @@ export const ConversationComposer = memo(function ConversationComposer({
     draftRef.current = value;
     setDraft(value);
     commitInputSideEffects(value);
-    globalThis.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(start + emoji.length, start + emoji.length);
-    });
-  }, [commitInputSideEffects, inputRef]);
+    focusComposer({ cursor: start + emoji.length });
+  }, [commitInputSideEffects, focusComposer, inputRef]);
 
   useEffect(() => {
     const previous = previousEditingRef.current;
@@ -722,7 +713,6 @@ export const ConversationComposer = memo(function ConversationComposer({
       draftBeforeEditRef.current = undefined;
       entitiesBeforeEditRef.current = undefined;
       setDraft(draftRef.current);
-      focusComposer();
     }
     previousEditingRef.current = editingMessage;
   }, [chatDraft?.entities, chatDraft?.text, editingMessage, flushDraft, focusComposer, stopTyping]);
@@ -937,6 +927,7 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   const sendPendingAttachments = async () => {
     if (attachmentPending || pendingAttachments.length === 0) return;
+    const restoreFocus = focus.capture();
     const caption = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
     setAttachmentPending(true);
     try {
@@ -983,7 +974,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       onDraftChange(chatId, "", undefined, undefined);
       onCancelReply();
       stopTyping();
-      focusComposer();
+      restoreFocus();
     } finally {
       setAttachmentPending(false);
     }
@@ -997,13 +988,14 @@ export const ConversationComposer = memo(function ConversationComposer({
     }
     const submitted = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
     if ((!submitted.text && !editingCaption) || sending) return;
+    const restoreFocus = focus.capture();
     closeEmojiPicker();
     if (editingMessage) {
       setSending(true);
       const edited = await onEditMessage(editingMessage.id, submitted.text, submitted.entities);
       setSending(false);
       if (edited) onCancelEditing();
-      focusComposer();
+      restoreFocus();
       return;
     }
 
@@ -1033,7 +1025,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         scheduleDraft(submitted.text, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
       }
       else onCancelReply();
-      focusComposer();
+      restoreFocus();
       return;
     }
 
@@ -1069,10 +1061,30 @@ export const ConversationComposer = memo(function ConversationComposer({
       setDraft(restored.text);
       scheduleDraft(restored.text, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
     }
-    focusComposer();
+    restoreFocus();
   };
 
-  const cancelReply = useCallback(() => {
+  const submitInlineResult = async (result: InlineQueryResultPage["results"][number]) => {
+    const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames);
+    if (!inline || !inlineResults || sending) return;
+    const restoreFocus = focus.capture();
+    const bot = await onGetBotCommands("", inline.username);
+    const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`;
+    setSending(true);
+    const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId);
+    setSending(false);
+    if (sent) {
+      draftRef.current = "";
+      mentionEntitiesRef.current = [];
+      setDraft("");
+      onDraftChange(chatId, "", undefined);
+      setInlineResults(undefined);
+      onCancelReply();
+    }
+    restoreFocus();
+  };
+
+  const clearReply = useCallback(() => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
     draftTimerRef.current = undefined;
     pendingDraftRef.current = undefined;
@@ -1087,8 +1099,8 @@ export const ConversationComposer = memo(function ConversationComposer({
       mentionEntitiesRef.current,
     );
     onCancelReply();
-    focusComposer();
-  }, [chatId, focusComposer, onCancelReply, onDraftChange]);
+  }, [chatId, onCancelReply, onDraftChange]);
+  const cancelReply = useCallback(() => { clearReply(); focusComposer(); }, [clearReply, focusComposer]);
 
   const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
@@ -1152,6 +1164,7 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   return (
     <div
+      inert={inert || undefined}
       className={`composer-wrap ${draggingFiles ? "is-file-dragging" : ""}`}
       onDragEnter={handleFileDragEnter}
       onDragOver={handleFileDragOver}
@@ -1166,9 +1179,10 @@ export const ConversationComposer = memo(function ConversationComposer({
             replyQuote={activeReplyQuote}
             disableNotification={disableNotification}
             onEmoji={insertEmoji}
-            onAssetSent={cancelReply}
+            onAssetSent={clearReply}
             onClose={closeEmojiPicker}
             onRequestComposerFocus={focusComposer}
+            onCaptureComposerFocus={focus.capture}
             onPointerEnter={(event) => {
               if (event.pointerType === "mouse") clearEmojiCloseTimer();
             }}
@@ -1345,7 +1359,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             type="button"
             aria-label={editingMessage ? translate("取消编辑") : translate("取消回复")}
             title={editingMessage ? translate("取消编辑") : translate("取消回复")}
-            onClick={editingMessage ? onCancelEditing : cancelReply}
+            onClick={editingMessage ? () => { onCancelEditing(); focusComposer(); } : cancelReply}
           >
             <X size={17} strokeWidth={1.9} />
           </button>
@@ -1436,7 +1450,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       <MotionPresence present={Boolean(showInlineLoading || inlineResults)} variant="popover">
         {showInlineLoading || inlineResults ? (
           <section className="inline-query-panel" aria-label={translate("Inline 查询结果")}>
-            {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={async () => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (!inline || !inlineResults) return; const bot = await onGetBotCommands("", inline.username); const botUserId = bot[0]?.botUserId ?? `bot:${inline.username}`; setSending(true); const sent = await onSendInlineResult(botUserId, inlineResults.queryId, result.id, replyingTo?.id ?? chatDraft?.replyToMessageId); setSending(false); if (sent) { draftRef.current = ""; mentionEntitiesRef.current = []; setDraft(""); onDraftChange(chatId, "", undefined); setInlineResults(undefined); onCancelReply(); } focusComposer(); }}><span className="inline-query-result-kind">{result.kind === "photo" ? translate("图片") : result.kind === "file" ? translate("文件") : translate("结果")}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />{translate("正在查询机器人")}</div>}
+            {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={() => void submitInlineResult(result)}><span className="inline-query-result-kind">{result.kind === "photo" ? translate("图片") : result.kind === "file" ? translate("文件") : translate("结果")}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />{translate("正在查询机器人")}</div>}
             {inlineResults?.hasMore && <button type="button" className="inline-query-more" disabled={inlineLoading} onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>{showInlineLoading && <LoaderCircle className="spin" size={15} />}{translate("加载更多结果")}</button>}
           </section>
         ) : null}

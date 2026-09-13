@@ -292,6 +292,7 @@ test("attachment entry points share classification, previews, spoilers, and loca
   const videoPopupClosed = videoPopup.waitForEvent("close");
   await videoPopup.keyboard.down("Escape");
   await videoPopupClosed;
+  await expect(composer).toBeFocused();
 });
 
 test("download manager lists only explicit downloads and supports batch management", async ({ page }) => {

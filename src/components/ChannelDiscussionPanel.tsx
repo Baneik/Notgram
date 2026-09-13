@@ -50,6 +50,7 @@ import { formatSelectedMessages } from "../utils/messageClipboard";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { Avatar } from "./Avatar";
 import { ConversationComposer } from "./ConversationComposer";
+import { focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import {
   DeleteMessagesDialog,
   MessageActionMenu,
@@ -224,7 +225,6 @@ export function ChannelDiscussionPanel({
     return () => { element.scrollTop = top + element.scrollHeight - height; };
   }, []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const focusTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const insertionIdRef = useRef(0);
   const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
   const draftKey = `${post.chatId}:discussion:${post.id}`;
@@ -308,35 +308,16 @@ export function ChannelDiscussionPanel({
     ? comments.filter((message) => message.mediaAlbumId === actionMessage.mediaAlbumId).map((message) => message.id)
     : [];
 
-  const focusComposer = useCallback(() => {
-    if (focusTimerRef.current !== undefined) globalThis.clearTimeout(focusTimerRef.current);
-    focusTimerRef.current = globalThis.setTimeout(() => {
-      focusTimerRef.current = undefined;
-      inputRef.current?.focus({ preventScroll: true });
-    }, 0);
-  }, []);
+  const composerFocus = useComposerFocus(inputRef, `${activeAccountId}:${discussionChatId}:${draftKey}`,
+    !forwarding.selectionMode);
+  const focusComposer = composerFocus.request;
 
   useLayoutEffect(() => {
     focusComposer();
-    return () => {
-      if (focusTimerRef.current !== undefined) globalThis.clearTimeout(focusTimerRef.current);
-    };
   }, [draftKey, focusComposer]);
-
-  useEffect(() => {
-    const restoreAfterWindowReturn = () => {
-      const active = document.activeElement;
-      if (
-        active &&
-        active !== document.body &&
-        active !== document.documentElement &&
-        active !== inputRef.current
-      ) return;
-      focusComposer();
-    };
-    window.addEventListener("focus", restoreAfterWindowReturn);
-    return () => window.removeEventListener("focus", restoreAfterWindowReturn);
-  }, [focusComposer]);
+  useLayoutEffect(() => {
+    if (!forwarding.selectionMode) focusComposer({ reason: "entry" });
+  }, [focusComposer, forwarding.selectionMode]);
 
   useEffect(() => {
     if (discussionChat.kind !== "group" && discussionChat.kind !== "channel") return;
@@ -408,12 +389,13 @@ export function ChannelDiscussionPanel({
 
   const confirmDelete = useCallback(async (revoke: boolean) => {
     if (!deleteTarget || deletePending) return;
+    const restoreFocus = composerFocus.capture();
     setDeletePending(true);
     const deleted = await onDeleteMessage(deleteTarget.id, revoke, deleteTarget.chatId);
     setDeletePending(false);
     if (deleted) setDeleteTarget(undefined);
-    focusComposer();
-  }, [deletePending, deleteTarget, focusComposer, onDeleteMessage]);
+    restoreFocus();
+  }, [deletePending, deleteTarget, composerFocus, onDeleteMessage]);
 
   const openPinDialog = useCallback(async (message: Message) => {
     if (pinPending) return;
@@ -426,6 +408,7 @@ export function ChannelDiscussionPanel({
 
   const confirmPin = useCallback(async (disableNotification: boolean, onlyForSelf: boolean) => {
     if (!pinTarget || pinPending) return;
+    const restoreFocus = composerFocus.capture();
     setPinPending(true);
     const pinned = await onPinMessage(
       pinTarget.id,
@@ -435,18 +418,19 @@ export function ChannelDiscussionPanel({
     );
     setPinPending(false);
     if (pinned) setPinTarget(undefined);
-    focusComposer();
-  }, [focusComposer, onPinMessage, pinPending, pinTarget]);
+    restoreFocus();
+  }, [composerFocus, onPinMessage, pinPending, pinTarget]);
 
   const unpinMessage = useCallback(async (message: Message) => {
     if (pinPending) return;
+    const restoreFocus = composerFocus.capture();
     setActionMenu(undefined);
     setPinPending(true);
     const permissions = await onLoadMessageProperties(message.chatId, message.id, true);
     if (permissions?.canPin) await onUnpinMessage(message.id, message.chatId);
     setPinPending(false);
-    focusComposer();
-  }, [focusComposer, onLoadMessageProperties, onUnpinMessage, pinPending]);
+    restoreFocus();
+  }, [composerFocus, onLoadMessageProperties, onUnpinMessage, pinPending]);
 
   const openReply = useCallback((chatId: string, messageId: string) => {
     if (chatId !== discussionChatId || !messagesById.has(messageId)) {
@@ -508,9 +492,8 @@ export function ChannelDiscussionPanel({
       globalThis.setTimeout(() => setSelectionCopied(false), 1600);
     } finally {
       setSelectionCopying(false);
-      focusComposer();
     }
-  }, [comments, discussionChat, focusComposer, forwarding, messagesById, selectionCopying, targetChatsById, users]);
+  }, [comments, discussionChat, forwarding, messagesById, selectionCopying, targetChatsById, users]);
 
   useEffect(() => {
     if (!forwarding.selectionMode) return;
@@ -524,14 +507,9 @@ export function ChannelDiscussionPanel({
     return () => document.removeEventListener("keydown", copyWithKeyboard, true);
   }, [copySelectedMessages, forwarding.selectedIds.size, forwarding.selectionMode]);
 
-  const preserveComposerFocus = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || forwarding.selectionMode) return;
-    const selection = globalThis.getSelection();
-    if (selection && !selection.isCollapsed) return;
-    const target = event.target as HTMLElement;
-    if (target.closest("button, a, input, textarea, [role='menu'], [role='dialog'], .message-row")) return;
-    focusComposer();
-  }, [focusComposer, forwarding.selectionMode]);
+  const preserveComposerFocus = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (!forwarding.selectionMode) focusComposerFromPointer(event, composerFocus);
+  }, [composerFocus, forwarding.selectionMode]);
 
   const searchDiscussionHashtag = useCallback(
     (hashtag: string) => onSearchHashtag(hashtag, discussionChatId),
@@ -541,6 +519,8 @@ export function ChannelDiscussionPanel({
   return (
     <section
       className={`channel-discussion-panel ${forwarding.selectionMode ? "is-selecting-messages" : ""}`}
+      data-composer-scope={draftKey}
+      onPointerUp={preserveComposerFocus}
       aria-label={translate("{{value0}} 的讨论", { value0: channel.title })}
     >
       <header className="channel-discussion-header">
@@ -557,7 +537,6 @@ export function ChannelDiscussionPanel({
         className="channel-discussion-messages"
         role="log"
         aria-label={translate("留言列表")}
-        onPointerUp={preserveComposerFocus}
       >
         <ConversationViewportBoundary identity={draftKey} items={comments} capture={captureScroll}>
         <div className="channel-discussion-stream">
@@ -736,6 +715,7 @@ export function ChannelDiscussionPanel({
             recentMentionUserIds={recentMentionUserIds}
             onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
             inputRef={inputRef}
+            focus={composerFocus}
             connectionStatus={connectionStatus}
             {...queueCounts}
             onSendMessage={async (...args) => {
@@ -744,13 +724,11 @@ export function ChannelDiscussionPanel({
                 setReplyingTo(undefined);
                 setReplyQuote(undefined);
               }
-              focusComposer();
               return sent;
             }}
             onEditMessage={async (messageId, text, entities) => {
               const edited = await onEditMessage(messageId, text, entities, discussionChatId);
               if (edited) setEditingMessage(undefined);
-              focusComposer();
               return edited;
             }}
             onDraftChange={(_chatId, text, replyToMessageId, selectedQuote, entities) => {
@@ -770,17 +748,14 @@ export function ChannelDiscussionPanel({
                 setReplyingTo(undefined);
                 setReplyQuote(undefined);
               }
-              focusComposer();
               return sent;
             }}
             onCancelEditing={() => {
               setEditingMessage(undefined);
-              focusComposer();
             }}
             onCancelReply={() => {
               setReplyingTo(undefined);
               setReplyQuote(undefined);
-              focusComposer();
             }}
             onGetBotCommands={(query = "", botUsername) =>
               getBotCommandSuggestions(discussionChatId, query, botUsername)}
@@ -819,12 +794,13 @@ export function ChannelDiscussionPanel({
             void forwarding.quickForward(actionAlbumMessageIds.length > 1 ? actionAlbumMessageIds : [actionMessage.id], target);
           }}
           onRepeat={!actionMessage.outgoing ? () => {
+            const restoreFocus = composerFocus.capture();
             setActionMenu(undefined);
             void onForwardMessages(
               discussionChatId,
               [actionMessage.id],
               discussionChatId,
-            ).finally(focusComposer);
+            ).finally(restoreFocus);
           } : undefined}
           onDelete={() => {
             setDeleteTarget(actionMessage);
@@ -891,7 +867,6 @@ export function ChannelDiscussionPanel({
             onSubmit={onReportChat}
             onClose={() => {
               setReportTarget(undefined);
-              focusComposer();
             }}
           />
         ) : null}
@@ -908,7 +883,6 @@ export function ChannelDiscussionPanel({
             onConfirm={(revoke) => void confirmDelete(revoke)}
             onClose={() => {
               setDeleteTarget(undefined);
-              focusComposer();
             }}
           />
         ) : null}
@@ -924,7 +898,6 @@ export function ChannelDiscussionPanel({
             onConfirm={(disableNotification, onlyForSelf) => void confirmPin(disableNotification, onlyForSelf)}
             onClose={() => {
               setPinTarget(undefined);
-              focusComposer();
             }}
           />
         ) : null}
@@ -946,7 +919,6 @@ export function ChannelDiscussionPanel({
             onConfirm={(targets, description) => void forwarding.confirm(targets, description)}
             onClose={() => {
               forwarding.closeDialog();
-              focusComposer();
             }}
           />
         ) : null}
