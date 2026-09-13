@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { composerDocument, composerFormattedText, isPastingIntoComposerLink } from "./composerFormatting";
+import { composerDocument, composerFormattedText, composerFormatShortcut, isPastingIntoComposerLink } from "./composerFormatting";
 import type { MessageTextEntity } from "../telegram/types";
 
 describe("composer formatting", () => {
+  const modifiers = { ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+  it.each([
+    ["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"], ["K", "link"],
+  ])("recognizes the physical %s shortcut across keyboard layouts", (letter, format) => {
+    expect(composerFormatShortcut({ ...modifiers, key: "Process", code: `Key${letter}` })).toBe(format);
+    expect(composerFormatShortcut({ ...modifiers, key: "不", code: `Key${letter}` })).toBe(format);
+    expect(composerFormatShortcut({ ...modifiers, key: letter.toLowerCase() })).toBe(format);
+  });
+  it("requires the exact format modifiers and does not reinterpret other physical keys", () => {
+    const shortcut = { ...modifiers, key: "B", code: "KeyB" };
+    for (const modifier of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { metaKey: true }]) {
+      expect(composerFormatShortcut({ ...shortcut, ...modifier })).toBeUndefined();
+    }
+    expect(composerFormatShortcut({ ...shortcut, code: "KeyR" })).toBeUndefined();
+    expect(composerFormatShortcut({ ...modifiers, key: "Process" })).toBeUndefined();
+  });
   it("round trips overlapping formatting and UTF-16 offsets across emoji and newlines", () => {
     const text = "🙂 bold\n@Ada";
     const entities: MessageTextEntity[] = [

@@ -18,6 +18,153 @@ const paste = async (composer: Locator, text: string) => composer.evaluate((elem
   element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
 }, text);
 
+test("IME preedit hides the placeholder through updates, commit and cancellation", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  const ime = await page.context().newCDPSession(page);
+  const placeholder = () => composer.evaluate(element => getComputedStyle(element, "::before").content);
+  await expect.poll(placeholder).toBe('"写一条消息"');
+  for (const text of ["n", "ni"]) {
+    await ime.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+    await expect(composer).toHaveText(text);
+    await expect.poll(placeholder).toBe("none");
+  }
+  await ime.send("Input.insertText", { text: "你" });
+  await expect(composer).toHaveJSProperty("value", "你");
+  await expect.poll(placeholder).toBe("none");
+  await composer.press("Control+A");
+  await composer.press("Backspace");
+  await expect.poll(placeholder).toBe('"写一条消息"');
+  await ime.send("Input.imeSetComposition", { text: "hao", selectionStart: 3, selectionEnd: 3 });
+  await expect.poll(placeholder).toBe("none");
+  await ime.send("Input.imeSetComposition", { text: "", selectionStart: 0, selectionEnd: 0 });
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect.poll(placeholder).toBe('"写一条消息"');
+});
+
+for (const [key, kind] of [["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"], ["K", "link"]]) {
+  test(`format shortcut ${key} flushes a pending browser selection`, async ({ page }) => {
+    await ready(page);
+    const composer = input(page);
+    await composer.fill("selected text");
+    await composer.evaluate((element, letter) => {
+      // Selection changes can still be queued when a keydown reaches the editor.
+      const range = document.createRange();
+      range.selectNodeContents(element.querySelector("p")!);
+      const selection = getSelection()!;
+      selection.removeAllRanges(); selection.addRange(range);
+      element.dispatchEvent(new KeyboardEvent("keydown", {
+        key: letter, code: `Key${letter}`, keyCode: letter.charCodeAt(0),
+        ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+      }));
+    }, key);
+    if (kind === "link") await expect(composer).toHaveJSProperty("value", "[selected text]()");
+    else await expect(composer.locator(`[data-composer-entity="${kind}"]`)).toHaveText("selected text");
+  });
+
+  test(`format shortcut ${key} uses a keyboard selection after IME commit`, async ({ page }) => {
+    await ready(page);
+    const composer = input(page);
+    const ime = await page.context().newCDPSession(page);
+    await ime.send("Input.imeSetComposition", { text: "nihao", selectionStart: 5, selectionEnd: 5 });
+    await ime.send("Input.insertText", { text: "你好" });
+    await composer.press("Control+A");
+    await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe("你好");
+    await composer.press(`Control+Shift+${key}`);
+    if (kind === "link") await expect(composer).toHaveJSProperty("value", "[你好]()");
+    else await expect(composer.locator(`[data-composer-entity="${kind}"]`)).toHaveText("你好");
+  });
+}
+
+test("format shortcuts recognize physical letters when an IME reports Process", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("选中文字");
+  await composer.press("Control+A");
+  await expect(composer).toHaveJSProperty("selectionStart", 0);
+  for (const [key, kind] of [["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"], ["K", "link"]]) {
+    await composer.dispatchEvent("keydown", { key: "Process", code: `Key${key}`, keyCode: 229, ctrlKey: true, shiftKey: true });
+    if (kind === "link") await expect(composer).toHaveJSProperty("value", "[选中文字]()");
+    else await expect(composer.locator(`[data-composer-entity="${kind}"]`)).toHaveText("选中文字");
+  }
+});
+
+test("IME owns candidate Enter and formatting keys until composition ends", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  const ime = await page.context().newCDPSession(page);
+  await ime.send("Input.imeSetComposition", { text: "ni", selectionStart: 0, selectionEnd: 2 });
+  for (const key of ["M", "X", "U", "B", "Q", "K"]) {
+    await composer.dispatchEvent("keydown", { key, code: `Key${key}`, ctrlKey: true, shiftKey: true, isComposing: true });
+  }
+  await composer.dispatchEvent("keydown", { key: "Enter", code: "Enter", keyCode: 229, isComposing: true });
+  await expect(composer).toHaveText("ni");
+  await expect(composer.locator("[data-composer-entity]")).toHaveCount(0);
+  await ime.send("Input.insertText", { text: "你" });
+  await expect(composer).toHaveJSProperty("value", "你");
+  await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect(page.locator(".message-row.is-outgoing").filter({ hasText: "你" }).last()).toBeVisible();
+});
+
+test("format shortcuts preserve a partial mouse selection and leave other text alone", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("before 选中 text after");
+  const bounds = await composer.evaluate(element => {
+    const range = document.createRange();
+    const text = element.querySelector("p")!.firstChild!;
+    range.setStart(text, 7); range.setEnd(text, 9);
+    const rect = range.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.move(bounds.right, bounds.y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.left, bounds.y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe("选中");
+  for (const [key, kind] of [["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"]]) {
+    await composer.press(`Control+Shift+${key}`);
+    await expect(composer.locator(`[data-composer-entity="${kind}"]`)).toHaveText("选中");
+  }
+  await composer.press("Control+Shift+K");
+  await expect(composer).toHaveJSProperty("value", "before [选中]() text after");
+  await expect(composer).toBeFocused();
+});
+
+test("Ctrl+A uses text boundaries when inserting a link from the menu", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("全部文字");
+  await composer.press("Control+A");
+  await expect(composer).toHaveJSProperty("selectionStart", 0);
+  await expect(composer).toHaveJSProperty("selectionEnd", 4);
+  await composer.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "格式", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "链接", exact: true }).click();
+  await expect(composer).toHaveJSProperty("value", "[全部文字]()");
+  await expect(composer).toHaveJSProperty("selectionStart", 7);
+});
+
+test("discussion editor shares IME placeholder and format shortcut behavior", async ({ page }) => {
+  await ready(page);
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+  await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+  const composer = page.locator(".channel-discussion-panel").getByRole("textbox", { name: "消息内容" });
+  await expect(composer).toBeFocused();
+  const ime = await page.context().newCDPSession(page);
+  await ime.send("Input.imeSetComposition", { text: "liuyan", selectionStart: 6, selectionEnd: 6 });
+  await expect(composer).toHaveText("liuyan");
+  expect(await composer.evaluate(element => getComputedStyle(element, "::before").content)).toBe("none");
+  await ime.send("Input.insertText", { text: "留言" });
+  await composer.press("Control+A");
+  await composer.press("Control+Shift+B");
+  await expect(composer.locator("strong")).toHaveText("留言");
+  await expect(composer).toBeFocused();
+  await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+});
+
 for (const [label, key, kind] of [
   ["遮罩", "M", "spoiler"], ["删除线", "X", "strikethrough"], ["下划线", "U", "underline"],
   ["粗体", "B", "bold"], ["引用", "Q", "blockquote"],

@@ -1,9 +1,10 @@
 import { preferencesStore } from "../store/preferencesStore";
+import { composerFormatShortcut } from "./composerFormatting";
 
 type ShortcutEvent = Pick<
   KeyboardEvent,
   "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
->;
+> & { code?: string };
 
 const blockedControlKeys = new Set(["p", "r", "s", "u", "w"]);
 const blockedDeveloperToolKeys = new Set(["c", "i", "j"]);
@@ -16,7 +17,7 @@ export const isBlockedWebviewShortcut = (event: ShortcutEvent, inComposer = fals
   if (event.shiftKey && key === "escape") return true;
   if (event.altKey && ["arrowleft", "arrowright", "home"].includes(key)) return true;
   if (!controlKey) return false;
-  if (inComposer && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && key === "u") return false;
+  if (inComposer && composerFormatShortcut(event)) return false;
   if (blockedControlKeys.has(key)) return true;
   return event.shiftKey && blockedDeveloperToolKeys.has(key);
 };

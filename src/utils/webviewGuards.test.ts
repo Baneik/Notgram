@@ -14,6 +14,12 @@ const shortcut = (
 });
 
 describe("webview shortcut guards", () => {
+  it("uses the editor's physical shortcut mapping before blocking browser actions", () => {
+    const layoutShortcut = { ...shortcut("r", { ctrlKey: true, shiftKey: true }), code: "KeyQ" };
+    expect(isBlockedWebviewShortcut(layoutShortcut, true)).toBe(false);
+    expect(isBlockedWebviewShortcut(layoutShortcut)).toBe(true);
+    expect(isBlockedWebviewShortcut({ ...layoutShortcut, altKey: true }, true)).toBe(true);
+  });
   it("allows the composer underline shortcut while keeping view-source blocked elsewhere", () => {
     const underline = shortcut("u", { ctrlKey: true, shiftKey: true });
     expect(isBlockedWebviewShortcut(underline, true)).toBe(false);

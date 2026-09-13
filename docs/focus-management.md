@@ -50,6 +50,13 @@ offscreen history do not qualify. Permission loading is bounded to those visible
 candidates; subsequent input, scrolling, navigation, or unmounting cancels the
 pending intent. Replies, attachment drafts, and active edits retain their input
 behavior. Composer Ctrl+Shift+M/X/U/B/Q/K shortcuts are local to this editor.
+Formatting runs in ProseMirror's key handler and maps the visible DOM selection
+before applying a mark; `selectionchange` may still be queued. React capture must
+not consume these shortcuts against a stale selection. The editor and WebView
+guard share physical letter matching, with `key` as a fallback.
+Active IME composition owns its keys. Placeholder visibility follows the live
+editor document and is suppressed from composition start, including empty preedit;
+updating that visibility must never replace the composing document.
 
 `data-composer-scope` marks ordinary conversations and discussion panels. The
 shared pointer handler processes only the nearest scope. A discussion isolates

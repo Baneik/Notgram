@@ -1,11 +1,12 @@
 import { Editor, Extension, Mark, Node as EditorNode } from "@tiptap/core";
 import { history, redo, undo } from "@tiptap/pm/history";
 import { keymap } from "@tiptap/pm/keymap";
+import { TextSelection } from "@tiptap/pm/state";
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { MessageTextEntity } from "../telegram/types";
 import type { ComposerFocus } from "../hooks/useComposerFocus";
 import { translate } from "../i18n";
-import { composerDocument, composerEntityKinds, composerFormattedText, composerFormatShortcuts, isPastingIntoComposerLink, type ComposerFormat } from "../utils/composerFormatting";
+import { composerDocument, composerEntityKinds, composerFormattedText, composerFormatShortcut, isPastingIntoComposerLink, type ComposerFormat } from "../utils/composerFormatting";
 import { ComposerContextMenu, type ComposerMenuAction } from "./ComposerContextMenu";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 
@@ -64,6 +65,19 @@ export function ComposerInput(props: Props) {
   const [clipboardError, setClipboardError] = useState(false);
   const closeMenu = useCallback(() => setMenu(undefined), []);
 
+  const applyFormat = useCallback((format: ComposerFormat) => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed || editor.state.selection.empty || editor.view.composing) return;
+    const from = Math.max(1, editor.state.selection.from);
+    const to = Math.min(editor.state.doc.content.size - 1, editor.state.selection.to);
+    if (format === "link") {
+      const selected = editor.state.doc.textBetween(from, to, "", "\n");
+      // Insert delimiters around the existing text to retain any overlapping marks.
+      editor.view.dispatch(editor.state.tr.insertText("]()", to).insertText("[", from));
+      editor.commands.setTextSelection(from + selected.length + 3);
+    } else editor.commands.toggleMark(format);
+  }, []);
+
   const pasteText = useCallback((text: string) => {
     const editor = editorRef.current;
     if (!editor || editor.isDestroyed) return;
@@ -83,6 +97,11 @@ export function ComposerInput(props: Props) {
       editorProps: {
         attributes: { class: "composer-input", role: "textbox", "aria-multiline": "true", spellcheck: "true" },
         handleDOMEvents: {
+          keydown: (view, event) => {
+            // Let the IME and editor see the key without triggering app shortcuts.
+            if (view.composing || event.isComposing || event.keyCode === 229) event.stopPropagation();
+            return false;
+          },
           beforeinput: (_view, event) => {
             const input = event as InputEvent;
             if (input.isComposing || input.inputType !== "insertText" || !input.data?.includes("\n")) return false;
@@ -96,13 +115,32 @@ export function ComposerInput(props: Props) {
           return true;
         },
         handleKeyDown: (view, event) => {
-          if (event.key !== "Enter" || event.isComposing || view.composing) return false;
+          if (event.isComposing || view.composing) return false;
+          const format = composerFormatShortcut(event);
+          if (format) {
+            // selectionchange can still be queued, including after IME commit.
+            // Read the visible selection through ProseMirror's public DOM mapping.
+            const selection = view.dom.ownerDocument.getSelection();
+            if (selection?.anchorNode && selection.focusNode &&
+              view.dom.contains(selection.anchorNode) && view.dom.contains(selection.focusNode)) {
+              const limit = view.state.doc.content.size - 1;
+              const anchor = Math.max(1, Math.min(view.posAtDOM(selection.anchorNode, selection.anchorOffset), limit));
+              const head = Math.max(1, Math.min(view.posAtDOM(selection.focusNode, selection.focusOffset), limit));
+              const range = TextSelection.create(view.state.doc, anchor, head);
+              if (!range.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(range));
+              applyFormat(format);
+            }
+            event.stopPropagation();
+            return true;
+          }
+          if (event.key !== "Enter" || event.keyCode === 229) return false;
           view.dispatch(view.state.tr.replaceSelectionWith(view.state.schema.nodes.hardBreak.create(), true));
           return true;
         },
       },
       onUpdate: ({ editor: updated }) => {
         const formatted = composerFormattedText(updated.getJSON());
+        updated.view.dom.dataset.empty = String(!formatted.text);
         propsRef.current.onChange(formatted.text, formatted.entities);
       },
     });
@@ -110,8 +148,9 @@ export function ComposerInput(props: Props) {
     const input = editor.view.dom as ComposerInputElement;
     Object.defineProperties(input, {
       value: { get: () => editorText(editor) },
-      selectionStart: { get: () => editor.state.selection.from - 1 },
-      selectionEnd: { get: () => editor.state.selection.to - 1 },
+      // Ctrl+A may select the document node; the adapter still exposes text offsets.
+      selectionStart: { get: () => Math.max(0, editor.state.selection.from - 1) },
+      selectionEnd: { get: () => Math.min(editor.state.doc.content.size - 2, editor.state.selection.to - 1) },
     });
     input.setSelectionRange = (start, end) => {
       const limit = editor.state.doc.content.size - 1;
@@ -125,34 +164,24 @@ export function ComposerInput(props: Props) {
       editorRef.current = null;
       editor.destroy();
     };
-  }, [pasteText, props.inputRef]);
+  }, [applyFormat, pasteText, props.inputRef]);
 
   useLayoutEffect(() => {
     const editor = editorRef.current;
-    if (!editor || editor.view.composing) return;
-    const content = composerDocument(props.value, props.entities);
-    if (!editor.schema.nodeFromJSON(content).eq(editor.state.doc)) {
-      editor.commands.setContent(content, { emitUpdate: false });
-      editor.commands.setTextSelection(props.value.length + 1);
-    }
+    if (!editor) return;
     const input = editor.view.dom;
     input.setAttribute("aria-label", translate("消息内容"));
     input.setAttribute("aria-busy", String(props.busy));
     input.setAttribute("data-placeholder", props.placeholder);
-    input.dataset.empty = String(!props.value);
+    if (!editor.view.composing) {
+      const content = composerDocument(props.value, props.entities);
+      if (!editor.schema.nodeFromJSON(content).eq(editor.state.doc)) {
+        editor.commands.setContent(content, { emitUpdate: false });
+        editor.commands.setTextSelection(props.value.length + 1);
+      }
+    }
+    input.dataset.empty = String(!editorText(editor));
   });
-
-  const applyFormat = useCallback((format: ComposerFormat) => {
-    const editor = editorRef.current;
-    if (!editor || editor.isDestroyed || editor.state.selection.empty || editor.view.composing) return;
-    const { from, to } = editor.state.selection;
-    if (format === "link") {
-      const selected = editor.state.doc.textBetween(from, to, "", "\n");
-      // Insert delimiters around the existing text to retain any overlapping marks.
-      editor.view.dispatch(editor.state.tr.insertText("]()", to).insertText("[", from));
-      editor.commands.setTextSelection(from + selected.length + 3);
-    } else editor.commands.toggleMark(format);
-  }, []);
 
   const restoreFocus = useCallback(() => propsRef.current.focus.capture(true)(), []);
   const runMenuAction = useCallback(async (action: ComposerMenuAction) => {
@@ -184,14 +213,22 @@ export function ComposerInput(props: Props) {
     onKeyDownCapture={event => {
       const editor = editorRef.current;
       if (!editor?.view.dom.contains(event.target as globalThis.Node)) return;
-      if (event.nativeEvent.isComposing || editor?.view.composing) return;
-      const format = event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey
-        ? composerFormatShortcuts[event.key.toLowerCase()] : undefined;
-      if (format) { event.preventDefault(); event.stopPropagation(); applyFormat(format); return; }
+      if (event.nativeEvent.isComposing || editor.view.composing || event.nativeEvent.keyCode === 229) return;
       props.onKeyDown(event);
     }}
-    onCompositionStart={props.onCompositionStart}
-    onCompositionEnd={() => props.onCompositionEnd(editorRef.current ? editorText(editorRef.current) : "")}
+    onCompositionStart={() => {
+      // Preedit can be visible before it reaches the editor document or React state.
+      if (editorRef.current) editorRef.current.view.dom.dataset.composing = "true";
+      props.onCompositionStart();
+    }}
+    onCompositionEnd={() => {
+      const editor = editorRef.current;
+      if (editor) {
+        editor.view.dom.dataset.composing = "false";
+        editor.view.dom.dataset.empty = String(!editorText(editor));
+      }
+      props.onCompositionEnd(editor ? editorText(editor) : "");
+    }}
     onFocus={props.onFocus}
     onBlur={() => props.onBlur(editorRef.current ? editorText(editorRef.current) : "")}
     onContextMenu={event => {
@@ -199,7 +236,8 @@ export function ComposerInput(props: Props) {
       if (!editor?.view.dom.contains(event.target as globalThis.Node)) return;
       event.preventDefault();
       if (!editor || editor.view.composing) return;
-      const { from, to } = editor.state.selection;
+      const from = Math.max(1, editor.state.selection.from);
+      const to = Math.min(editor.state.doc.content.size - 1, editor.state.selection.to);
       setMenu({ point: { x: event.clientX, y: event.clientY }, from, to });
     }}>
     <div ref={containerRef} />
