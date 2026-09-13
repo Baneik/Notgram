@@ -1,6 +1,9 @@
 import { translate } from "../i18n";
 import {
   Check,
+  Ban,
+  Bell,
+  BellOff,
   CheckCircle2,
   ChevronRight,
   Folder,
@@ -16,7 +19,8 @@ import { useState, type KeyboardEvent } from "react";
 import { useNativeContextMenu } from "../contextMenu/nativeContextMenuBridge";
 import { isChatPinnedInFolder } from "../store/telegramStore.selectors";
 import { currentColorTheme } from "../theme/theme";
-import type { Chat, ChatFolder } from "../telegram/types";
+import { chatListActions } from "../telegram/chatListActions";
+import type { Chat, ChatFolder, User } from "../telegram/types";
 import {
   ContextMenuPanel,
   ContextMenuSurface,
@@ -25,6 +29,7 @@ import {
 
 interface ChatContextMenuProps {
   chat: Chat;
+  peer?: User;
   chatListId: string;
   folders: ChatFolder[];
   point: ContextMenuPoint;
@@ -33,6 +38,9 @@ interface ChatContextMenuProps {
   folderPending: boolean;
   restoreFocus: () => void;
   onSetPinned: (pinned: boolean) => Promise<boolean>;
+  onSetMuted: (muted: boolean) => Promise<boolean>;
+  onRequestStopBot: () => void;
+  onRequestDelete: () => void;
   onSetFolderMembership: (folderId: string, included: boolean) => Promise<boolean>;
   onRequestLeave: () => void;
   onClose: () => void;
@@ -40,6 +48,7 @@ interface ChatContextMenuProps {
 
 export function ChatContextMenu({
   chat,
+  peer,
   chatListId,
   folders,
   point,
@@ -48,6 +57,9 @@ export function ChatContextMenu({
   folderPending,
   restoreFocus,
   onSetPinned,
+  onSetMuted,
+  onRequestStopBot,
+  onRequestDelete,
   onSetFolderMembership,
   onRequestLeave,
   onClose,
@@ -57,6 +69,7 @@ export function ChatContextMenu({
   const [action, setAction] = useState<string>();
   const pinned = isChatPinnedInFolder(chat, chatListId);
   const busy = chatPending || folderPending || Boolean(action);
+  const actions = chatListActions(chat, peer);
 
   const run = async (key: string, operation: () => Promise<boolean>) => {
     if (busy) return;
@@ -84,7 +97,7 @@ export function ChatContextMenu({
       {
         id: "pin",
         label: pinned ? translate("取消置顶") : translate("置顶"),
-        icon: "pin",
+        icon: pinned ? "pin-off" : "pin",
         disabled: busy,
       },
       {
@@ -100,18 +113,44 @@ export function ChatContextMenu({
           disabled: busy,
         })),
       },
-      ...(chat.kind === "group" ? [{
+      ...(actions.canMute ? [{
+        id: "mute",
+        label: chat.muted ? translate("取消静音") : translate("静音"),
+        icon: chat.muted ? "bell" as const : "bell-off" as const,
+        disabled: busy,
+      }] : []),
+      ...(actions.isBot ? [{
+        id: "stop",
+        label: chat.isBlocked ? translate("已停用") : translate("停用"),
+        icon: "ban" as const,
+        danger: true,
+        disabled: busy || chat.isBlocked === true,
+      }] : []),
+      ...(actions.canDelete ? [{
+        id: "delete",
+        label: translate("删除"),
+        title: actions.deleteDisabled ? translate("此会话不支持仅为自己删除") : undefined,
+        icon: "trash" as const,
+        danger: true,
+        disabled: busy || actions.deleteDisabled,
+      }] : []),
+      ...(actions.canLeave ? [{
         id: "leave",
-        label: translate("退出群组"),
+        label: actions.leaveLabel,
+        title: actions.leaveDisabled ? translate("您已不在此群组或频道中") : undefined,
         icon: "leave" as const,
         danger: true,
-        disabled: busy,
+        disabled: busy || actions.leaveDisabled,
       }] : []),
     ],
   }, point, (actionId) => {
+    if (busy) return;
     onClose();
     if (actionId === "pin") void onSetPinned(!pinned);
-    else if (actionId === "leave") onRequestLeave();
+    else if (actionId === "mute" && actions.canMute) void onSetMuted(!chat.muted);
+    else if (actionId === "stop" && actions.isBot && !chat.isBlocked) onRequestStopBot();
+    else if (actionId === "delete" && actions.canDelete && !actions.deleteDisabled) onRequestDelete();
+    else if (actionId === "leave" && actions.canLeave && !actions.leaveDisabled) onRequestLeave();
     else if (actionId.startsWith("folder:")) {
       const folderId = actionId.slice("folder:".length);
       void onSetFolderMembership(folderId, !chat.folderIds.includes(folderId));
@@ -156,19 +195,43 @@ export function ChatContextMenu({
           <span>{translate("分组")}</span>
           <ChevronRight className="context-menu-chevron" size={16} />
         </button>
-        {chat.kind === "group" && (
+        {actions.canMute && (
+          <button type="button" role="menuitem" disabled={busy}
+            onClick={() => void run("mute", () => onSetMuted(!chat.muted))}>
+            {action === "mute" ? <LoaderCircle className="spin" size={17} />
+              : chat.muted ? <Bell size={17} strokeWidth={1.9} /> : <BellOff size={17} strokeWidth={1.9} />}
+            <span>{chat.muted ? translate("取消静音") : translate("静音")}</span>
+          </button>
+        )}
+        {actions.isBot && (
+          <button className="is-danger" type="button" role="menuitem" disabled={busy || chat.isBlocked === true}
+            onClick={() => { onClose(); onRequestStopBot(); }}>
+            <Ban size={17} strokeWidth={1.9} />
+            <span>{chat.isBlocked ? translate("已停用") : translate("停用")}</span>
+          </button>
+        )}
+        {actions.canDelete && (
+          <button className="is-danger" type="button" role="menuitem" disabled={busy || actions.deleteDisabled}
+            title={actions.deleteDisabled ? translate("此会话不支持仅为自己删除") : undefined}
+            onClick={() => { onClose(); onRequestDelete(); }}>
+            <Trash2 size={17} strokeWidth={1.9} />
+            <span>{translate("删除")}</span>
+          </button>
+        )}
+        {actions.canLeave && (
           <button
             className="is-danger"
             type="button"
             role="menuitem"
-            disabled={busy}
+            disabled={busy || actions.leaveDisabled}
+            title={actions.leaveDisabled ? translate("您已不在此群组或频道中") : undefined}
             onClick={() => {
               onClose();
               onRequestLeave();
             }}
           >
             <LogOut size={17} strokeWidth={1.9} />
-            <span>{translate("退出群组")}</span>
+            <span>{actions.leaveLabel}</span>
           </button>
         )}
       </ContextMenuPanel>

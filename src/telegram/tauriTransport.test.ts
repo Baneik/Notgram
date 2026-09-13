@@ -100,6 +100,131 @@ const rawFolder = (title: string): TdObject => ({
 });
 
 describe("TauriTelegramTransport startup", () => {
+  it("does not use a pending message as the deleted history boundary", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    internal.finishInitialChatSync();
+    internal.emitMessage(rawMessage(50));
+    internal.listener = event => events.push(event);
+    internal.request = async request => request["@type"] === "getChat" ? {
+      ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: true,
+      last_message: { ...rawMessage(300), sending_state: { "@type": "messageSendingStatePending" } },
+    } : { "@type": "ok" };
+    await transport.deletePrivateChat("7");
+    expect(events).toContainEqual({ type: "chat.historyDeleted", chatId: "7", lastMessageId: "50" });
+    expect(internal.mapMessage(rawMessage(100))).toMatchObject({ id: "100" });
+  });
+
+  it("inherits scope mute updates while preserving explicit chat overrides", () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    internal.finishInitialChatSync();
+    internal.upsertChat({ ...rawChat(7, 1_700_000_007), notification_settings: { use_default_mute_for: true, mute_for: 0 } });
+    internal.upsertChat({ ...rawChat(8, 1_700_000_008), notification_settings: { use_default_mute_for: false, mute_for: 0 } });
+    internal.listener = event => events.push(event);
+    const update = (mute: number) => internal.handleUpdate({ "@type": "updateScopeNotificationSettings",
+      scope: { "@type": "notificationSettingsScopePrivateChats" }, notification_settings: { mute_for: mute } });
+    update(600);
+    expect(events).toEqual([expect.objectContaining({ type: "chat.upsert", chat: expect.objectContaining({ id: "7", muted: true }) })]);
+    events.length = 0;
+    update(0);
+    expect(events.at(-1)).toMatchObject({ type: "chat.upsert", chat: { id: "7", muted: false } });
+  });
+
+  it("discards deletion completion when the native account changes", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport & { sessionGeneration: number };
+    const events: TelegramEvent[] = [];
+    let finish!: (response: TdObject) => void;
+    internal.finishInitialChatSync();
+    internal.listener = event => events.push(event);
+    internal.request = async request => request["@type"] === "getChat"
+      ? { ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: true }
+      : new Promise(resolve => { finish = resolve; });
+    const deleting = transport.deletePrivateChat("7");
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    internal.sessionGeneration += 1;
+    events.length = 0;
+    finish({ "@type": "ok" });
+    await deleting;
+    expect(events).toEqual([]);
+  });
+
+  it("deletes only private history and rejects stale reads without dropping newer messages", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const requests: TdObject[] = [];
+    const events: TelegramEvent[] = [];
+    const raw = { ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: true,
+      last_message: rawMessage(100) };
+    internal.finishInitialChatSync();
+    internal.upsertChat(raw);
+    internal.emitMessage(rawMessage(50));
+    internal.listener = event => events.push(event);
+    let deleted = false;
+    internal.request = async request => {
+      requests.push(request);
+      if (request["@type"] === "getChat") {
+        if (deleted) throw new Error("connection lost after successful deletion");
+        return raw;
+      }
+      deleted = true;
+      internal.handleUpdate({ "@type": "updateDeleteMessages", chat_id: 7, message_ids: [50], is_permanent: true });
+      internal.emitMessage(rawMessage(200));
+      return { "@type": "ok" };
+    };
+    await expect(transport.deletePrivateChat("7")).resolves.toBeUndefined();
+    expect(requests.filter(request => request["@type"] === "deleteChatHistory")).toEqual([{
+      "@type": "deleteChatHistory", chat_id: 7, remove_from_chat_list: true, revoke: false,
+    }]);
+    expect(events).toContainEqual(expect.objectContaining({ type: "message.remove", messageId: "50", source: "local" }));
+    expect(events).toContainEqual({ type: "chat.historyDeleted", chatId: "7", lastMessageId: "100" });
+    expect(internal.mapMessage(rawMessage(70))).toBeUndefined();
+    expect(internal.mapMessage(rawMessage(200))).toMatchObject({ id: "200" });
+  });
+
+  it.each([false, undefined])("refuses history deletion with server permission %s", async permission => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.finishInitialChatSync();
+    internal.request = vi.fn(async () => ({ ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: permission }));
+    await expect(transport.deletePrivateChat("7")).rejects.toThrow("仅为自己删除");
+    expect(internal.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("synchronizes bot blocking from both request acknowledgements and remote updates", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    internal.finishInitialChatSync();
+    internal.upsertChat(rawChat(7, 1_700_000_007));
+    internal.listener = event => events.push(event);
+    internal.request = vi.fn(async () => ({ "@type": "ok" }));
+    await transport.setMessageSenderBlocked("7", "user", true);
+    expect(internal.request).toHaveBeenCalledExactlyOnceWith({ "@type": "setMessageSenderBlockList",
+      sender_id: { "@type": "messageSenderUser", user_id: 7 }, block_list: { "@type": "blockListMain" } });
+    expect(events.at(-1)).toMatchObject({ type: "chat.upsert", chat: { isBlocked: true } });
+    internal.handleUpdate({ "@type": "updateChatBlockList", chat_id: 7, block_list: null });
+    expect(events.at(-1)).toMatchObject({ type: "chat.upsert", chat: { isBlocked: false } });
+  });
+
+  it("refreshes channel membership after leaving without requiring empty list positions", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    const channel = { ...rawChat(-1007, 1_700_000_007), type: { "@type": "chatTypeSupergroup", supergroup_id: 17, is_channel: true } };
+    internal.finishInitialChatSync();
+    internal.upsertSupergroup({ "@type": "supergroup", id: 17, is_channel: true, status: { "@type": "chatMemberStatusMember" } });
+    internal.upsertChat(channel);
+    internal.listener = event => events.push(event);
+    internal.request = async request => request["@type"] === "getChat" ? channel : request["@type"] === "getSupergroup"
+      ? { "@type": "supergroup", id: 17, is_channel: true, status: { "@type": "chatMemberStatusLeft" } } : { "@type": "ok" };
+    await transport.leaveChat("-1007");
+    expect(events.at(-1)).toMatchObject({ type: "chat.upsert", chat: { kind: "channel", isMember: false, folderIds: ["main"] } });
+  });
+
   it("resolves a persistent file identity through TDLib without using a saved numeric handle", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -1726,10 +1851,12 @@ describe("TauriTelegramTransport startup", () => {
       unread_mention_count: 2,
     };
     internal.finishInitialChatSync();
+    internal.upsertBasicGroup({ "@type": "basicGroup", id: 17, status: { "@type": "chatMemberStatusMember" } });
     internal.upsertChat(managedChat);
     internal.request = async (request) => {
       requests.push(request);
       if (request["@type"] === "getChat") return managedChat;
+      if (request["@type"] === "getBasicGroup") return { "@type": "basicGroup", id: 17, status: { "@type": "chatMemberStatusLeft" } };
       return { "@type": "ok" };
     };
 
@@ -1738,6 +1865,7 @@ describe("TauriTelegramTransport startup", () => {
 
     expect(requests.filter((request) => request["@type"] !== "getChat")).toEqual([
       { "@type": "leaveChat", chat_id: 7 },
+      { "@type": "getBasicGroup", basic_group_id: 17 },
       {
         "@type": "viewMessages",
         chat_id: 7,

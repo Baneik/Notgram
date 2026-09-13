@@ -4093,7 +4093,7 @@ describe("chat filtering", () => {
     await store.getState().initialize();
 
     await expect(store.getState().leaveGroup("chat-mia")).resolves.toBe(false);
-    expect(store.getState().operationError).toBe("只能退出群组会话");
+    expect(store.getState().operationError).toBe("当前会话无法退出");
 
     await expect(store.getState().leaveGroup("chat-product")).resolves.toBe(true);
     expect(store.getState().chats.get("chat-product")?.folderIds).toEqual([]);

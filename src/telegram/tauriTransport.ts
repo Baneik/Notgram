@@ -1,4 +1,5 @@
 import { chatReportRequest, mapChatReportResult } from "./chatReport";
+import { isInDeletedHistory } from "./deletedHistory";
 import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -363,6 +364,9 @@ export class TauriTelegramTransport implements TelegramTransport {
   });
   private rawMessages = new Map<string, Map<string, TdObject>>();
   private localDeleteIntents = new Set<string>();
+  private localHistoryDeleteIntents = new Set<string>();
+  private deletedHistory = new Map<string, string>();
+  private scopeNotificationSettings = new Map<string, TdObject>();
   // Session facts, independent of the evictable raw message cache and sync resets.
   private invalidatedMessageIds = new Set<string>();
   private pendingMessagePatches = new Map<string, TdObject>();
@@ -454,6 +458,17 @@ export class TauriTelegramTransport implements TelegramTransport {
     upsertSupergroup: (supergroup) => this.upsertSupergroup(supergroup),
     updateUserStatus: (update) => this.updateUserStatus(update),
     updateChatFolders: (update) => this.updateChatFolders(update),
+    updateScopeNotificationSettings: (update) => {
+      const scope = asTdObject(update.scope)?.["@type"];
+      const settings = asTdObject(update.notification_settings);
+      if (typeof scope !== "string" || !settings) return;
+      this.scopeNotificationSettings.set(scope, settings);
+      for (const raw of this.rawChats.values()) {
+        if (this.notificationScope(raw) === scope && asTdObject(raw.notification_settings)?.use_default_mute_for === true) {
+          this.emitChat(raw);
+        }
+      }
+    },
     upsertChat: (chat) => this.upsertChat(chat),
     emitDraft: (chatId, draft) => this.emitDraft(chatId, draft),
     updateChatAction: (update) => this.updateChatAction(update),
@@ -1431,7 +1446,16 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void> {
+    const generation = this.sessionGeneration;
     await this.request({ "@type": "setMessageSenderBlockList", sender_id: kind === "user" ? { "@type": "messageSenderUser", user_id: numericId(senderId) } : { "@type": "messageSenderChat", chat_id: numericId(senderId) }, block_list: blocked ? { "@type": "blockListMain" } : null });
+    if (generation !== this.sessionGeneration) return;
+    for (const [chatId, raw] of this.rawChats) {
+      const type = asTdObject(raw.type);
+      if (kind === "chat" ? chatId === senderId :
+        type?.["@type"] === "chatTypePrivate" && tdId(type.user_id) === senderId) {
+        this.patchChat(chatId, { block_list: blocked ? { "@type": "blockListMain" } : null });
+      }
+    }
   }
 
   async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportResult> {
@@ -1696,11 +1720,60 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async leaveChat(chatId: string) {
+    const generation = this.sessionGeneration;
     await this.request({
       "@type": "leaveChat",
       chat_id: numericId(chatId),
     });
-    await this.refreshChat(chatId);
+    if (generation !== this.sessionGeneration) return;
+    const raw = await this.refreshChat(chatId);
+    if (generation !== this.sessionGeneration) return;
+    const type = asTdObject(raw.type);
+    // List positions can survive leaving a public chat; membership is authoritative.
+    if (type?.["@type"] === "chatTypeBasicGroup") {
+      const group = await this.request({ "@type": "getBasicGroup", basic_group_id: type.basic_group_id });
+      if (generation === this.sessionGeneration) this.upsertBasicGroup(group);
+    } else if (type?.["@type"] === "chatTypeSupergroup") {
+      const group = await this.request({ "@type": "getSupergroup", supergroup_id: type.supergroup_id });
+      if (generation === this.sessionGeneration) this.upsertSupergroup(group);
+    }
+  }
+
+  async deletePrivateChat(chatId: string) {
+    const generation = this.sessionGeneration;
+    const raw = await this.refreshChat(chatId);
+    if (generation !== this.sessionGeneration) return;
+    if (this.mapChat(raw)?.kind !== "direct" || raw.can_be_deleted_only_for_self !== true) {
+      throw new Error(translate("此会话不支持仅为自己删除"));
+    }
+    this.localHistoryDeleteIntents.add(chatId);
+    let lastMessageId = this.deletedHistory.get(chatId) ?? "0";
+    // Pending/scheduled IDs can be ahead of delivered messages. They must not
+    // become a boundary that rejects later successful deliveries.
+    for (const message of [...(this.rawMessages.get(chatId)?.values() ?? []), asTdObject(raw.last_message)]) {
+      const id = tdId(message?.id);
+      if (message && !message.sending_state && message.is_scheduled !== true && /^[1-9]\d*$/.test(id) &&
+        BigInt(id) > BigInt(lastMessageId)) lastMessageId = id;
+    }
+    try {
+      await this.request({
+        "@type": "deleteChatHistory",
+        chat_id: numericId(chatId),
+        remove_from_chat_list: true,
+        revoke: false,
+      });
+      if (generation !== this.sessionGeneration) return;
+      this.deletedHistory.set(chatId, lastMessageId);
+      this.deleteMessages({ chat_id: chatId, message_ids: [...(this.rawMessages.get(chatId)?.keys() ?? [])]
+        .filter(id => isInDeletedHistory(id, lastMessageId)), is_permanent: true });
+      this.localHistoryDeleteIntents.delete(chatId);
+      this.listener?.({ type: "chat.historyDeleted", chatId, lastMessageId });
+      // Deletion is committed. A failed follow-up read must not invite a retry
+      // that could delete messages received after the original confirmation.
+      await this.refreshChat(chatId).catch(() => undefined);
+    } finally {
+      if (generation === this.sessionGeneration) this.localHistoryDeleteIntents.delete(chatId);
+    }
   }
 
   async createChatFolder(title: string, chatIds: string[]) {
@@ -2822,13 +2895,20 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async refreshChat(chatId: string) {
+    const generation = this.sessionGeneration;
     chatId = this.canonicalChatId(chatId);
     const raw = await this.request({
       "@type": "getChat",
       chat_id: numericId(chatId),
     });
-    this.upsertChat(raw);
+    if (generation === this.sessionGeneration) this.upsertChat(raw);
     return raw;
+  }
+
+  private notificationScope(raw: TdObject) {
+    const type = asTdObject(raw.type);
+    if (type?.["@type"] === "chatTypePrivate" || type?.["@type"] === "chatTypeSecret") return "notificationSettingsScopePrivateChats";
+    return type?.is_channel === true ? "notificationSettingsScopeChannelChats" : "notificationSettingsScopeGroupChats";
   }
 
   private mapChat(raw: TdObject) {
@@ -2850,6 +2930,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       this.currentUserId,
       supergroupId ? this.rawSupergroups.get(supergroupId) : undefined,
       basicGroupId ? this.rawBasicGroups.get(basicGroupId) : undefined,
+      this.scopeNotificationSettings.get(this.notificationScope(mappedRaw)),
     );
   }
 
@@ -3391,6 +3472,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapMessage(raw: TdObject) {
+    if (isInDeletedHistory(tdId(raw.id), this.deletedHistory.get(tdId(raw.chat_id)))) return undefined;
     raw = this.preserveNewerMessageContent(this.canonicalizeRawMessage(raw));
     if (this.invalidatedMessageIds.has(`${tdId(raw.chat_id)}:${tdId(raw.id)}`)) return undefined;
     const rawChat = this.rawChats.get(tdId(raw.chat_id) ?? "");
@@ -3666,7 +3748,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (update.from_cache === true && update.is_permanent !== true) return;
     for (const messageId of ids) {
       const key = `${chatId}:${messageId}`;
-      const source = this.localDeleteIntents.has(key) ? "local" : "remote";
+      const source = this.localDeleteIntents.has(key) || this.localHistoryDeleteIntents.has(chatId) ? "local" : "remote";
       this.localDeleteIntents.delete(key);
       const preservedMessage = source === "remote"
         ? this.mapMessage(this.rawMessages.get(chatId)?.get(messageId) ?? {})
@@ -3699,6 +3781,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.authorizationReady = false;
     this.tdConnectionStatus = undefined;
     this.localDeleteIntents.clear();
+    this.localHistoryDeleteIntents.clear();
+    this.deletedHistory.clear();
+    this.scopeNotificationSettings.clear();
     this.invalidatedMessageIds.clear();
     this.recoverySignal = undefined;
     this.nativeRecoveryPhase = "idle";

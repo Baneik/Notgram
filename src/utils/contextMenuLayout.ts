@@ -66,11 +66,19 @@ export const calculateContextMenuLayout = (
     CONTEXT_MENU_VIEWPORT_MARGIN,
     viewport.width - submenu.width - CONTEXT_MENU_VIEWPORT_MARGIN,
   );
-  const submenuY = clamp(
+  let submenuY = clamp(
     y,
     CONTEXT_MENU_VIEWPORT_MARGIN,
     viewport.height - submenu.height - CONTEXT_MENU_VIEWPORT_MARGIN,
   );
+  // Narrow windows may have no horizontal room on either side. Keep the
+  // primary menu anchored and use vertical space before covering its actions.
+  if (!rightFits && !leftFits) {
+    const below = y + primary.height + CONTEXT_MENU_GAP;
+    const above = y - submenu.height - CONTEXT_MENU_GAP;
+    if (below + submenu.height <= viewport.height - CONTEXT_MENU_VIEWPORT_MARGIN) submenuY = below;
+    else if (above >= CONTEXT_MENU_VIEWPORT_MARGIN) submenuY = above;
+  }
 
   return {
     x,
@@ -80,4 +88,3 @@ export const calculateContextMenuLayout = (
     submenuSide,
   };
 };
-

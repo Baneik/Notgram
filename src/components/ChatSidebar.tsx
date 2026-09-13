@@ -56,6 +56,9 @@ interface ChatSidebarProps {
   chatManagementPending: Set<string>;
   folderManagementPending: boolean;
   onSetPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
+  onSetMuted: (chatId: string, muted: boolean) => Promise<boolean>;
+  onRequestDeleteChat: (chat: Chat) => void;
+  onRequestStopBot: (chat: Chat) => void;
   onSetFolderMembership: (
     folderId: string,
     chatId: string,
@@ -105,6 +108,9 @@ export function ChatSidebar({
   chatManagementPending,
   folderManagementPending,
   onSetPinned,
+  onSetMuted,
+  onRequestDeleteChat,
+  onRequestStopBot,
   onSetFolderMembership,
   onRequestLeaveGroup,
   onCreateChat,
@@ -371,6 +377,7 @@ export function ChatSidebar({
     {contextMenu && contextMenu.folderId === folderId && contextChat && contextChat.folderIds.includes(folderId) && !searchQuery.trim() && !scopedSearch && !(mobileViewport && mobileChatOpen) && (
       <ChatContextMenu
         chat={contextChat}
+        peer={contextChat.peerId ? users.get(contextChat.peerId) : undefined}
         chatListId={folderId}
         folders={folders}
         point={contextMenu.point}
@@ -381,6 +388,9 @@ export function ChatSidebar({
           if (contextMenu.anchor.closest('.chat-list[data-active="true"]')) contextMenu.anchor.focus({ preventScroll: true });
         }}
         onSetPinned={(pinned) => onSetPinned(folderId, contextChat.id, pinned)}
+        onSetMuted={(muted) => onSetMuted(contextChat.id, muted)}
+        onRequestDelete={() => onRequestDeleteChat(contextChat)}
+        onRequestStopBot={() => onRequestStopBot(contextChat)}
         onSetFolderMembership={(targetFolderId, included) =>
           onSetFolderMembership(targetFolderId, contextChat.id, included)}
         onRequestLeave={() => onRequestLeaveGroup(contextChat)}

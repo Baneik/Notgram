@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { calculateContextMenuLayout } from "./contextMenuLayout";
 
 describe("context menu layout", () => {
+  it.each([40, 400])("uses vertical room instead of covering actions in a narrow viewport at y=%s", (y) => {
+    const layout = calculateContextMenuLayout({ x: 180, y }, { width: 390, height: 520 },
+      { width: 204, height: 220 }, { width: 190, height: 50 });
+    const top = layout.y + layout.submenuOffsetY;
+    expect(top >= layout.y + 224 || top + 54 <= layout.y).toBe(true);
+    expect(top).toBeGreaterThanOrEqual(8);
+    expect(top + 50).toBeLessThanOrEqual(512);
+  });
+
   it("keeps the primary menu anchored when a tall submenu opens near the bottom", () => {
     const point = { x: 426, y: 390 };
     const viewport = { width: 760, height: 420 };

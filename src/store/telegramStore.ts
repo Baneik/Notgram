@@ -1,4 +1,5 @@
 import { messageCanBeSaved, messageExpired } from "../telegram/messageLifecycle";
+import { isInDeletedHistory } from "../telegram/deletedHistory";
 import { canPostToChannel } from "../telegram/chatManagement";
 import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
@@ -305,7 +306,10 @@ export const createTelegramStore = (
     // A late history/context/cache response must not undo a committed removal.
     // Keep IDs until the account is cleared; raw TDLib caches are evictable.
     const removedMessageIds = new Set<string>();
-    const acceptsMessage = (message: Message) => !removedMessageIds.has(`${message.chatId}:${message.id}`);
+    const deletedHistory = new Map<string, string>();
+    const historyDeletionVersions = new Map<string, number>();
+    const acceptsMessage = (message: Message) => !removedMessageIds.has(`${message.chatId}:${message.id}`) &&
+      !isInDeletedHistory(message.id, deletedHistory.get(message.chatId));
     const upsertMessages = (current: Message[], incoming: Message[]) =>
       mergeMessages(current, incoming.filter(acceptsMessage));
     const upsertMessage = (current: Message[], incoming: Message) => upsertMessages(current, [incoming]);
@@ -958,6 +962,8 @@ export const createTelegramStore = (
       history.clear();
       pendingPinnedReorders.clear();
       removedMessageIds.clear();
+      deletedHistory.clear();
+      historyDeletionVersions.clear();
       retainedMediaRestorer.reset();
       syncGeneration += 1;
       hasConnected = false;
@@ -1944,6 +1950,35 @@ export const createTelegramStore = (
         return;
       }
 
+      if (event.type === "chat.historyDeleted") {
+        historyDeletionVersions.set(event.chatId, (historyDeletionVersions.get(event.chatId) ?? 0) + 1);
+        history.discard(event.chatId);
+        if (event.lastMessageId) deletedHistory.set(event.chatId, event.lastMessageId);
+        const ids = new Set([
+          ...(get().messages.get(event.chatId) ?? []),
+          ...(get().removingMessages.get(event.chatId) ?? []),
+          ...retainedMessages.all().filter(message => message.chatId === event.chatId),
+        ].filter(message => event.lastMessageId === undefined || message.isLocallyDeleted ||
+          isInDeletedHistory(message.id, event.lastMessageId)).map(message => message.id));
+        for (const id of ids) {
+          const key = `${event.chatId}:${id}`;
+          removedMessageIds.add(key);
+          globalThis.clearTimeout(removalTimers.get(key));
+          removalTimers.delete(key);
+        }
+        const messages = new Map(get().messages);
+        const removingMessages = new Map(get().removingMessages);
+        messages.set(event.chatId, (messages.get(event.chatId) ?? []).filter(message => !ids.has(message.id)));
+        removingMessages.set(event.chatId, (removingMessages.get(event.chatId) ?? []).filter(message => !ids.has(message.id)));
+        sharedMediaIndex.clearChat(event.chatId);
+        set({ messages, removingMessages });
+        publishMessageChange({ type: "remove", chatId: event.chatId, messageIds: [...ids] });
+        get().clearGlobalSearch();
+        if (get().chatMessageSearch.input?.chatId === event.chatId) get().clearChatMessageSearch();
+        scheduleCacheWrite();
+        return;
+      }
+
       if (event.type === "message.remove") {
         const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
         const unreadAttention = (unreadAttentionMessageIds.get(event.chatId) ?? [])
@@ -1968,6 +2003,7 @@ export const createTelegramStore = (
           event.source === "remote" &&
           event.permanent === true &&
           !removedMessageIds.has(`${event.chatId}:${event.messageId}`) &&
+          !isInDeletedHistory(event.messageId, deletedHistory.get(event.chatId)) &&
           canArchiveDeletedMessage(preservedMessage) &&
           get().users.get(preservedMessage!.senderId)?.isBot !== true
         ) {
@@ -2233,6 +2269,20 @@ export const createTelegramStore = (
         });
         if (disconnected) reloadApplication();
         return false;
+      }
+    };
+
+    const selectAfterChatRemoval = (chatId: string) => {
+      if (get().activeChatId !== chatId) return;
+      const nextChat = filterAndSortChats(get().chats.values(), get().chatFilter, "")
+        .find(chat => chat.id !== chatId);
+      const lastForumTopicIds = new Map(get().lastForumTopicIds);
+      lastForumTopicIds.delete(chatId);
+      set({ lastForumTopicIds });
+      if (nextChat) get().selectChat(nextChat.id);
+      else {
+        set({ activeChatId: undefined, activeTopicId: undefined });
+        scheduleCacheWrite();
       }
     };
 
@@ -3004,33 +3054,42 @@ export const createTelegramStore = (
       ),
       leaveGroup: async (chatId) => {
         const chat = get().chats.get(chatId);
-        if (chat?.kind !== "group") {
-          set({ operationError: translate("只能退出群组会话") });
+        if ((chat?.kind !== "group" && chat?.kind !== "channel") || chat.isMember === false) {
+          set({ operationError: translate("当前会话无法退出") });
           return false;
         }
         const succeeded = await manageChat(
           chatId,
-          translate("无法退出群组"),
-          translate("Telegram 未确认退出群组"),
+          chat.kind === "channel" ? translate("无法退出频道") : translate("无法退出群组"),
+          translate("Telegram 未确认退出状态"),
           () => transport.leaveChat(chatId),
-          () => get().chats.get(chatId)?.folderIds.length === 0,
+          () => get().chats.get(chatId)?.isMember === false,
         );
-        if (!succeeded || get().activeChatId !== chatId) return succeeded;
-
-        const nextChat = filterAndSortChats(
-          get().chats.values(),
-          get().chatFilter,
-          "",
-        )[0];
-        const lastForumTopicIds = new Map(get().lastForumTopicIds);
-        lastForumTopicIds.delete(chatId);
-        set({ lastForumTopicIds });
-        if (nextChat) get().selectChat(nextChat.id);
-        else {
-          set({ activeChatId: undefined, activeTopicId: undefined });
-          scheduleCacheWrite();
+        if (succeeded) selectAfterChatRemoval(chatId);
+        return succeeded;
+      },
+      deletePrivateChat: async (chatId) => {
+        const chat = get().chats.get(chatId);
+        if (chat?.kind !== "direct" || chat.canDeleteForSelf !== true) {
+          set({ operationError: translate("此会话不支持仅为自己删除") });
+          return false;
         }
-        return true;
+        const version = historyDeletionVersions.get(chatId) ?? 0;
+        const succeeded = await manageChat(chatId, translate("无法删除会话"),
+          translate("Telegram 未确认会话删除"), () => transport.deletePrivateChat(chatId),
+          () => (historyDeletionVersions.get(chatId) ?? 0) > version);
+        if (succeeded) selectAfterChatRemoval(chatId);
+        return succeeded;
+      },
+      stopBot: (chatId) => {
+        const chat = get().chats.get(chatId);
+        if (chat?.kind !== "direct" || !chat.peerId || get().users.get(chat.peerId)?.isBot !== true) {
+          set({ operationError: translate("只能停用机器人会话") });
+          return Promise.resolve(false);
+        }
+        return manageChat(chatId, translate("无法停用机器人"), translate("Telegram 未确认机器人停用"),
+          () => transport.setMessageSenderBlocked(chat.peerId!, "user", true),
+          () => get().chats.get(chatId)?.isBlocked === true);
       },
       createChatFolder: async (title, chatIds) => {
         const uniqueChatIds = [...new Set(chatIds)].filter((chatId) => get().chats.has(chatId));

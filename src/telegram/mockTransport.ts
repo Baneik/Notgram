@@ -756,11 +756,23 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async leaveChat(chatId: string) {
     const chat = this.snapshot.chats.find((item) => item.id === chatId);
-    if (!chat || chat.kind !== "group") throw new Error("只能退出群组会话");
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) throw new Error("只能退出群组或频道");
+    chat.isMember = false;
+    if (chat.management) chat.management = deriveChatManagementCapabilities(chat.management.chatType, "left");
     chat.folderIds = [];
     chat.pinnedFolderIds = [];
     chat.listOrderByFolder = {};
     chat.pinned = false;
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+  }
+
+  async deletePrivateChat(chatId: string) {
+    const chat = this.snapshot.chats.find((item) => item.id === chatId);
+    if (chat?.kind !== "direct" || chat.canDeleteForSelf !== true) throw new Error("此会话不支持仅为自己删除");
+    this.snapshot.messages = this.snapshot.messages.filter(message => message.chatId !== chatId);
+    Object.assign(chat, { folderIds: [], pinnedFolderIds: [], listOrderByFolder: {}, pinned: false,
+      preview: "暂无消息", unreadCount: 0, unreadMentionCount: 0, unreadReactionCount: 0 });
+    this.listener?.({ type: "chat.historyDeleted", chatId });
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
@@ -1022,6 +1034,8 @@ export class MockTelegramTransport implements TelegramTransport {
     const chat: Chat = {
       id: `chat-contact-${user.id}`,
       kind: "direct",
+      canDeleteForSelf: true,
+      isBlocked: this.blockedSenders.has(`user:${user.id}`),
       folderIds: ["main"],
       title: user.displayName,
       avatar: clone(user.avatar),
@@ -1055,6 +1069,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const chat: Chat = {
       id,
       kind: input.kind === "channel" ? "channel" : "group",
+      isMember: true,
       canPinMessages: true,
       folderIds: ["main"],
       title,
@@ -1472,17 +1487,24 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async setMessageSenderBlocked(senderId: string, kind: "user" | "chat", blocked: boolean): Promise<void> {
     const key = `${kind}:${senderId}`;
-    if (!blocked) { this.blockedSenders.delete(key); return; }
     const user = kind === "user" ? this.snapshot.users.find((item) => item.id === senderId) : undefined;
-    const chat = kind === "chat" ? this.snapshot.chats.find((item) => item.id === senderId) : undefined;
-    if (!user && !chat) throw new Error("找不到要屏蔽的对象");
-    this.blockedSenders.set(key, {
-      id: senderId,
-      kind,
-      title: user?.displayName ?? chat?.title ?? "已屏蔽对象",
-      avatar: clone(user?.avatar ?? chat?.avatar ?? { label: "?", color: "#73808c" }),
-      blockedAt: new Date().toISOString(),
-    });
+    const targetChat = kind === "chat" ? this.snapshot.chats.find((item) => item.id === senderId) : undefined;
+    if (blocked) {
+      if (!user && !targetChat) throw new Error("找不到要屏蔽的对象");
+      this.blockedSenders.set(key, {
+        id: senderId,
+        kind,
+        title: user?.displayName ?? targetChat?.title ?? "已屏蔽对象",
+        avatar: clone(user?.avatar ?? targetChat?.avatar ?? { label: "?", color: "#73808c" }),
+        blockedAt: new Date().toISOString(),
+      });
+    } else this.blockedSenders.delete(key);
+    for (const chat of this.snapshot.chats) {
+      if (kind === "chat" ? chat.id === senderId : chat.kind === "direct" && chat.peerId === senderId) {
+        chat.isBlocked = blocked;
+        this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+      }
+    }
   }
 
   async getChatReportOptions(chatId: string, messageIds: string[]): Promise<ChatReportResult> {
@@ -1531,6 +1553,8 @@ export class MockTelegramTransport implements TelegramTransport {
         privateChat = {
           id: `chat:bot:${user.id}`,
           kind: "direct",
+          canDeleteForSelf: true,
+          isBlocked: this.blockedSenders.has(`user:${user.id}`),
           folderIds: ["main"],
           title: user.displayName,
           avatar: clone(user.avatar),

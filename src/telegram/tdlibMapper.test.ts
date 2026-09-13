@@ -15,6 +15,19 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it.each([
+    [{ "@type": "chatMemberStatusCreator", is_member: true }, true],
+    [{ "@type": "chatMemberStatusCreator", is_member: false }, false],
+    [{ "@type": "chatMemberStatusRestricted", is_member: true }, true],
+    [{ "@type": "chatMemberStatusRestricted", is_member: false }, false],
+    [{ "@type": "chatMemberStatusBanned" }, false],
+    [{ "@type": "chatMemberStatusLeft" }, false],
+  ])("maps actual membership for %j", (status, isMember) => {
+    const chat = mapTdChat({ id: -1007, title: "Channel", type: { "@type": "chatTypeSupergroup", is_channel: true },
+      can_be_deleted_only_for_self: false, block_list: { "@type": "blockListStories" } }, "1", { status });
+    expect(chat).toMatchObject({ kind: "channel", isMember, canDeleteForSelf: false, isBlocked: false });
+  });
+
   it("preserves separate persistent identities for a photo and its thumbnail", () => {
     const photo = (id: number, width: number, remoteId: string) => ({ width, height: width,
       photo: { "@type": "file", id, remote: { id: remoteId, unique_id: `${remoteId}-unique` } } });

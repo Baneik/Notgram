@@ -1966,6 +1966,7 @@ export const mapTdChat = (
   currentUserId?: string,
   supergroupValue?: unknown,
   basicGroupValue?: unknown,
+  scopeNotificationSettings?: unknown,
 ): Chat | undefined => {
   const id = tdId(raw.id);
   if (!id) return undefined;
@@ -2021,6 +2022,8 @@ export const mapTdChat = (
   const management = managedChatType && groupStatus
     ? deriveChatManagementCapabilitiesFromTd(managedChatType, groupStatus)
     : undefined;
+  const status = asTdObject(groupStatus);
+  const statusType = status?.["@type"];
 
   return {
     id,
@@ -2031,6 +2034,11 @@ export const mapTdChat = (
       : {}),
     canCreateTopics: management?.canManageTopics === true || asTdObject(raw.permissions)?.can_create_topics === true,
     management,
+    canDeleteForSelf: raw.can_be_deleted_only_for_self === true,
+    isBlocked: asTdObject(raw.block_list)?.["@type"] === "blockListMain",
+    ...(status ? { isMember: statusType === "chatMemberStatusMember" ||
+      statusType === "chatMemberStatusAdministrator" ||
+      ((statusType === "chatMemberStatusCreator" || statusType === "chatMemberStatusRestricted") && status.is_member === true) } : {}),
     folderIds: [...folderIds],
     title: kind === "saved" ? translate("收藏夹") : title,
     avatar: kind === "saved" ? savedMessagesAvatar() : {
@@ -2053,7 +2061,8 @@ export const mapTdChat = (
     pinned: pinnedFolderIds.length > 0,
     pinnedFolderIds,
     listOrderByFolder,
-    muted: (tdNumber(notifications?.mute_for) ?? 0) > 0,
+    muted: (tdNumber(notifications?.use_default_mute_for === true
+      ? asTdObject(scopeNotificationSettings)?.mute_for : notifications?.mute_for) ?? 0) > 0,
     ...(tdNumber(raw.message_auto_delete_time) !== undefined
       ? { messageAutoDeleteTime: Math.max(0, tdNumber(raw.message_auto_delete_time) ?? 0) }
       : {}),

@@ -485,6 +485,10 @@ export interface Chat {
   canPinMessages?: boolean;
   canCreateTopics?: boolean;
   management?: ChatManagementCapabilities;
+  /** Server capabilities; missing values must not authorize destructive actions. */
+  canDeleteForSelf?: boolean;
+  isMember?: boolean;
+  isBlocked?: boolean;
   folderIds: string[];
   title: string;
   avatar: Avatar;
@@ -1094,6 +1098,7 @@ export type TelegramEvent =
   | { type: "chats.upserted"; chats: Chat[] }
   | { type: "users.upserted"; users: User[] }
   | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
+  | { type: "chat.historyDeleted"; chatId: string; lastMessageId?: string }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
   | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
   | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }

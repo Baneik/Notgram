@@ -202,6 +202,8 @@ export interface TelegramState {
   setChatMuted: (chatId: string, muted: boolean) => Promise<boolean>;
   setChatArchived: (chatId: string, archived: boolean) => Promise<boolean>;
   leaveGroup: (chatId: string) => Promise<boolean>;
+  deletePrivateChat: (chatId: string) => Promise<boolean>;
+  stopBot: (chatId: string) => Promise<boolean>;
   createChatFolder: (title: string, chatIds: string[]) => Promise<string | undefined>;
   renameChatFolder: (folderId: string, title: string) => Promise<boolean>;
   deleteChatFolder: (folderId: string) => Promise<boolean>;

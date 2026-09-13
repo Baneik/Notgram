@@ -125,8 +125,35 @@ const conversationIdentityFor = (chatId: string, topicId?: string) =>
   topicId ? `${chatId}:topic:${topicId}` : chatId;
 
 type PendingConfirmation =
-  | { kind: "leaveGroup"; chatId: string; title: string }
+  | { kind: "leaveGroup"; chatId: string; title: string; channel: boolean }
+  | { kind: "deleteChat" | "stopBot"; chatId: string; title: string }
   | { kind: "deleteFolder"; folderId: string; title: string };
+
+const confirmationText = (action: PendingConfirmation) => {
+  switch (action.kind) {
+    case "leaveGroup": return {
+      title: translate("退出“{{value0}}”？", { value0: action.title }),
+      description: action.channel ? translate("退出后，您将不再接收此频道的新消息。")
+        : translate("退出后，您将无法继续在这个群组中收发消息。"),
+      confirmLabel: action.channel ? translate("退出频道") : translate("退出群组"),
+    };
+    case "stopBot": return {
+      title: translate("停用“{{value0}}”？", { value0: action.title }),
+      description: translate("停用后，机器人将被加入 Telegram 黑名单，不能再向您发送消息。已有聊天记录会保留，可在设置的黑名单中解除。"),
+      confirmLabel: translate("停用"),
+    };
+    case "deleteChat": return {
+      title: translate("删除“{{value0}}”？", { value0: action.title }),
+      description: translate("将为当前账号删除全部聊天记录及本地保留副本，并从会话列表移除。对方的聊天记录不受影响；收到新消息时，会话会重新出现。此操作无法撤销。"),
+      confirmLabel: translate("删除"),
+    };
+    case "deleteFolder": return {
+      title: translate("删除“{{value0}}”？", { value0: action.title }),
+      description: translate("只会删除文件夹，不会删除其中的聊天。"),
+      confirmLabel: translate("删除"),
+    };
+  }
+};
 
 type PendingBotStart = Extract<TelegramLinkTarget, { kind: "botStart" }> & {
   accountId: string;
@@ -242,6 +269,8 @@ export function App() {
   const setChatMuted = useTelegramStore((state) => state.setChatMuted);
   const setChatArchived = useTelegramStore((state) => state.setChatArchived);
   const leaveGroup = useTelegramStore((state) => state.leaveGroup);
+  const deletePrivateChat = useTelegramStore((state) => state.deletePrivateChat);
+  const stopBot = useTelegramStore((state) => state.stopBot);
   const createChatFolder = useTelegramStore((state) => state.createChatFolder);
   const renameChatFolder = useTelegramStore((state) => state.renameChatFolder);
   const deleteChatFolder = useTelegramStore((state) => state.deleteChatFolder);
@@ -1864,11 +1893,15 @@ export function App() {
           chatManagementPending={chatManagementPending}
           folderManagementPending={folderManagementPending}
           onSetPinned={setChatPinned}
+          onSetMuted={setChatMuted}
+          onRequestDeleteChat={(chat) => setPendingConfirmation({ kind: "deleteChat", chatId: chat.id, title: chat.title })}
+          onRequestStopBot={(chat) => setPendingConfirmation({ kind: "stopBot", chatId: chat.id, title: chat.title })}
           onSetFolderMembership={setChatFolderMembership}
           onRequestLeaveGroup={(chat) => setPendingConfirmation({
             kind: "leaveGroup",
             chatId: chat.id,
             title: chat.title,
+            channel: chat.kind === "channel",
           })}
           onCreateChat={() => setNewChatOpen(true)}
           width={sidebarWidth}
@@ -2122,16 +2155,16 @@ export function App() {
       </MotionPresence>
       <MotionPresence present={Boolean(pendingConfirmation)}>
         {pendingConfirmation ? <ConfirmActionDialog
-          title={pendingConfirmation.kind === "leaveGroup"
-            ? translate("退出“{{value0}}”？", { value0: pendingConfirmation.title })
-            : translate("删除“{{value0}}”？", { value0: pendingConfirmation.title })}
-          description={pendingConfirmation.kind === "leaveGroup"
-            ? translate("退出后，您将无法继续在这个群组中收发消息。")
-            : translate("只会删除文件夹，不会删除其中的聊天。")}
-          confirmLabel={pendingConfirmation.kind === "leaveGroup" ? translate("退出群组") : translate("删除")}
-          onConfirm={() => pendingConfirmation.kind === "leaveGroup"
-            ? leaveGroup(pendingConfirmation.chatId)
-            : deleteChatFolder(pendingConfirmation.folderId)}
+          {...confirmationText(pendingConfirmation)}
+          error={operationError}
+          onConfirm={() => {
+            switch (pendingConfirmation.kind) {
+              case "leaveGroup": return leaveGroup(pendingConfirmation.chatId);
+              case "deleteChat": return deletePrivateChat(pendingConfirmation.chatId);
+              case "stopBot": return stopBot(pendingConfirmation.chatId);
+              case "deleteFolder": return deleteChatFolder(pendingConfirmation.folderId);
+            }
+          }}
           onClose={() => setPendingConfirmation(undefined)}
         /> : null}
       </MotionPresence>

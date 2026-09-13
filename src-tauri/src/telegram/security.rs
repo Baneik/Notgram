@@ -30,6 +30,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "createChatSubscriptionInviteLink",
     "createPrivateChat",
     "deleteChatFolder",
+    "deleteChatHistory",
     "deleteMessages",
     "downloadFile",
     "editChatFolder",
@@ -199,6 +200,19 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
     match request_type {
+        "deleteChatHistory" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("remove_from_chat_list")
+                .and_then(Value::as_bool)
+                != Some(true)
+                || request.get("revoke").and_then(Value::as_bool) != Some(false)
+            {
+                return Err(
+                    "Chat history deletion must remove only the current user's history".to_string(),
+                );
+            }
+        }
         "getChatSponsoredMessages" => {
             validate_nonzero_identifier(request, "chat_id")?;
         }
@@ -1879,6 +1893,31 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn chat_history_deletion_cannot_revoke_history_for_other_users() {
+        let request = json!({
+            "@type": "deleteChatHistory", "chat_id": 7, "remove_from_chat_list": true,
+            "revoke": false, "@extra": EXTRA
+        });
+        assert!(validate_webview_tdlib_request(&request).is_ok());
+        for (field, value) in [
+            ("revoke", json!(true)),
+            ("revoke", Value::Null),
+            ("remove_from_chat_list", json!(false)),
+            ("chat_id", json!(0)),
+        ] {
+            let mut invalid = request.clone();
+            invalid[field] = value;
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
+        assert!(
+            validate_webview_tdlib_request(&json!({
+                "@type": "deleteChat", "chat_id": 7, "@extra": EXTRA
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn report_details_use_the_tdlib_character_limit_instead_of_utf8_bytes() {

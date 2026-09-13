@@ -7,6 +7,7 @@ interface ConfirmActionDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
+  error?: string;
   onConfirm: () => Promise<boolean>;
   onClose: () => void;
 }
@@ -15,17 +16,21 @@ export function ConfirmActionDialog({
   title,
   description,
   confirmLabel,
+  error,
   onConfirm,
   onClose,
 }: ConfirmActionDialogProps) {
   const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
 
   const confirm = async () => {
     if (pending) return;
     setPending(true);
+    setFailed(false);
     try {
       if (await onConfirm()) onClose();
+      else setFailed(true);
     } finally {
       setPending(false);
     }
@@ -54,6 +59,7 @@ export function ConfirmActionDialog({
             <p>{description}</p>
           </div>
         </div>
+        {failed && error && <p role="alert">{error}</p>}
         <div className="message-delete-actions">
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
           <button className="dialog-danger" type="button" disabled={pending} onClick={() => void confirm()}>

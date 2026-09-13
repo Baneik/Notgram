@@ -8,6 +8,7 @@ export interface TdUpdateHandlers {
   upsertSupergroup: (supergroup?: TdObject) => void;
   updateUserStatus: (update: TdObject) => void;
   updateChatFolders: (update: TdObject) => void;
+  updateScopeNotificationSettings: (update: TdObject) => void;
   upsertChat: (chat?: TdObject) => void;
   emitDraft: (chatId: unknown, draft: unknown) => void;
   updateChatAction: (update: TdObject) => void;
@@ -114,6 +115,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
         unread_mention_count: update.unread_mention_count,
       });
       return;
+    case "updateScopeNotificationSettings":
+      handlers.updateScopeNotificationSettings(update);
+      return;
     case "updateChatUnreadReactionCount":
       handlers.patchChat(update.chat_id, {
         unread_reaction_count: update.unread_reaction_count,
@@ -173,6 +177,9 @@ export const routeTdUpdate = (update: TdObject, handlers: TdUpdateHandlers) => {
       handlers.patchMessage(update.chat_id, update.message_id, {
         contains_unread_mention: false,
       });
+      return;
+    case "updateChatBlockList":
+      handlers.patchChat(update.chat_id, { block_list: update.block_list });
       return;
     case "updateMessageUnreadReactions":
       handlers.patchChat(update.chat_id, {

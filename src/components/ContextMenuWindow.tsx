@@ -2,6 +2,10 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  Ban,
+  Bell,
+  BellOff,
+  PinOff,
   AlertCircle,
   Bookmark,
   LoaderCircle,
@@ -55,6 +59,10 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   alert: AlertCircle,
   loading: LoaderCircle,
   archive: Archive,
+  ban: Ban,
+  bell: Bell,
+  "bell-off": BellOff,
+  "pin-off": PinOff,
   at: AtSign,
   check: Check,
   copy: ClipboardCopy,
@@ -278,6 +286,7 @@ export function ContextMenuWindow() {
                 type="button"
                 role="menuitem"
                 disabled={item.disabled}
+                title={item.title}
                 aria-haspopup={item.children ? "menu" : undefined}
                 aria-expanded={item.children ? expanded : undefined}
                 onMouseEnter={() => {

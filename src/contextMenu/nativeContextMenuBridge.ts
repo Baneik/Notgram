@@ -14,6 +14,10 @@ export type NativeContextMenuIcon =
   | "alert"
   | "loading"
   | "archive"
+  | "ban"
+  | "bell"
+  | "bell-off"
+  | "pin-off"
   | "at"
   | "check"
   | "copy"
@@ -35,6 +39,7 @@ export type NativeContextMenuIcon =
 export interface NativeContextMenuItem {
   id: string;
   label: string;
+  title?: string;
   icon: NativeContextMenuIcon;
   danger?: boolean;
   disabled?: boolean;

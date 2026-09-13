@@ -81,6 +81,47 @@ const nativeMenu = async (page: Page) => {
   return child;
 };
 
+test("native chat list menus expose and dispatch private, bot, and channel actions", async ({ page }) => {
+  await prepare(page);
+  const botId = await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    return (await telegramStore.getState().startPrivateChat("u-notgram-bot"))!;
+  });
+  const surface = await nativeMenu(page);
+  const row = (id: string) => page.locator(`.chat-list[data-active=true] .chat-row[data-chat-id="${id}"]`);
+  await row(botId).click({ button: "right" });
+  const botMenu = surface.getByRole("menu", { name: "会话操作：Notgram Bot" });
+  await expect(botMenu.getByRole("menuitem")).toHaveText(["置顶", "分组", "静音", "停用", "删除"]);
+  await surface.screenshot({ path: test.info().outputPath("native-bot-menu.png") });
+  await botMenu.getByRole("menuitem", { name: "停用", exact: true }).click();
+  const stopping = page.getByRole("dialog", { name: "停用“Notgram Bot”？" });
+  await stopping.getByRole("button", { name: "停用", exact: true }).click();
+  await expect(stopping).toBeHidden();
+  await row(botId).click({ button: "right" });
+  await expect(botMenu.getByRole("menuitem", { name: "已停用" })).toBeDisabled();
+  await botMenu.getByRole("menuitem", { name: "静音", exact: true }).click();
+  await row(botId).click({ button: "right" });
+  await expect(botMenu.getByRole("menuitem", { name: "取消静音" })).toBeEnabled();
+  await botMenu.getByRole("menuitem", { name: "删除", exact: true }).click();
+  const deleting = page.getByRole("dialog", { name: "删除“Notgram Bot”？" });
+  await deleting.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(deleting).toBeHidden();
+  await expect(row(botId)).toHaveCount(0);
+  await row("chat-mia").click({ button: "right" });
+  const direct = surface.getByRole("menu", { name: "会话操作：Mia Chen" });
+  await expect(direct.getByRole("menuitem")).toHaveText(["取消置顶", "分组", "静音", "删除"]);
+  await surface.keyboard.press("Escape");
+  await row("chat-release").click({ button: "right" });
+  const channel = surface.getByRole("menu", { name: "会话操作：Release Notes" });
+  await expect(channel.getByRole("menuitem")).toHaveText(["置顶", "分组", "取消静音", "退出频道"]);
+  await channel.getByRole("menuitem", { name: "退出频道" }).click();
+  const leaving = page.getByRole("dialog", { name: "退出“Release Notes”？" });
+  await leaving.getByRole("button", { name: "退出频道" }).click();
+  await expect(leaving).toBeHidden();
+  await expect(row("chat-release")).toHaveCount(0);
+  await surface.close();
+});
+
 for (const native of [false, true]) {
   test(`${native ? "native" : "browser"} message menu recovers after reconnect and retries failures in place`, async ({ page }) => {
     await prepare(page);
