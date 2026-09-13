@@ -22,8 +22,15 @@ Disabling or unmounting an owner revokes pending requests and clears its timers.
   activity invalidates it. Business callbacks that clear reply/edit state do not
   independently request focus.
 - External previews can capture a return that waits for the main window to regain
-  focus. In-app modals can remember their originating editor while allowing
-  interactions inside the modal; return is still restricted to that editor.
+  focus. Re-activation of the unchanged opener does not revoke that return;
+  pointer, keyboard, composition, or focus on another element still does.
+  Conversation video windows capture before any stream lookup, just like photo
+  and outgoing attachment previews. In-app modals can remember their originating
+  editor while allowing interactions inside the modal; return is still restricted
+  to that editor.
+- Replying from a native message menu waits for the main window to activate
+  before focusing its conversation editor. A newer user operation revokes the
+  pending return, as it does for media windows.
 
 All editor focus requests use `preventScroll`. A cursor change is applied only
 when its corresponding focus request remains valid. Requests do not run in a

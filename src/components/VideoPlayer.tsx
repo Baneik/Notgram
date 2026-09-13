@@ -38,6 +38,7 @@ import {
 import { logPerformance } from "../utils/performanceMonitor";
 import { currentColorTheme } from "../theme/theme";
 import { useStableVisibility } from "../hooks/useStableVisibility";
+import { captureActiveComposerFocus } from "../hooks/useComposerFocus";
 import { MediaProgressRing } from "./MediaProgressRing";
 
 interface VideoPlayerProps {
@@ -400,6 +401,7 @@ export function VideoPlayer({
       fullscreen: mode === "fullscreen",
     });
     claimKeyboardTarget();
+    const restoreFocus = captureActiveComposerFocus(true);
     let playbackSource = resolvedSource;
     if (!playbackSource) playbackSource = await requestStreamSource(false);
     if (!playbackSource) return;
@@ -475,6 +477,7 @@ export function VideoPlayer({
       } else if (message.type === "closed") {
         session.lastState = message.state;
         finishExternalSession(session, message.state);
+        restoreFocus();
       } else if (message.type === "command" && message.command === "download") {
         void onDownload?.();
       }

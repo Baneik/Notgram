@@ -2161,7 +2161,7 @@ export function Conversation({
     setReplyingTo(message);
     setReplyQuote(selectedReplyQuote);
     setActionMenu(undefined);
-    focusComposer();
+    composerFocus.capture(true)();
   };
 
   const startEditing = (message: Message) => {

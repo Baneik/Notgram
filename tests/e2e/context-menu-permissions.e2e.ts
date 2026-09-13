@@ -81,6 +81,45 @@ const nativeMenu = async (page: Page) => {
   return child;
 };
 
+for (const destination of ["conversation", "discussion", "search"] as const) {
+  test(`replying from a native message menu respects the focus destination after window activation (${destination})`, async ({ page }) => {
+    await prepare(page);
+    const discussion = destination === "discussion";
+    if (discussion) {
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+      await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+      await expect(page.locator(".channel-discussion-panel textarea")).toBeFocused();
+    }
+    const surface = await nativeMenu(page);
+    const scope = page.locator(discussion ? ".channel-discussion-panel" : ".conversation");
+    const input = scope.locator("textarea").last();
+    const bubble = scope.locator(".message-bubble-shell").last();
+    await bubble.focus();
+    await bubble.click({ button: "right" });
+    await expect(surface.getByRole("menu", { name: "消息操作", exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+      window.dispatchEvent(new Event("blur"));
+    });
+    await surface.getByRole("menuitem", { name: "回复", exact: true }).click();
+    await expect(surface.getByRole("menu", { name: "消息操作", exact: true })).toHaveCount(0);
+    const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
+    if (destination === "search") await search.click();
+    await page.evaluate(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      Reflect.deleteProperty(document, "hasFocus");
+      window.dispatchEvent(new Event("focus"));
+      document.activeElement?.dispatchEvent(new FocusEvent("focusin", { bubbles: true, relatedTarget: null }));
+    });
+    const target = destination === "search" ? search : input;
+    await expect(target).toBeFocused();
+    await page.keyboard.type("typing after native reply");
+    await expect(target).toHaveValue("typing after native reply");
+    if (destination === "search") await expect(input).toHaveValue("");
+    await surface.close();
+  });
+}
+
 test("native chat list menus expose and dispatch private, bot, and channel actions", async ({ page }) => {
   await prepare(page);
   const botId = await page.evaluate(async () => {

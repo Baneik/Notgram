@@ -375,8 +375,8 @@ export function ChannelDiscussionPanel({
     setReplyingTo(message);
     setReplyQuote(selectedQuote);
     setActionMenu(undefined);
-    focusComposer();
-  }, [focusComposer]);
+    composerFocus.capture(true)();
+  }, [composerFocus]);
 
   const startEditing = useCallback((message: Message) => {
     if (message.content.kind !== "text") return;

@@ -20,7 +20,21 @@ const owners = new Set<Owner>();
 let interaction = 0;
 let composing = false;
 let pendingWindowRestore: (() => void) | undefined;
-const recordInteraction = () => { interaction += 1; pendingWindowRestore = undefined; };
+let focusBeforeWindowBlur: Element | null = null;
+const recordInteraction = () => {
+  interaction += 1;
+  pendingWindowRestore = undefined;
+  focusBeforeWindowBlur = null;
+};
+const leaveWindow = () => { focusBeforeWindowBlur = document.activeElement; };
+const recordFocus = (event: Event) => {
+  // Window activation re-focuses the unchanged opener; it is not a new user destination.
+  if (event instanceof FocusEvent && event.target === focusBeforeWindowBlur && event.relatedTarget === null) {
+    focusBeforeWindowBlur = null;
+    return;
+  }
+  recordInteraction();
+};
 const startComposition = () => { composing = true; recordInteraction(); };
 const endComposition = () => { composing = false; };
 
@@ -39,10 +53,11 @@ const listen = (enabled: boolean) => {
   const method = enabled ? "addEventListener" : "removeEventListener";
   document[method]("pointerdown", recordInteraction, true);
   document[method]("keydown", recordInteraction, true);
-  document[method]("focusin", recordInteraction, true);
+  document[method]("focusin", recordFocus, true);
   document[method]("compositionstart", startComposition, true);
   document[method]("compositionend", endComposition, true);
   window[method]("focus", returnToWindow);
+  window[method]("blur", leaveWindow);
 };
 
 const createOwner = (input: Owner["input"]): Owner => {
@@ -104,6 +119,7 @@ export function useComposerFocus(input: Owner["input"], identity: string, enable
       if (!owners.size) {
         listen(false);
         pendingWindowRestore = undefined;
+        focusBeforeWindowBlur = null;
         composing = false;
       }
     };

@@ -10,6 +10,100 @@ const openReady = async (page: Page) => {
   await expect(page.getByRole("log", { name: "消息列表" })).toHaveAttribute("aria-busy", "false");
 };
 
+test("replying from a message context menu returns typing to the composer", async ({ page }) => {
+  await openReady(page);
+  await page.locator('[data-message-id="p-4"] .message-bubble-shell').click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "消息操作", exact: true });
+  await expect(menu.getByRole("menuitem", { name: "复制", exact: true })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "回复", exact: true }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(composer(page)).toBeFocused();
+  await page.keyboard.type("typing after menu");
+  await expect(composer(page)).toHaveValue("typing after menu");
+});
+
+for (const media of ["photo", "video"] as const) {
+  test(`closing a conversation ${media} window restores typing`, async ({ page }) => {
+    await openReady(page);
+    const trigger = media === "photo" ? page.locator(".message-list .photo-open").first()
+      : page.locator('[data-message-id="p-video"] .video-player');
+    await trigger.scrollIntoViewIfNeeded();
+    const opened = page.waitForEvent("popup");
+    if (media === "photo") await trigger.click();
+    else await trigger.dblclick();
+    const popup = await opened;
+    await expect(popup.locator(media === "photo" ? ".media-viewer" : ".video-window")).toBeVisible();
+    const closed = popup.waitForEvent("close");
+    await popup.keyboard.down("Escape");
+    await closed;
+    await page.bringToFront();
+    await expect(composer(page)).toBeFocused();
+    await page.keyboard.type("typing after media");
+    await expect(composer(page)).toHaveValue("typing after media");
+  });
+}
+
+for (const order of ["closed-first", "activation-first"] as const) {
+  test(`external focus return survives the opener's activation focusin (${order})`, async ({ page }) => {
+    await openReady(page);
+    await page.locator(".message-list .photo-open").first().focus();
+    await page.evaluate(async order => {
+      const { captureActiveComposerFocus } = await import("/src/hooks/useComposerFocus.ts" as string) as typeof import("../../src/hooks/useComposerFocus");
+      const restore = captureActiveComposerFocus(true);
+      const opener = document.activeElement!;
+      let focused = false;
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
+      window.dispatchEvent(new Event("blur"));
+      const activate = () => {
+        focused = true;
+        window.dispatchEvent(new Event("focus"));
+        // Model activation re-emitting focusin for the unchanged opener.
+        opener.dispatchEvent(new FocusEvent("focusin", { bubbles: true, relatedTarget: null }));
+      };
+      if (order === "closed-first") {
+        restore();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        activate();
+      } else {
+        activate();
+        restore();
+      }
+      await new Promise(resolve => setTimeout(resolve, 0));
+      Reflect.deleteProperty(document, "hasFocus");
+    }, order);
+    await expect(composer(page)).toBeFocused();
+    await page.keyboard.type("typing after activation");
+    await expect(composer(page)).toHaveValue("typing after activation");
+  });
+}
+
+for (const navigation of ["search", "switch"] as const) {
+  test(`a conversation video close preserves a newer ${navigation} operation`, async ({ page }) => {
+    await openReady(page);
+    const player = page.locator('[data-message-id="p-video"] .video-player');
+    await player.scrollIntoViewIfNeeded();
+    const opened = page.waitForEvent("popup");
+    await player.dblclick();
+    const popup = await opened;
+    await expect(popup.locator(".video-window")).toBeVisible();
+    if (navigation === "switch") {
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+      await expect(page.locator(".conversation-header")).toContainText("Mia Chen");
+    }
+    await search(page).fill("Mia");
+    if (!popup.isClosed()) {
+      const closed = popup.waitForEvent("close");
+      await popup.keyboard.down("Escape");
+      await closed;
+    }
+    await page.bringToFront();
+    await expect(search(page)).toBeFocused();
+    await page.keyboard.type(" Chen");
+    await expect(search(page)).toHaveValue("Mia Chen");
+    await expect(composer(page)).toHaveValue("");
+  });
+}
+
 const deferSendCompletion = async (page: Page) => {
   await page.evaluate(async () => {
     const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };

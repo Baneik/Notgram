@@ -710,4 +710,6 @@ test("video fullscreen preview closes from its blank surface", async ({ page }) 
   const popupClosed = popup.waitForEvent("close");
   await popup.mouse.click(Math.max(4, (videoBounds?.x ?? 20) / 2), 120);
   await popupClosed;
+  await page.bringToFront();
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
 });
