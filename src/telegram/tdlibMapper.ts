@@ -1998,8 +1998,12 @@ export const mapTdChat = (
       if (folderId) folderIds.add(folderId);
     }
   }
-  // chat_lists describes membership, even before a list has loaded a visible
-  // position. Only nonzero positions can place a chat in the sidebar.
+  // chat_lists describes membership even before a list has loaded a visible
+  // position. Positions still control ordering and visibility in that list.
+  for (const list of asTdObjects(raw.chat_lists)) {
+    const folderId = tdChatListId(list);
+    if (folderId) folderIds.add(folderId);
+  }
   const lastMessage = asTdObject(raw.last_message);
   const lastLifecycle = lastMessage ? mapTdMessage(lastMessage) : undefined;
   const notifications = asTdObject(raw.notification_settings);

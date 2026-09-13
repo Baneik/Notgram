@@ -1973,4 +1973,16 @@ describe("TDLib mapper", () => {
     expect(chat?.pinnedFolderIds).toEqual(["folder:12"]);
     expect(chat?.avatar.imagePath).toBe("C:\\avatars\\group.jpg");
   });
+
+  it("keeps list membership when a chat has no loaded position yet", () => {
+    const chat = mapTdChat({
+      id: 201,
+      type: { "@type": "chatTypePrivate", user_id: 8 },
+      title: "未加载位置的会话",
+      positions: [],
+      chat_lists: [{ "@type": "chatListMain" }],
+    });
+
+    expect(chat?.folderIds).toEqual(["main"]);
+  });
 });
