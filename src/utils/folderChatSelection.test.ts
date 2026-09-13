@@ -28,7 +28,7 @@ describe("folder chat selection", () => {
   it.each<[FolderChatFilter, string[]]>([
     ["direct", ["direct"]], ["bot", ["bot"]], ["group", ["archived", "group", "forum"]],
     ["channel", ["channel"]], ["saved", ["saved"]],
-    ["uncategorized", ["bot", "direct", "forum", "channel", "saved"]],
+    ["uncategorized", ["bot", "direct", "forum", "channel"]],
   ])("filters %s from confirmed chat and peer metadata", (filter, expected) => {
     expect(filterIds(chats, filter)).toEqual(expected);
   });
@@ -47,7 +47,7 @@ describe("folder chat selection", () => {
     expect(filterIds(chats.map((item) => item.id === "direct"
       ? { ...item, folderIds: ["main", "folder:another"] } : item), "uncategorized", "", selected))
       .not.toContain("direct");
-    expect(filterIds([chat("none", "None", { folderIds: [] })], "uncategorized")).toEqual(["none"]);
+    expect(filterIds([chat("none", "None", { folderIds: [] })], "uncategorized")).toEqual([]);
   });
 
   it("sorts selected chats first, names naturally, and equal names by stable ID despite live order changes", () => {

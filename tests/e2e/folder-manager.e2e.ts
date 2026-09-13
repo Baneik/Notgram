@@ -143,7 +143,7 @@ test("folder select-all affects only current results and exposes partial selecti
   await expect(all).toBeChecked({ indeterminate: true });
   await all.check();
   await expect(all).toBeChecked();
-  await expect(dialog.locator(".folder-chat-row input:checked")).toHaveCount(7);
+  await expect(dialog.locator(".folder-chat-row input:checked")).toHaveCount(6);
   await expect.poll(() => titles(dialog)).toEqual(initial);
   await all.uncheck();
   await expect(all).not.toBeChecked();

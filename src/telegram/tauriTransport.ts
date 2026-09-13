@@ -49,6 +49,7 @@ import {
   proxyValue,
 } from "./tdlibRequests";
 import { routeTdUpdate, type TdUpdateHandlers } from "./tdUpdateRouter";
+import { FOLDER_DIRECT_CHAT_LIMIT } from "../utils/folderChatSelection";
 import { TauriSearchService } from "./tauriSearchService";
 import { TauriForumTopicService } from "./tauriForumTopicService";
 import {
@@ -1780,13 +1781,18 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async createChatFolder(title: string, chatIds: string[]) {
     const includedChatIds = [...new Set(chatIds)].map(numericId);
-    if (includedChatIds.length === 0) throw new Error(translate("请至少选择一个会话"));
+    if (includedChatIds.length > FOLDER_DIRECT_CHAT_LIMIT) {
+      throw new Error(translate("文件夹最多可直接包含 {{value0}} 个会话", { value0: FOLDER_DIRECT_CHAT_LIMIT }));
+    }
     const info = await this.request({
       "@type": "createChatFolder",
       folder: this.newChatFolder(title, includedChatIds),
     });
     const folder = this.upsertFolderInfo(info);
-    await Promise.all([...new Set(chatIds)].map((chatId) => this.refreshChat(chatId)));
+    // Folder creation is already confirmed by createChatFolder. A stale chat
+    // can disappear between selection and refresh; one failed refresh must not
+    // turn a successful folder creation into a misleading error.
+    await Promise.allSettled([...new Set(chatIds)].map((chatId) => this.refreshChat(chatId)));
     return folder;
   }
 
@@ -1866,6 +1872,10 @@ export class TauriTelegramTransport implements TelegramTransport {
       .filter((id) => id !== numericChatId);
     const excluded = this.folderChatIds(folder.excluded_chat_ids)
       .filter((id) => id !== numericChatId);
+    const directChatCount = new Set([...pinned, ...alwaysIncluded]).size;
+    if (included && !alwaysIncluded.includes(numericChatId) && directChatCount >= FOLDER_DIRECT_CHAT_LIMIT) {
+      throw new Error(translate("文件夹最多可直接包含 {{value0}} 个会话", { value0: FOLDER_DIRECT_CHAT_LIMIT }));
+    }
     if (included && !pinned.includes(numericChatId)) alwaysIncluded.push(numericChatId);
     if (!included && folder.is_shareable !== true) excluded.push(numericChatId);
     const info = await this.request({

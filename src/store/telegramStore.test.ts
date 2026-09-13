@@ -4194,6 +4194,15 @@ describe("chat filtering", () => {
     expect(store.getState().folderManagementPending).toBe(false);
   });
 
+  it("allows creating an empty folder before choosing members", async () => {
+    const store = createTelegramStore(new MockTelegramTransport());
+    await store.getState().initialize();
+
+    const folderId = await store.getState().createChatFolder("稍后整理", []);
+    expect(folderId).toMatch(/^folder:/);
+    expect(store.getState().folders.some((folder) => folder.id === folderId)).toBe(true);
+  });
+
   it("changes folder order only through explicit reordering and rolls failures back", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

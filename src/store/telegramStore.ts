@@ -60,6 +60,7 @@ import {
   filterAndSortChats,
   isChatPinnedInFolder,
 } from "./telegramStore.selectors";
+import { FOLDER_DIRECT_CHAT_LIMIT, isFolderChatEligible } from "../utils/folderChatSelection";
 import type {
   MessageChangeEvent,
   MessageChangeListener,
@@ -3092,9 +3093,17 @@ export const createTelegramStore = (
           () => get().chats.get(chatId)?.isBlocked === true);
       },
       createChatFolder: async (title, chatIds) => {
-        const uniqueChatIds = [...new Set(chatIds)].filter((chatId) => get().chats.has(chatId));
-        if (uniqueChatIds.length === 0) {
-          set({ operationError: translate("请至少选择一个会话") });
+        const requestedChatIds = [...new Set(chatIds)];
+        const uniqueChatIds = requestedChatIds.filter((chatId) => {
+          const chat = get().chats.get(chatId);
+          return chat !== undefined && isFolderChatEligible(chat);
+        });
+        if (requestedChatIds.length > 0 && uniqueChatIds.length === 0) {
+          set({ operationError: translate("请至少选择一个可加入文件夹的会话") });
+          return undefined;
+        }
+        if (uniqueChatIds.length > FOLDER_DIRECT_CHAT_LIMIT) {
+          set({ operationError: translate("文件夹最多可直接包含 {{value0}} 个会话", { value0: FOLDER_DIRECT_CHAT_LIMIT }) });
           return undefined;
         }
         const folder = await manageFolder(
@@ -3191,8 +3200,14 @@ export const createTelegramStore = (
           if (isCurrent()) set({ folderManagementPending: false });
         }
       },
-      setChatFolderMembership: async (folderId, chatId, included) => Boolean(
-        await manageFolder(
+      setChatFolderMembership: async (folderId, chatId, included) => {
+        const chat = get().chats.get(chatId);
+        if (included && chat && !chat.folderIds.includes(folderId) &&
+          [...get().chats.values()].filter((item) => item.folderIds.includes(folderId)).length >= FOLDER_DIRECT_CHAT_LIMIT) {
+          set({ operationError: translate("文件夹最多可直接包含 {{value0}} 个会话", { value0: FOLDER_DIRECT_CHAT_LIMIT }) });
+          return false;
+        }
+        return Boolean(await manageFolder(
           translate("无法更新文件夹成员"),
           translate("Telegram 未确认文件夹成员状态"),
           async () => {
@@ -3200,8 +3215,8 @@ export const createTelegramStore = (
             return true;
           },
           () => get().chats.get(chatId)?.folderIds.includes(folderId) === included,
-        )
-      ),
+        ));
+      },
       markChatFolderRead: async (folderId) => {
         const state = get();
         if (

@@ -3,7 +3,7 @@ import { ChevronDown, Folder, LoaderCircle, Plus, Save, Search, Trash2, X } from
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import type { Chat, ChatFolder, User } from "../telegram/types";
-import { filterFolderChats, folderChatKind, type FolderChatFilter } from "../utils/folderChatSelection";
+import { filterFolderChats, folderChatKind, FOLDER_DIRECT_CHAT_LIMIT, isFolderChatEligible, type FolderChatFilter } from "../utils/folderChatSelection";
 import { Avatar } from "./Avatar";
 
 interface FolderManagerDialogProps {
@@ -66,8 +66,10 @@ export function FolderManagerDialog({
   const visibleChats = useMemo(() => filterFolderChats(
     chats, users, sortPriorityIds, query, chatFilter, language,
   ), [chats, users, sortPriorityIds, query, chatFilter, language]);
-  const selectedVisibleCount = visibleChats.filter((chat) => selectedChatIds.has(chat.id)).length;
-  const allVisibleSelected = visibleChats.length > 0 && selectedVisibleCount === visibleChats.length;
+  const selectableVisibleChats = visibleChats.filter(isFolderChatEligible);
+  const selectedVisibleCount = selectableVisibleChats.filter((chat) => selectedChatIds.has(chat.id)).length;
+  const allVisibleSelected = selectableVisibleChats.length > 0 && selectedVisibleCount === selectableVisibleChats.length;
+  const directChatLimitReached = selectedChatIds.size >= FOLDER_DIRECT_CHAT_LIMIT;
   const kindLabels = {
     direct: translate("私聊"),
     bot: translate("机器人"),
@@ -98,6 +100,7 @@ export function FolderManagerDialog({
     setSelectedChatIds((current) => {
       const next = new Set(current);
       if (next.has(chatId)) next.delete(chatId);
+      else if (next.size >= FOLDER_DIRECT_CHAT_LIMIT) return current;
       else next.add(chatId);
       return next;
     });
@@ -106,16 +109,16 @@ export function FolderManagerDialog({
   const toggleVisibleChats = () => {
     setSelectedChatIds((current) => {
       const next = new Set(current);
-      for (const chat of visibleChats) {
+      for (const chat of selectableVisibleChats) {
         if (allVisibleSelected) next.delete(chat.id);
-        else next.add(chat.id);
+        else if (next.size < FOLDER_DIRECT_CHAT_LIMIT) next.add(chat.id);
       }
       return next;
     });
   };
 
   const save = async () => {
-    if (busy || !titleValid || (activeId === NEW_FOLDER && selectedChatIds.size === 0)) return;
+    if (busy || !titleValid || selectedChatIds.size > FOLDER_DIRECT_CHAT_LIMIT) return;
     setSaving(true);
     try {
       if (activeId === NEW_FOLDER) {
@@ -238,12 +241,15 @@ export function FolderManagerDialog({
                     ref={(element) => {
                       if (element) element.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
                     }}
-                    disabled={busy || visibleChats.length === 0}
+                    disabled={busy || selectableVisibleChats.length === 0}
                     onChange={toggleVisibleChats}
                   />
                   <span>{translate("全选当前结果")}</span>
                 </label>
-                <span role="status">{translate("{{value0}} 个会话", { value0: visibleChats.length })}</span>
+                <span role="status">
+                  {translate("{{value0}} 个会话", { value0: visibleChats.length })}
+                  {directChatLimitReached && ` · ${translate("已达到文件夹会话上限")}`}
+                </span>
               </div>
               <div className="folder-chat-list">
                 {visibleChats.map((chat) => (
@@ -252,7 +258,7 @@ export function FolderManagerDialog({
                       type="checkbox"
                       aria-label={chat.title}
                       checked={selectedChatIds.has(chat.id)}
-                      disabled={busy}
+                      disabled={busy || !isFolderChatEligible(chat) || (!selectedChatIds.has(chat.id) && directChatLimitReached)}
                       onChange={() => toggleChat(chat.id)}
                     />
                     <Avatar avatar={chat.avatar} size="small" />
@@ -284,7 +290,7 @@ export function FolderManagerDialog({
                 <button
                   className="dialog-save"
                   type="button"
-                  disabled={busy || !titleValid || (activeId === NEW_FOLDER && selectedChatIds.size === 0)}
+                  disabled={busy || !titleValid || selectedChatIds.size > FOLDER_DIRECT_CHAT_LIMIT}
                   onClick={() => void save()}
                 >
                   {busy ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
