@@ -2718,7 +2718,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .folder-chat-type > svg { position: absolute; right: 10px; top: 11px; color: var(--muted); pointer-events: none; }
 .folder-chat-results { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 7px; }
 .folder-chat-list-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 11px; }
-.folder-chat-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--line); border-radius: 6px; overflow-anchor: none; }
+.folder-chat-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border: 1px solid var(--line); border-radius: 6px; overflow-anchor: none; }
+.folder-chat-list::-webkit-scrollbar { display: none; }
 .folder-chat-row {
   min-width: 0; min-height: 46px; padding: 5px 9px; display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 9px; cursor: pointer;
