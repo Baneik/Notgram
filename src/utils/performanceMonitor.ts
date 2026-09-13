@@ -153,6 +153,8 @@ export const conversationStageMaskLabels: Readonly<Record<number, string>> = {
   get 32() { return translate("滚动定位"); },
   get 64() { return translate("过渡开始"); },
   get 128() { return translate("视觉呈现"); },
+  get 256() { return translate("标题更新"); },
+  get 512() { return translate("首屏媒体就绪"); },
 };
 
 export const conversationBottleneckStages: Readonly<Record<number, string>> = {
@@ -164,6 +166,7 @@ export const conversationBottleneckStages: Readonly<Record<number, string>> = {
   get 5() { return translate("虚拟列表"); },
   get 6() { return translate("滚动定位"); },
   get 7() { return translate("视觉呈现"); },
+  get 8() { return translate("首屏媒体就绪"); },
 };
 
 const eventMetadata: Record<string, EventMetadata> = {
@@ -256,6 +259,8 @@ type ConversationSwitchStage =
   | "positioned"
   | "transitionStarted"
   | "transitionFinished"
+  | "titleCommitted"
+  | "mediaReady"
   | "asyncWaitStarted"
   | "asyncWaitFinished";
 
@@ -273,6 +278,10 @@ interface ConversationSwitchTrace {
   positionedAt?: number;
   transitionStartedAt?: number;
   transitionFinishedAt?: number;
+  titleCommittedAt?: number;
+  mediaReadyAt?: number;
+  mediaReadyFailed?: boolean;
+  trackPresentation: boolean;
   projectionDurationMs?: number;
   reactDurationMs?: number;
   asyncWaitStartedAt?: number;
@@ -524,6 +533,9 @@ const performanceAttribution = (
     }
     if (timedOut) {
       return { causeDomain: 4, causeKind: 9, evidenceKind: 7, uiStall: false, mainThreadBlocked: false };
+    }
+    if (bottleneckStage === 8) {
+      return { causeDomain: 6, causeKind: 11, evidenceKind: 7, uiStall: false, mainThreadBlocked: false };
     }
     if (bottleneckStage === 2) {
       return { causeDomain: 2, causeKind: 14, evidenceKind: 7, uiStall: exceedsFrameBudget, mainThreadBlocked: false };
@@ -806,7 +818,9 @@ const conversationStageMask = (trace: ConversationSwitchTrace) =>
   (trace.virtuosoRangeAt !== undefined ? 16 : 0) |
   (trace.positionedAt !== undefined ? 32 : 0) |
   (trace.transitionStartedAt !== undefined ? 64 : 0) |
-  (trace.transitionFinishedAt !== undefined ? 128 : 0);
+  (trace.transitionFinishedAt !== undefined ? 128 : 0) |
+  (trace.titleCommittedAt !== undefined ? 256 : 0) |
+  (trace.mediaReadyAt !== undefined ? 512 : 0);
 
 const finishConversationSwitch = (
   trace: ConversationSwitchTrace,
@@ -868,6 +882,7 @@ const finishConversationSwitch = (
     [5, virtualListDurationMs],
     [6, positionDurationMs],
     [7, transitionDurationMs],
+    [8, elapsed(trace.mediaReadyAt, trace.transitionFinishedAt)],
   ] as const;
   const bottleneck = candidates.reduce<{ stage: number; duration: number }>(
     (current, [stage, duration]) => duration !== undefined && duration > current.duration
@@ -891,6 +906,10 @@ const finishConversationSwitch = (
     reactDurationMs: trace.reactDurationMs,
     frontendWorkDurationMs,
     visualResponseDurationMs,
+    titleUpdateDurationMs: elapsed(trace.titleCommittedAt, trace.startedAt),
+    messagesVisibleDurationMs: elapsed(trace.transitionFinishedAt, trace.startedAt),
+    firstScreenMediaDurationMs: trace.mediaReadyFailed ? undefined : elapsed(trace.mediaReadyAt, trace.startedAt),
+    firstScreenMediaFailed: trace.mediaReadyFailed,
     asyncWaitDurationMs,
     asyncWaitCount: trace.asyncWaitCount,
     asyncWaitInFlight,
@@ -907,7 +926,7 @@ const finishConversationSwitch = (
     bottleneckStage: bottleneck.stage,
     bottleneckDurationMs: bottleneck.duration,
     completedStageMask,
-    missingStageMask: REQUIRED_CONVERSATION_STAGE_MASK & ~completedStageMask,
+    missingStageMask: (REQUIRED_CONVERSATION_STAGE_MASK | (trace.trackPresentation ? 256 | 512 : 0)) & ~completedStageMask,
     timedOut: options.timedOut,
     cancelled: options.cancelled,
   });
@@ -918,7 +937,8 @@ const maybeFinishConversationSwitch = (trace: ConversationSwitchTrace) => {
     trace.selectionCommittedAt !== undefined &&
     trace.dataReadyAt !== undefined &&
     trace.positionedAt !== undefined &&
-    trace.transitionFinishedAt !== undefined
+    trace.transitionFinishedAt !== undefined &&
+    (!trace.trackPresentation || (trace.titleCommittedAt !== undefined && trace.mediaReadyAt !== undefined))
   ) {
     finishConversationSwitch(trace);
   }
@@ -929,6 +949,7 @@ export const beginConversationSwitch = (details: {
   messageCount: number;
   viewTransition: boolean;
   navigationKind: number;
+  trackPresentation?: boolean;
 }) => {
   if (!monitoringEnabled) return undefined;
   if (activeConversationTraceId !== undefined) {
@@ -945,6 +966,7 @@ export const beginConversationSwitch = (details: {
     cached: details.cached,
     viewTransition: details.viewTransition,
     navigationKind: details.navigationKind,
+    trackPresentation: details.trackPresentation === true,
     messageCount: details.messageCount,
     blockCount: 0,
     asyncWaitDurationMs: 0,
@@ -1015,6 +1037,11 @@ export const markConversationSwitch = (
   else if (stage === "positioned") trace.positionedAt = now;
   else if (stage === "transitionStarted") trace.transitionStartedAt ??= now;
   else if (stage === "transitionFinished") trace.transitionFinishedAt ??= now;
+  else if (stage === "titleCommitted") trace.titleCommittedAt ??= now;
+  else if (stage === "mediaReady") {
+    trace.mediaReadyAt ??= now;
+    trace.mediaReadyFailed = details.failed === true;
+  }
   maybeFinishConversationSwitch(trace);
 };
 

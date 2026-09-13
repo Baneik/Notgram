@@ -8,6 +8,7 @@ import { MessageReactions } from "./MessageReactions";
 import { MessageTextFlow } from "./MessageTextFlow";
 import { translate } from "../i18n";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
+import { observeConversationPresentation } from "../utils/conversationPresentation";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -366,6 +367,7 @@ interface ConversationProps {
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
   onViewportReady?: (identity: string) => void;
+  presentationBlocked?: boolean;
   onOpenMessage: (
     chatId: string,
     messageId: string,
@@ -459,6 +461,7 @@ export function Conversation({
   onLoadOlder,
   onOpenProfile,
   onViewportReady,
+  presentationBlocked = false,
   onOpenMessage,
   onOpenMessageSearch,
   onOpenChat,
@@ -1478,6 +1481,11 @@ export function Conversation({
     onViewportReady?.(conversationIdentity);
   }, [conversationIdentity, onViewportReady, pinnedViewOpen, positioning]);
 
+  useEffect(() => {
+    if (positioning || pinnedViewOpen || !messageListRef.current) return;
+    return observeConversationPresentation(messageListRef.current, performanceTraceId);
+  }, [performanceTraceId, pinnedViewOpen, positioning]);
+
   const sendMessageAndFollowLatest = useCallback(async (
     text: string,
     replyToMessageId?: string,
@@ -2293,7 +2301,7 @@ export function Conversation({
         value0: topic ? translate("{{value0}} 话题", { value0: topic.name }) : chat.title,
       })}
     >
-      <header className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
+      <header inert={presentationBlocked} className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
           <>
             <button
@@ -2447,7 +2455,7 @@ export function Conversation({
         />
       )}
 
-      <div className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
+      <div inert={presentationBlocked} className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
         {pinnedBannerVisible && (
           <PinnedMessageBanner
             messages={allPinnedMessages}

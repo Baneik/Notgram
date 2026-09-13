@@ -1,6 +1,5 @@
-import { copyCanvasContents } from "./copyCanvasContents";
 import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
-import { prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
+import { cloneConversationSnapshot, prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
 
 export interface ConversationSwitchSnapshot {
   element: HTMLElement;
@@ -15,7 +14,11 @@ export const captureConversationSwitchSnapshot = (
   const messageCount = sourceList?.querySelectorAll("[data-message-id]").length ?? 0;
   if (!source || !sourceList || messageCount === 0) return undefined;
 
-  const bounds = source.getBoundingClientRect();
+  const shellBounds = source.getBoundingClientRect();
+  const header = source.parentElement?.querySelector<HTMLElement>(".conversation-header");
+  const headerBounds = header?.getBoundingClientRect();
+  const bounds = { left: shellBounds.left, top: headerBounds?.top ?? shellBounds.top,
+    width: shellBounds.width, height: shellBounds.bottom - (headerBounds?.top ?? shellBounds.top) };
   if (bounds.width < 1 || bounds.height < 1) return undefined;
 
   const element = document.createElement("div");
@@ -24,7 +27,6 @@ export const captureConversationSwitchSnapshot = (
   element.dataset.snapshotMessageCount = String(messageCount);
   element.dataset.snapshotTarget = targetIdentity;
   element.setAttribute("aria-hidden", "true");
-  element.setAttribute("inert", "");
   Object.assign(element.style, {
     position: "fixed",
     left: `${bounds.left}px`,
@@ -33,13 +35,14 @@ export const captureConversationSwitchSnapshot = (
     height: `${bounds.height}px`,
     zIndex: "69",
     overflow: "hidden",
-    pointerEvents: "none",
+    pointerEvents: "auto",
     contain: "strict",
     background: getComputedStyle(source).getPropertyValue("--chat-canvas"),
   });
+  element.addEventListener("pointerdown", (event) => event.preventDefault());
+  element.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
 
-  const clone = source.cloneNode(true) as HTMLElement;
-  copyCanvasContents(source, clone);
+  const clone = cloneConversationSnapshot(source);
   clone.removeAttribute("id");
   clone.querySelector<HTMLElement>(".message-list-content")?.style.removeProperty("visibility");
   clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
@@ -47,7 +50,9 @@ export const captureConversationSwitchSnapshot = (
     .forEach((node) => node.setAttribute("tabindex", "-1"));
   Object.assign(clone.style, {
     width: "100%",
-    height: "100%",
+    height: `${shellBounds.height}px`,
+    position: "absolute",
+    top: `${shellBounds.top - bounds.top}px`,
     minHeight: "0",
     margin: "0",
     pointerEvents: "none",
@@ -57,11 +62,19 @@ export const captureConversationSwitchSnapshot = (
   shadow.adoptedStyleSheets = [getConversationSnapshotStyleSheet()];
   const context = document.createElement("div");
   context.className = "conversation-jump-snapshot";
+  context.inert = true;
   Object.assign(context.style, {
     width: "100%",
     height: "100%",
     overflow: "hidden",
   });
+  if (header && headerBounds) {
+    const headerClone = header.cloneNode(true) as HTMLElement;
+    headerClone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+    Object.assign(headerClone.style, { position: "absolute", top: "0", left: "0",
+      width: `${headerBounds.width}px`, height: `${headerBounds.height}px` });
+    context.append(headerClone);
+  }
   context.append(clone);
   shadow.append(context);
   document.body.append(element);

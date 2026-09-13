@@ -1,6 +1,5 @@
-import { copyCanvasContents } from "./copyCanvasContents";
 import { getConversationSnapshotStyleSheet } from "./conversationSnapshotStyles";
-import { prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
+import { cloneConversationSnapshot, prepareConversationSnapshotClone } from "./conversationSnapshotUtils";
 
 export interface ConversationJumpSnapshot {
   element: HTMLElement;
@@ -36,8 +35,7 @@ export const captureConversationJumpSnapshot = (
     contain: "strict",
   });
 
-  const clone = scroller.cloneNode(true) as HTMLElement;
-  copyCanvasContents(scroller, clone);
+  const clone = cloneConversationSnapshot(scroller);
   clone.removeAttribute("id");
   clone.removeAttribute("role");
   clone.removeAttribute("tabindex");

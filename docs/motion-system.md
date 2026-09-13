@@ -13,7 +13,7 @@ reduced-motion guidance from [web.dev](https://web.dev/articles/prefers-reduced-
 | Transient surfaces | Dialogs, drawers, toasts, anchored popovers | `MotionPresence` with a semantic `variant` |
 | Local feedback | New/deleted messages, spoiler reveal, media state | CSS animation using the shared tokens |
 | Content navigation | Explicit jumps to a distant message | Static relocation snapshot followed by one controlled deceleration |
-| Conversation handoff | Hide virtual-list measurement latency without changing state | Inert, bounded source-shell snapshot |
+| Conversation handoff | Hide virtual-list measurement latency without changing state | Bounded header and source-shell snapshot with inert contents |
 | Continuous feedback | Loading, animated media, audio spectrum | Only while active and when reduced motion is disabled |
 | Async feedback | Loading, pending actions, image decode | Delayed visibility and a bounded minimum visible time |
 
@@ -71,6 +71,10 @@ until `HTMLImageElement.decode()` completes. Decoded-resource knowledge is bound
 independent of the lifetime of a virtual row: an already-loaded cached resource restores
 before paint without another fade. Source replacement validates the current element and
 resolved URL before accepting a decode result; loading failures invalidate resource knowledge.
+Media surfaces opt into `retainWhileLoading`: the decoded image node stays in normal flow while
+its replacement loads and decodes in an absolute layer. Only the ready replacement takes over;
+it does not fade through an empty surface. Errors and superseded decodes retain the usable image.
+This is scoped to one media identity, not to unrelated items in a viewer or an account switch.
 
 The minimum-visible and exit-animation rules apply to presentation feedback, not to a
 viewport concealment layer. Conversation positioning feedback uses a delayed entrance and
@@ -87,8 +91,12 @@ performance sampling stop scheduling frames and resume from current state when v
 2. A scroll position has one writer. Animation code may request a semantic destination but cannot
    compete with `useConversationScroll`.
 3. Conversation switches do not use smooth scrolling or interactive/state-owning page snapshots.
-   Their optional source-shell handoff is `aria-hidden`, inert, pointer-transparent, interruptible,
-   and forcibly removed within 1500 ms. Explicit distant message jumps use a separate bounded,
+   Their optional header/source-shell handoff is `aria-hidden`, has inert cloned contents, consumes
+   pointer events, is interruptible, and is forcibly removed within 1500 ms. The destination header
+   and message shell remain inert until the snapshot exits. The composer and sidebar keep their
+   existing focus/navigation ownership. Exit completion follows the opacity transition event, with
+   a bounded timer fallback; resize, backgrounding and account changes clean up the handoff.
+   Explicit distant message jumps use a separate bounded,
    static snapshot while the virtual list relocates, then reveal one controlled deceleration. The
    source snapshot and destination list must not each run their own whole-list transform.
 4. New message animation is registered once by message identity and cannot replay after
@@ -101,6 +109,23 @@ performance sampling stop scheduling frames and resume from current state when v
    first, then animate presentation-only properties.
 8. Every CSS transition and keyframe uses a shared duration token and only changes `opacity` or
    `transform`. Run `npm run motion:check` to enforce this contract.
+
+## Snapshot and presentation timing
+
+Snapshot media is frozen directly into canvases, never serialized to PNG on the navigation path.
+Only media intersecting the viewport is rasterized, at displayed size with DPR capped at 2 and a
+per-surface area cap of four viewport pixel areas. Overscan retains geometry with its media sources
+removed. Cloned videos are disarmed before insertion; the original frame or poster supplies the
+visual fallback. The virtual list and its scroll coordinator retain ownership of destination geometry.
+
+Conversation diagnostics distinguish `titleUpdateDurationMs` (destination title committed),
+`messagesVisibleDurationMs` (positioned messages have an uncovered frame after the snapshot exits),
+and `firstScreenMediaDurationMs` (visible media has a decoded image, poster, canvas or video frame).
+The retained header shares the message handoff even though its destination DOM commits earlier.
+`visualResponseDurationMs` includes the actual handoff after transition start. Media readiness is
+observed independently and never delays interactivity or selection; failed, cancelled or timed-out
+loads do not produce a successful media-ready duration. Observers are bounded by the trace lifetime,
+pause in the background and clean up on navigation or completion.
 
 ## Message deletion
 

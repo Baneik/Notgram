@@ -740,10 +740,14 @@ export function App() {
     return true;
   }, [issueConversationScrollRequest]);
   const conversationSnapshotRef = useRef<ConversationSwitchSnapshot | undefined>(undefined);
+  const [conversationSnapshotTarget, setConversationSnapshotTarget] = useState<string>();
+  const conversationSnapshotReleaseCleanupRef = useRef<(() => void) | undefined>(undefined);
   const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
   const conversationSnapshotTimerRef =
     useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const discardConversationSnapshot = useCallback(() => {
+    conversationSnapshotReleaseCleanupRef.current?.();
+    conversationSnapshotReleaseCleanupRef.current = undefined;
     if (conversationSnapshotTimerRef.current !== undefined) {
       globalThis.clearTimeout(conversationSnapshotTimerRef.current);
       conversationSnapshotTimerRef.current = undefined;
@@ -751,6 +755,7 @@ export function App() {
     removeConversationSwitchSnapshot(conversationSnapshotRef.current);
     conversationSnapshotRef.current = undefined;
     conversationSnapshotTargetRef.current = undefined;
+    setConversationSnapshotTarget(undefined);
   }, []);
   const beginConversationSnapshot = useCallback((
     targetIdentity: string,
@@ -778,6 +783,7 @@ export function App() {
     if (!snapshot) return;
 
     conversationSnapshotTargetRef.current = targetIdentity;
+    setConversationSnapshotTarget(targetIdentity);
     snapshot.element.dataset.snapshotTarget = targetIdentity;
     if (conversationSnapshotTimerRef.current !== undefined) {
       globalThis.clearTimeout(conversationSnapshotTimerRef.current);
@@ -797,23 +803,33 @@ export function App() {
       ? conversationIdentityFor(state.activeChatId, state.activeTopicId)
       : undefined;
     if (activeIdentity !== identity) return;
+    if (conversationSnapshotRef.current.element.classList.contains("is-releasing")) return;
 
     if (conversationSnapshotTimerRef.current !== undefined) {
       globalThis.clearTimeout(conversationSnapshotTimerRef.current);
     }
-    if (document.documentElement.classList.contains("reduce-motion")) {
+    if (document.hidden || document.documentElement.classList.contains("reduce-motion")) {
       discardConversationSnapshot();
       return;
     }
-    conversationSnapshotRef.current.element.classList.add("is-releasing");
+    const element = conversationSnapshotRef.current.element;
+    const finish = (event: TransitionEvent) => {
+      if (event.target === element && event.propertyName === "opacity") discardConversationSnapshot();
+    };
+    element.addEventListener("transitionend", finish);
+    conversationSnapshotReleaseCleanupRef.current = () => element.removeEventListener("transitionend", finish);
+    element.classList.add("is-releasing");
     conversationSnapshotTimerRef.current = globalThis.setTimeout(
       discardConversationSnapshot,
       motionLifecycleTiming.snapshotRelease,
     );
   }, [discardConversationSnapshot]);
   useEffect(() => {
+    const handleVisibility = () => { if (document.hidden) discardConversationSnapshot(); };
+    document.addEventListener("visibilitychange", handleVisibility);
     globalThis.addEventListener("resize", discardConversationSnapshot, { passive: true });
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
       globalThis.removeEventListener("resize", discardConversationSnapshot);
       discardConversationSnapshot();
     };
@@ -1072,6 +1088,7 @@ export function App() {
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
       viewTransition: false,
+      trackPresentation: true,
       navigationKind: 3,
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
@@ -1097,7 +1114,7 @@ export function App() {
       state.selectChat(chatId, { forumTopicId: targetTopicId });
     });
     requestAnimationFrame(() => {
-      markConversationSwitch(performanceTraceId, "transitionFinished");
+      markConversationSwitch(performanceTraceId, "titleCommitted");
     });
   }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
@@ -1163,6 +1180,7 @@ export function App() {
       cached: Boolean(cachedTarget),
       messageCount: targetMessages.length,
       viewTransition: false,
+      trackPresentation: true,
       navigationKind: 3,
     });
     const inPlace = state.activeChatId === chatId && (
@@ -1248,7 +1266,7 @@ export function App() {
       }
     });
     requestAnimationFrame(() => {
-      markConversationSwitch(performanceTraceId, "transitionFinished");
+      markConversationSwitch(performanceTraceId, "titleCommitted");
     });
   }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, loadMessage, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
@@ -1548,6 +1566,7 @@ export function App() {
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
       viewTransition: false,
+      trackPresentation: true,
       navigationKind: 2,
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
@@ -1566,7 +1585,7 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     requestAnimationFrame(() => {
-      markConversationSwitch(performanceTraceId, "transitionFinished");
+      markConversationSwitch(performanceTraceId, "titleCommitted");
     });
   };
 
@@ -1591,6 +1610,7 @@ export function App() {
       cached: targetMessages.length > 0,
       messageCount: targetMessages.length,
       viewTransition: false,
+      trackPresentation: true,
       navigationKind: 4,
     });
     syncConversationNavigation(locationForChat(chatId, topicId));
@@ -1610,7 +1630,7 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     requestAnimationFrame(() => {
-      markConversationSwitch(performanceTraceId, "transitionFinished");
+      markConversationSwitch(performanceTraceId, "titleCommitted");
     });
     if (serverMessageId && !serverMessageLoaded) {
       void (async () => {
@@ -1835,6 +1855,7 @@ export function App() {
                 cached: targetMessages.length > 0,
                 messageCount: targetMessages.length,
                 viewTransition: false,
+                trackPresentation: true,
                 navigationKind: 1,
               });
               markConversationSwitch(performanceTraceId, "transitionStarted");
@@ -1855,7 +1876,7 @@ export function App() {
                 });
               });
               requestAnimationFrame(() => {
-                markConversationSwitch(performanceTraceId, "transitionFinished");
+                markConversationSwitch(performanceTraceId, "titleCommitted");
               });
               if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
                 void (async () => {
@@ -1957,6 +1978,7 @@ export function App() {
                 ? `${activeAccountId}:${activeChatId}:topic:${activeTopicId}`
                 : `${activeAccountId}:${activeChatId ?? "empty-conversation"}`}
               chat={activeChat}
+          presentationBlocked={Boolean(activeChatId && conversationSnapshotTarget === conversationIdentityFor(activeChatId, activeTopicId))}
           topic={activeTopic}
           topics={activeTopics}
           onSelectTopic={openForumTopic}

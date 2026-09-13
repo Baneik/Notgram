@@ -937,6 +937,7 @@ function MessageBubbleComponent({
                   />
                 ) : imageMediaSource && content.mediaType === "animation" ? (
                   <StableImage
+                    retainWhileLoading
                     src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"
@@ -962,6 +963,7 @@ function MessageBubbleComponent({
                     }}
                   >
                     <StableImage
+                      retainWhileLoading
                       src={imageMediaSource}
                       alt={content.caption || content.fileName}
                       loading="lazy"
@@ -977,6 +979,7 @@ function MessageBubbleComponent({
                   </button>
                 ) : imageMediaSource ? (
                   <StableImage
+                    retainWhileLoading
                     src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"

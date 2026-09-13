@@ -301,6 +301,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         onError={() => markSourceFailed(mediaSource, fileIdForSource(mediaSource))}
       />
       : <StableImage
+        retainWhileLoading
         src={mediaSource}
         alt={media.fileName}
         loading="lazy"

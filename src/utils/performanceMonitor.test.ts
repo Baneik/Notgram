@@ -273,6 +273,41 @@ describe("performance monitor", () => {
     ]);
   });
 
+  it("keeps title, message handoff and media readiness on separate timelines", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const traceId = beginConversationSwitch({ cached: true, messageCount: 3,
+      viewTransition: false, navigationKind: 1, trackPresentation: true });
+    markConversationSwitch(traceId, "transitionStarted");
+    markConversationSwitch(traceId, "selectionCommitted");
+    now = 25;
+    markConversationSwitch(traceId, "titleCommitted");
+    markConversationSwitch(traceId, "dataReady");
+    now = 180;
+    markConversationSwitch(traceId, "positioned");
+    expect(getPerformanceRecords()).toHaveLength(0);
+    now = 260;
+    markConversationSwitch(traceId, "transitionFinished");
+    expect(getPerformanceRecords()).toHaveLength(0);
+    now = 620;
+    markConversationSwitch(traceId, "mediaReady");
+    expect(getPerformanceRecords()[0]?.details).toMatchObject({
+      titleUpdateDurationMs: 25, messagesVisibleDurationMs: 260,
+      visualResponseDurationMs: 260, firstScreenMediaDurationMs: 620,
+      missingStageMask: 0, firstScreenMediaFailed: false,
+    });
+  });
+
+  it("does not report failed first-screen media as ready", () => {
+    const traceId = beginConversationSwitch({ cached: true, messageCount: 1,
+      viewTransition: false, navigationKind: 1, trackPresentation: true });
+    for (const stage of ["transitionStarted", "selectionCommitted", "dataReady", "titleCommitted",
+      "positioned", "transitionFinished"] as const) markConversationSwitch(traceId, stage);
+    markConversationSwitch(traceId, "mediaReady", { failed: true });
+    expect(getPerformanceRecords()[0]?.details.firstScreenMediaFailed).toBe(true);
+    expect(getPerformanceRecords()[0]?.details).not.toHaveProperty("firstScreenMediaDurationMs");
+  });
+
   it("reports an incomplete trace without treating its eight-second timer as a UI stall", async () => {
     vi.useFakeTimers();
     let now = 0;

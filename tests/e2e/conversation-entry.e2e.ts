@@ -204,16 +204,22 @@ test("conversation switch snapshot preserves the source message geometry", async
 
     const sourceRows = readRows(sourceList);
     const source = readList(sourceList, sourceContent);
+    const viewport = sourceList.getBoundingClientRect();
     const sourceCanvases = [...sourceList.querySelectorAll<HTMLCanvasElement>("canvas")]
-      .map((canvas) => canvas.toDataURL());
+      .filter((canvas) => {
+        const bounds = canvas.getBoundingClientRect();
+        const style = getComputedStyle(canvas);
+        return bounds.width > 0 && bounds.height > 0 && bounds.bottom > viewport.top &&
+          bounds.top < viewport.bottom && bounds.right > viewport.left && bounds.left < viewport.right &&
+          style.opacity !== "0" && style.visibility !== "hidden";
+      });
     const snapshot = snapshotModule.captureConversationSwitchSnapshot("geometry-test");
     if (!snapshot) throw new Error("Conversation switch snapshot was not captured");
     try {
       const cloneList = snapshot.content.closest<HTMLElement>(".message-list");
       if (!cloneList) throw new Error("Snapshot message list is unavailable");
       const cloneRows = readRows(cloneList);
-      const cloneCanvases = [...cloneList.querySelectorAll<HTMLCanvasElement>("canvas")]
-        .map((canvas) => canvas.toDataURL());
+      const cloneCanvases = [...cloneList.querySelectorAll<HTMLCanvasElement>('canvas[data-snapshot-media="canvas"]')];
       const differences = [...sourceRows].flatMap(([id, sourceRow]) => {
         const cloneRow = cloneRows.get(id);
         if (!cloneRow) return [];
@@ -230,7 +236,13 @@ test("conversation switch snapshot preserves the source message geometry", async
         maxRowDifference: Math.max(0, ...differences),
         canvasCount: sourceCanvases.length,
         canvasPixelsMatch: cloneCanvases.length === sourceCanvases.length &&
-          cloneCanvases.every((canvas, index) => canvas === sourceCanvases[index]),
+          cloneCanvases.every((canvas, index) => {
+            const expected = document.createElement("canvas");
+            expected.width = canvas.width;
+            expected.height = canvas.height;
+            expected.getContext("2d")!.drawImage(sourceCanvases[index]!, 0, 0, expected.width, expected.height);
+            return canvas.toDataURL() === expected.toDataURL();
+          }),
       };
     } finally {
       snapshotModule.removeConversationSwitchSnapshot(snapshot);
