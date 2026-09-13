@@ -21,6 +21,7 @@ import {
   type TdObject,
 } from "./tdlibMapper";
 import { FileDownloadQueue } from "./fileDownloadQueue";
+import { TdFileStateCache } from "./tdFileStateCache";
 import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
 import { installConnectionRecoveryMonitor } from "./connectionRecoveryMonitor";
@@ -404,6 +405,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private chatListIds = new Map<string, Set<string>>();
   private chatListsNeedingRefresh = new Set<string>();
   private exhaustedChatLists = new Set<string>();
+  private fileStates = new TdFileStateCache();
   private fileDownloads = new FileDownloadQueue(
     (request) => this.request(request),
     (file) => this.updateFile(file),
@@ -2283,7 +2285,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const generation = this.sessionGeneration;
     const response = await this.requestBroker.request(request, timeoutMs);
     if (generation !== this.sessionGeneration) throw new Error("TDLib session superseded");
-    return response;
+    return this.fileStates.resolve(response);
   }
 
   private assertSyncGeneration(generation: number) {
@@ -2321,6 +2323,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private handleUpdate(update: TdObject) {
+    this.fileStates.observe(update);
     if (update["@type"] === "updateNotgramConnectionState") {
       this.handleNativeConnectionState(update);
       return;
@@ -2664,6 +2667,7 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private upsertUser(raw?: TdObject, cacheRelevant = true) {
     if (!raw) return;
+    raw = this.fileStates.resolve(raw);
     const id = tdId(raw.id);
     const user = mapTdUser(raw);
     if (!id || !user) return;
@@ -2692,6 +2696,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private canonicalizeRawMessage(raw: TdObject) {
+    raw = this.fileStates.resolve(raw);
     const chatId = tdId(raw.chat_id);
     const canonicalChatId = chatId ? this.canonicalChatId(chatId) : chatId;
     return chatId && canonicalChatId && chatId !== canonicalChatId
@@ -2912,6 +2917,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private mapChat(raw: TdObject) {
+    raw = this.fileStates.resolve(raw);
     if (this.consumedChatSnapshots.has(raw)) raw = this.rawChats.get(tdId(raw.id)) ?? raw;
     const rawId = tdId(raw.id);
     const canonicalId = rawId ? this.canonicalChatId(rawId) : rawId;
@@ -3077,6 +3083,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private updateFile(file?: TdObject) {
+    this.fileStates.observe(file);
+    file = this.fileStates.resolve(file);
     const fileId = tdNumber(file?.id);
     if (!file || fileId === undefined) return;
     const local = asTdObject(file.local);
@@ -3837,6 +3845,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.chatListIds.clear();
     this.exhaustedChatLists.clear();
     this.fileDownloads.reset();
+    this.fileStates.clear();
     for (const pending of this.pendingDownloads.values()) {
       pending.reject(new Error(translate("TDLib 会话已重置，下载未完成")));
     }
