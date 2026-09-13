@@ -43,6 +43,8 @@ export function FolderManagerDialog({
       ? chats.filter((chat) => chat.folderIds.includes(initialFolder.id)).map((chat) => chat.id)
       : [],
   ));
+  // Freeze selected-first priority for this editing session; toggles and saves must not move rows.
+  const [sortPriorityIds, setSortPriorityIds] = useState(selectedChatIds);
   const [query, setQuery] = useState("");
   const [chatFilter, setChatFilter] = useState<FolderChatFilter>("all");
   const [saving, setSaving] = useState(false);
@@ -62,8 +64,10 @@ export function FolderManagerDialog({
 
   const language = currentLanguage();
   const visibleChats = useMemo(() => filterFolderChats(
-    chats, users, selectedChatIds, query, chatFilter, language,
-  ), [chats, users, selectedChatIds, query, chatFilter, language]);
+    chats, users, sortPriorityIds, query, chatFilter, language,
+  ), [chats, users, sortPriorityIds, query, chatFilter, language]);
+  const selectedVisibleCount = visibleChats.filter((chat) => selectedChatIds.has(chat.id)).length;
+  const allVisibleSelected = visibleChats.length > 0 && selectedVisibleCount === visibleChats.length;
   const kindLabels = {
     direct: translate("私聊"),
     bot: translate("机器人"),
@@ -81,9 +85,11 @@ export function FolderManagerDialog({
     const folder = customFolders.find((item) => item.id === folderId);
     setActiveId(folder?.id ?? NEW_FOLDER);
     setTitle(folder?.title ?? "");
-    setSelectedChatIds(new Set(folder
+    const memberIds = new Set(folder
       ? chats.filter((chat) => chat.folderIds.includes(folder.id)).map((chat) => chat.id)
-      : []));
+      : []);
+    setSelectedChatIds(memberIds);
+    setSortPriorityIds(memberIds);
     clearFilters();
     setDeleteConfirm(false);
   }
@@ -93,6 +99,17 @@ export function FolderManagerDialog({
       const next = new Set(current);
       if (next.has(chatId)) next.delete(chatId);
       else next.add(chatId);
+      return next;
+    });
+  };
+
+  const toggleVisibleChats = () => {
+    setSelectedChatIds((current) => {
+      const next = new Set(current);
+      for (const chat of visibleChats) {
+        if (allVisibleSelected) next.delete(chat.id);
+        else next.add(chat.id);
+      }
       return next;
     });
   };
@@ -214,12 +231,23 @@ export function FolderManagerDialog({
             </div>
             <div className="folder-chat-results">
               <div className="folder-chat-list-meta">
-                <span>{translate("已选优先 · 按名称排序")}</span>
+                <label className="folder-chat-select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    ref={(element) => {
+                      if (element) element.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+                    }}
+                    disabled={busy || visibleChats.length === 0}
+                    onChange={toggleVisibleChats}
+                  />
+                  <span>{translate("全选当前结果")}</span>
+                </label>
                 <span role="status">{translate("{{value0}} 个会话", { value0: visibleChats.length })}</span>
               </div>
               <div className="folder-chat-list">
                 {visibleChats.map((chat) => (
-                  <label className={`folder-chat-row${selectedChatIds.has(chat.id) ? " is-selected" : ""}`} key={chat.id}>
+                  <label className="folder-chat-row" key={chat.id}>
                     <input
                       type="checkbox"
                       aria-label={chat.title}

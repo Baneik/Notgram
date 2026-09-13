@@ -2693,13 +2693,11 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .folder-list-item.is-active { color: var(--ink); background: var(--color-bg-selected); font-weight: 600; }
 .folder-list-item.is-active svg { color: var(--accent); }
 .folder-list-item:disabled { opacity: 0.5; cursor: default; }
-.folder-list-item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .folder-list-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-editor { min-width: 0; min-height: 0; padding: 16px 16px 12px; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 10px; }
 .folder-name-field { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; color: var(--muted); font-size: 12px; }
 .folder-name-field > span { grid-area: 1 / 1; }
 .folder-name-field input { grid-column: 1 / -1; min-width: 0; height: 36px; padding: 0 10px; color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--line); border-radius: 6px; outline: 0; font-size: 13px; }
-.folder-name-field input:focus { border-color: var(--accent); }
 .folder-name-field input[aria-invalid="true"] { border-color: var(--color-status-danger); }
 .folder-name-field small { grid-area: 1 / 2; align-self: center; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .folder-members-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; }
@@ -2710,14 +2708,14 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   min-width: 0; height: 36px; padding: 0 10px; display: grid; grid-template-columns: auto minmax(0, 1fr);
   align-items: center; gap: 7px; color: var(--muted); background: var(--color-bg-control); border: 1px solid var(--line); border-radius: 6px;
 }
-.folder-chat-search:focus-within { border-color: var(--accent); }
 .folder-chat-search input { width: 100%; min-width: 0; color: var(--ink); border: 0; outline: 0; background: transparent; font-size: 12px; }
 .folder-chat-type { position: relative; min-width: 0; }
 .folder-chat-type select { width: 100%; height: 36px; padding: 0 30px 0 10px; appearance: none; color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; cursor: pointer; }
-.folder-chat-type select:focus { border-color: var(--accent); }
 .folder-chat-type > svg { position: absolute; right: 10px; top: 11px; color: var(--muted); pointer-events: none; }
 .folder-chat-results { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 7px; }
 .folder-chat-list-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 11px; }
+.folder-chat-select-all { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.folder-chat-select-all:has(input:disabled) { opacity: 0.5; cursor: default; }
 .folder-chat-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border: 1px solid var(--line); border-radius: 6px; overflow-anchor: none; }
 .folder-chat-list::-webkit-scrollbar { display: none; }
 .folder-chat-row {
@@ -2725,11 +2723,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 9px; cursor: pointer;
 }
 .folder-chat-row:hover { background: var(--surface-hover); }
-.folder-chat-row.is-selected { background: var(--accent-soft); }
-.folder-chat-row.is-selected:hover { background: var(--color-bg-selected); }
-.folder-chat-row.is-selected + .folder-chat-row:not(.is-selected) { border-top: 1px solid var(--line); }
-.folder-chat-row:focus-within { box-shadow: inset 0 0 0 2px var(--accent); }
-.folder-chat-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.folder-chat-row input, .folder-chat-select-all input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .folder-chat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .folder-chat-kind { color: var(--muted); font-size: 10px; }
 .folder-chat-empty { min-height: 100%; padding: 24px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; text-align: center; }
@@ -2743,7 +2737,6 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 }
 .folder-editor-actions button:disabled { opacity: 0.5; cursor: default; }
 .folder-delete { width: 36px; height: 36px; margin-right: auto; padding: 0; display: grid; place-items: center; color: var(--color-status-danger); background: transparent; border: 1px solid color-mix(in srgb, var(--color-status-danger) 42%, var(--color-bg-surface)); border-radius: 6px; cursor: pointer; }
-.folder-editor-actions button:focus-visible, .folder-chat-empty button:focus-visible { box-shadow: 0 0 0 2px var(--color-bg-elevated), 0 0 0 4px var(--accent); }
 .folder-delete-confirm { margin-right: auto; display: flex; gap: 6px; }
 .folder-delete-confirm button { min-height: 40px; padding: 0 10px; color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--color-border-strong); border-radius: 7px; cursor: pointer; font-size: 11px; }
 .folder-delete-confirm button.is-danger { color: var(--color-text-on-accent); background: var(--color-status-danger); border-color: var(--color-status-danger); }

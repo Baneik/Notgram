@@ -9,7 +9,7 @@ export const folderChatKind = (chat: Chat, users: ReadonlyMap<string, User>): Fo
 export const filterFolderChats = (
   chats: readonly Chat[],
   users: ReadonlyMap<string, User>,
-  selectedIds: ReadonlySet<string>,
+  priorityIds: ReadonlySet<string>,
   query: string,
   filter: FolderChatFilter,
   language: string,
@@ -24,7 +24,7 @@ export const filterFolderChats = (
     }
     return filter === "all" || folderChatKind(chat, users) === filter;
   }).sort((left, right) =>
-    Number(selectedIds.has(right.id)) - Number(selectedIds.has(left.id)) ||
+    Number(priorityIds.has(right.id)) - Number(priorityIds.has(left.id)) ||
     collator.compare(left.title, right.title) ||
     // Equal names must not inherit the message-driven order of the source list.
     (left.id === right.id ? 0 : left.id < right.id ? -1 : 1),
