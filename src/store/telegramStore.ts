@@ -4593,6 +4593,10 @@ export const createTelegramStore = (
         await transport.cacheFile(fileId, priority);
       },
 
+      releaseFile: (fileId) => {
+        transport.releaseFile?.(fileId);
+      },
+
       recoverFile: async (fileId, priority) => {
         try {
           await transport.recoverFile(fileId, priority);

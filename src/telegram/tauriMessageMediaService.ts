@@ -231,6 +231,8 @@ export interface PendingDownload {
 }
 
 export class TauriMessageMediaService {
+  private readonly activeStreams = new Set<number>();
+
   constructor(private readonly context: TauriMessageMediaServiceContext) {}
 
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
@@ -725,6 +727,7 @@ export class TauriMessageMediaService {
 
   async downloadFile(fileId: number, fileName: string, sourcePath?: string) {
     if (sourcePath) return invoke<string>("telegram_save_downloaded_file", { sourcePath, fileName });
+    this.context.fileDownloads.allow(fileId);
     const existing = this.context.pendingDownloads.get(fileId);
     if (existing) return existing.promise;
     let resolveDownload!: (path: string) => void;
@@ -757,7 +760,7 @@ export class TauriMessageMediaService {
       this.context.pendingDownloads.delete(fileId);
       pending.reject(new Error(translate("文件下载已取消")));
     }
-    this.context.fileDownloads.cancel(fileId);
+    this.context.fileDownloads.suppress(fileId);
     await this.context.request({
       "@type": "cancelDownloadFile",
       file_id: fileId,
@@ -785,6 +788,10 @@ export class TauriMessageMediaService {
     return this.context.fileDownloads.cache(fileId, priority);
   }
 
+  releaseFile(fileId: number) {
+    this.context.fileDownloads.release(fileId);
+  }
+
   async resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined> {
     const generation = this.context.sessionGeneration();
     const raw = await this.context.request({ "@type": "getRemoteFile", remote_file_id: remoteId, file_type: null });
@@ -795,22 +802,41 @@ export class TauriMessageMediaService {
   }
 
   async recoverFile(fileId: number, priority = 32) {
-    this.context.fileDownloads.cancel(fileId);
+    const generation = this.context.sessionGeneration();
+    this.context.fileDownloads.allow(fileId);
     await this.context.recoverFile(fileId);
+    // A recovery response may arrive after account logout/switch. Never put a
+    // file owned by the previous TDLib session back into the new queue.
+    if (generation !== this.context.sessionGeneration()) {
+      throw new Error("TDLib session superseded");
+    }
     await this.context.fileDownloads.cache(fileId, priority);
   }
 
   async streamFile({ fileId, size, mimeType }: StreamFileInput) {
-    const session = await invoke<number>("telegram_register_media_stream", {
-      fileId,
-      size,
-      mimeType: mimeType ?? "video/mp4",
-    });
+    // A preview stream owns the TDLib range request. Drop an opportunistic
+    // queued cache request for the same file so the two requests cannot move
+    // the file cursor or cancel each other.
+    const ownsFile = !this.context.pendingDownloads.has(fileId);
+    if (ownsFile) this.context.fileDownloads.suppress(fileId);
+    let session: number;
+    try {
+      session = await invoke<number>("telegram_register_media_stream", {
+        fileId,
+        size,
+        mimeType: mimeType ?? "video/mp4",
+      });
+    } catch (error) {
+      if (ownsFile) this.context.fileDownloads.allow(fileId);
+      throw error;
+    }
+    this.activeStreams.add(fileId);
     return `${convertFileSrc(String(fileId), "notgram-media")}?session=${session}`;
   }
 
   async suspendFileStream(fileId: number) {
     if (this.context.pendingDownloads.has(fileId)) return;
+    this.activeStreams.delete(fileId);
     await invoke("telegram_suspend_media_stream", { fileId }).catch(() => undefined);
     await this.context.request({
       "@type": "cancelDownloadFile",

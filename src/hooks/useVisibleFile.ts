@@ -34,6 +34,7 @@ export const useVisibleFile = <T extends Element>(
     const dispose = () => {
       disposed = true;
       request.dispose();
+      telegramStore.getState().releaseFile?.(fileId);
       globalThis.removeEventListener?.("online", request.retry);
     };
 

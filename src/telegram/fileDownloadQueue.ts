@@ -11,7 +11,9 @@ type QueuedDownload = {
 
 type RequestFile = (request: TdObject) => Promise<TdObject>;
 
-const MAX_ACTIVE_DOWNLOADS = 6;
+// Keep enough slots for a fast conversation switch while retaining a small
+// reservation for low-priority prefetch work.
+const MAX_ACTIVE_DOWNLOADS = 12;
 const MAX_BACKGROUND_DOWNLOADS = 3;
 const INTERACTIVE_PRIORITY = 20;
 const DOWNLOAD_STALL_MS = 45_000;
@@ -22,6 +24,7 @@ export class FileDownloadQueue {
   private queue: QueuedDownload[] = [];
   private active = new Map<number, QueuedDownload>();
   private promises = new Map<number, Promise<void>>();
+  private suppressed = new Set<number>();
 
   constructor(
     private readonly request: RequestFile,
@@ -30,6 +33,7 @@ export class FileDownloadQueue {
   ) {}
 
   cache(fileId: number, priority = 16) {
+    if (this.suppressed.has(fileId)) return Promise.resolve();
     const existing = this.promises.get(fileId);
     if (existing) {
       this.promote(fileId, priority);
@@ -98,7 +102,20 @@ export class FileDownloadQueue {
   }
 
   handleFile(fileId: number, completed: boolean, active: boolean, downloadedSize?: number) {
-    if (completed) this.finish(fileId);
+    if (completed) {
+      // TDLib may report completion before the queued request reaches the
+      // native bridge. Settle both active and waiting entries so callers do
+      // not wait for a slot that is no longer needed.
+      if (!this.finish(fileId)) {
+        const queuedIndex = this.queue.findIndex((download) => download.fileId === fileId);
+        if (queuedIndex >= 0) {
+          const [download] = this.queue.splice(queuedIndex, 1);
+          this.promises.delete(fileId);
+          download.resolve();
+        }
+      }
+      this.pump();
+    }
     else {
       const download = this.active.get(fileId);
       if (!download) return;
@@ -122,6 +139,7 @@ export class FileDownloadQueue {
     this.queue = [];
     this.active.clear();
     this.promises.clear();
+    this.suppressed.clear();
   }
 
   private pump() {
@@ -182,13 +200,32 @@ export class FileDownloadQueue {
 
   private finish(fileId: number, error?: Error) {
     const download = this.active.get(fileId);
-    if (!download) return;
+    if (!download) return false;
     if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
     this.active.delete(fileId);
     this.promises.delete(fileId);
     if (error) download.reject(error);
     else download.resolve();
     this.pump();
+    return true;
+  }
+
+  suppress(fileId: number) {
+    this.suppressed.add(fileId);
+    this.cancel(fileId);
+  }
+
+  allow(fileId: number) {
+    this.suppressed.delete(fileId);
+  }
+
+  /** Release an automatic prefetch when its view is no longer mounted. */
+  release(fileId: number) {
+    const queued = this.queue.find((download) => download.fileId === fileId);
+    if (queued && queued.priority < INTERACTIVE_PRIORITY) return this.cancel(fileId);
+    const active = this.active.get(fileId);
+    if (active && active.priority < INTERACTIVE_PRIORITY) return this.cancel(fileId);
+    return false;
   }
 
   private armStallTimer(download: QueuedDownload) {

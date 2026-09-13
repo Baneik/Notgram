@@ -16,11 +16,22 @@ interface AvatarProps {
 export function Avatar({ avatar, size = "medium", active = true, preload = false }: AvatarProps) {
   const recoverFile = useTelegramStore((state) => state.recoverFile);
   const attemptedRecovery = useRef(new Set<string>());
+  const retryAttempts = useRef(new Map<string, number>());
+  const retryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [failedSource, setFailedSource] = useState<string>();
   const [requestedImage, setRequestedImage] = useState(active || preload);
   useEffect(() => {
     if (active || preload) setRequestedImage(true);
   }, [active, preload]);
+  useEffect(() => () => {
+    for (const timer of retryTimers.current.values()) clearTimeout(timer);
+    retryTimers.current.clear();
+  }, []);
+  useEffect(() => {
+    const retry = () => setFailedSource(undefined);
+    globalThis.addEventListener?.("online", retry);
+    return () => globalThis.removeEventListener?.("online", retry);
+  }, []);
   const targetRef = useVisibleFile<HTMLSpanElement>(
     avatar.fileId,
     (active || preload) && !avatar.imagePath && avatar.canDownload === true && avatar.isDownloading !== true,
@@ -50,11 +61,27 @@ export function Avatar({ avatar, size = "medium", active = true, preload = false
           draggable={false}
           onError={() => {
             setFailedSource(imageSource);
-            if (avatar.fileId === undefined || attemptedRecovery.current.has(imageSource)) return;
+            const attempts = (retryAttempts.current.get(imageSource) ?? 0) + 1;
+            retryAttempts.current.set(imageSource, attempts);
+            const scheduleRetry = () => {
+              if (retryTimers.current.has(imageSource)) return;
+              const timer = setTimeout(() => {
+                retryTimers.current.delete(imageSource);
+                setFailedSource((current) => current === imageSource ? undefined : current);
+              }, Math.min(30_000, 1_000 * 2 ** Math.min(attempts - 1, 5)));
+              retryTimers.current.set(imageSource, timer);
+            };
+            if (avatar.fileId === undefined || attemptedRecovery.current.has(imageSource)) {
+              scheduleRetry();
+              return;
+            }
             attemptedRecovery.current.add(imageSource);
             void recoverFile(avatar.fileId, 24).then((recovered) => {
-              if (recovered) setFailedSource(undefined);
-            });
+              if (recovered) {
+                retryAttempts.current.delete(imageSource);
+                setFailedSource(undefined);
+              }
+            }).catch(() => undefined).finally(scheduleRetry);
           }}
         />
       )}

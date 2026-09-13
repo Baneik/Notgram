@@ -2130,6 +2130,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.cacheFile(fileId, priority);
   }
 
+  releaseFile(fileId: number) {
+    this.messageMediaService.releaseFile(fileId);
+  }
+
   resolveRemoteFile(remoteId: string) {
     return this.messageMediaService.resolveRemoteFile(remoteId);
   }

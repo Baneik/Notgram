@@ -53,6 +53,31 @@ describe("FileDownloadQueue cancellation", () => {
     expect(request.mock.calls.some(([value]) => value.file_id === 5)).toBe(false);
   });
 
+  it("settles a queued entry when TDLib reports completion first", async () => {
+    const request = vi.fn((_request: TdObject) => new Promise<TdObject>(() => undefined));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    for (let fileId = 1; fileId <= 3; fileId += 1) void queue.cache(fileId, 12);
+    const queued = queue.cache(4, 12);
+
+    queue.handleFile(4, true, false, 1_024);
+
+    await expect(queued).resolves.toBeUndefined();
+    expect(queue.get(4)).toBeUndefined();
+    expect(request.mock.calls.some(([value]) => value.file_id === 4)).toBe(false);
+  });
+
+  it("suppresses automatic retries after an explicit cancel until allowed", async () => {
+    const request = vi.fn((_request: TdObject) => new Promise<TdObject>(() => undefined));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    queue.suppress(9);
+    await expect(queue.cache(9, 18)).resolves.toBeUndefined();
+    expect(request).not.toHaveBeenCalled();
+    queue.allow(9);
+    void queue.cache(9, 18);
+    await Promise.resolve();
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ file_id: 9 }));
+  });
+
   it("rejects and forgets an active download so it can be retried", async () => {
     const request = vi.fn(async () => ({
       "@type": "file",

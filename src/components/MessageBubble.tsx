@@ -16,6 +16,7 @@ import {
 import {
   Fragment,
   memo,
+  useEffect,
   useCallback,
   useRef,
   useState,
@@ -233,6 +234,8 @@ function MessageBubbleComponent({
     () => new Set(),
   );
   const attemptedMediaRecoveryRef = useRef(new Set<string>());
+  const mediaFailureAttemptsRef = useRef(new Map<string, number>());
+  const mediaRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [readyStickerSource, setReadyStickerSource] = useState<string>();
   const contextReplyQuoteRef = useRef<MessageReplyQuote | undefined>(undefined);
   const [measuredMedia, setMeasuredMedia] = useState<{
@@ -325,6 +328,23 @@ function MessageBubbleComponent({
     ? usablePreviewSource
     : usableFullMediaSource ?? usablePreviewSource;
   const activeMediaSource = usableFullMediaSource ?? usablePreviewSource;
+  useEffect(() => {
+    const validSources = new Set([fullMediaSource, previewSource].filter((value): value is string => Boolean(value)));
+    setFailedMediaSources((current) => {
+      const next = new Set([...current].filter((source) => validSources.has(source)));
+      return next.size === current.size ? current : next;
+    });
+    for (const [source, timer] of mediaRetryTimersRef.current) {
+      if (validSources.has(source)) continue;
+      clearTimeout(timer);
+      mediaRetryTimersRef.current.delete(source);
+      mediaFailureAttemptsRef.current.delete(source);
+    }
+  }, [fullMediaSource, previewSource]);
+  useEffect(() => () => {
+    for (const timer of mediaRetryTimersRef.current.values()) clearTimeout(timer);
+    mediaRetryTimersRef.current.clear();
+  }, []);
   const measuredSize = measuredMedia && (
     measuredMedia.source === activeMediaSource || failedMediaSources.has(measuredMedia.source)
   ) ? measuredMedia : undefined;
@@ -366,11 +386,37 @@ function MessageBubbleComponent({
       next.add(source);
       return next;
     });
-    if (attemptedMediaRecoveryRef.current.has(source) || content.kind !== "media") return;
+    const attempts = (mediaFailureAttemptsRef.current.get(source) ?? 0) + 1;
+    mediaFailureAttemptsRef.current.set(source, attempts);
+    const scheduleRetry = () => {
+      if (mediaRetryTimersRef.current.has(source)) return;
+      const delay = Math.min(30_000, 1_000 * 2 ** Math.min(attempts - 1, 5));
+      const timer = setTimeout(() => {
+        mediaRetryTimersRef.current.delete(source);
+        setFailedMediaSources((current) => {
+          if (!current.has(source)) return current;
+          const next = new Set(current);
+          next.delete(source);
+          return next;
+        });
+      }, delay);
+      mediaRetryTimersRef.current.set(source, timer);
+    };
+    if (content.kind !== "media") {
+      scheduleRetry();
+      return;
+    }
+    if (attemptedMediaRecoveryRef.current.has(source)) {
+      scheduleRetry();
+      return;
+    }
     const fileId = source === fullMediaSource
       ? content.fileId
       : source === localPreviewSource ? content.thumbnailFileId : undefined;
-    if (fileId === undefined) return;
+    if (fileId === undefined) {
+      scheduleRetry();
+      return;
+    }
     attemptedMediaRecoveryRef.current.add(source);
     void onRecoverFile(fileId, 32).then((recovered) => {
       if (!recovered) return;
@@ -380,8 +426,32 @@ function MessageBubbleComponent({
         next.delete(source);
         return next;
       });
+    }).catch(() => undefined).finally(scheduleRetry);
+  };
+  const markMediaSourceReady = (source: string | undefined) => {
+    if (!source) return;
+    mediaFailureAttemptsRef.current.delete(source);
+    const timer = mediaRetryTimersRef.current.get(source);
+    if (timer !== undefined) clearTimeout(timer);
+    mediaRetryTimersRef.current.delete(source);
+    setFailedMediaSources((current) => {
+      if (!current.has(source)) return current;
+      const next = new Set(current);
+      next.delete(source);
+      return next;
     });
   };
+  useEffect(() => {
+    const retry = () => {
+      setFailedMediaSources((current) => {
+        if (current.size === 0) return current;
+        const next = new Set<string>();
+        return next;
+      });
+    };
+    globalThis.addEventListener?.("online", retry);
+    return () => globalThis.removeEventListener?.("online", retry);
+  }, []);
   const fileProgress = (content.kind === "file" || content.kind === "media") && content.progress !== undefined
     ? `${Math.round(content.progress * 100)}%`
     : undefined;
@@ -481,7 +551,9 @@ function MessageBubbleComponent({
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
       (lazyMediaIsThumbnail || automaticFileId !== undefined),
-    lazyMediaIsThumbnail ? 24 : 28,
+    // Visible media is still interactive, but remains reclaimable when the
+    // conversation unmounts so a rapid switch cannot strand old prefetches.
+    18,
     MEDIA_PREFETCH_ROOT_MARGIN,
   );
   const setMessageRowRef = useCallback((element: HTMLElement | null) => {
@@ -869,6 +941,7 @@ function MessageBubbleComponent({
                     alt={content.caption || content.fileName}
                     loading="lazy"
                     decoding="async"
+                    onReady={() => markMediaSourceReady(imageMediaSource)}
                     onLoad={(event) => rememberMediaSize(
                       imageMediaSource,
                       event.currentTarget.naturalWidth,
@@ -893,6 +966,7 @@ function MessageBubbleComponent({
                       alt={content.caption || content.fileName}
                       loading="lazy"
                       decoding="async"
+                      onReady={() => markMediaSourceReady(imageMediaSource)}
                       onLoad={(event) => rememberMediaSize(
                         imageMediaSource,
                         event.currentTarget.naturalWidth,
@@ -907,7 +981,10 @@ function MessageBubbleComponent({
                     alt={content.caption || content.fileName}
                     loading="lazy"
                     decoding="async"
-                    onReady={isSticker ? () => setReadyStickerSource(imageMediaSource) : undefined}
+                    onReady={() => {
+                      markMediaSourceReady(imageMediaSource);
+                      if (isSticker) setReadyStickerSource(imageMediaSource);
+                    }}
                     onLoad={(event) => rememberMediaSize(
                       imageMediaSource,
                       event.currentTarget.naturalWidth,

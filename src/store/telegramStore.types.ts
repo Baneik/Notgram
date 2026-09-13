@@ -384,6 +384,7 @@ export interface TelegramState {
     description?: string,
   ) => Promise<ForwardMessagesResult | undefined>;
   cacheFile: (fileId: number, priority?: number) => Promise<void>;
+  releaseFile?: (fileId: number) => void;
   recoverFile: (fileId: number, priority?: number) => Promise<boolean>;
   streamFile: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   suspendFileStream: (fileId: number) => Promise<void>;

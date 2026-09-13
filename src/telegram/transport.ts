@@ -215,6 +215,7 @@ export interface TelegramTransport {
   setChatDraft(input: SetChatDraftInput): Promise<void>;
   setChatTyping(chatId: string, typing: boolean, topicId?: string): Promise<void>;
   cacheFile(fileId: number, priority?: number): Promise<void>;
+  releaseFile?(fileId: number): void;
   resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined>;
   recoverFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
