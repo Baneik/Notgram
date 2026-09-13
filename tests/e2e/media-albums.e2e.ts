@@ -95,7 +95,7 @@ test("sent album captions can be edited, removed, and owned by a later item", as
   await expect(caption.locator(".message-delivery-status")).toBeVisible();
   await caption.click({ button: "right" });
   await chooseMessageMenuItem(page, "编辑");
-  await expect(composer).toHaveValue("整组说明");
+  await expect(composer).toHaveJSProperty("value", "整组说明");
   await composer.fill("");
   await page.getByRole("button", { name: "保存编辑", exact: true }).click();
   await expect(caption).toHaveCount(0);
@@ -103,7 +103,7 @@ test("sent album captions can be edited, removed, and owned by a later item", as
   const secondId = await second.getAttribute("data-message-id");
   await second.locator(".message-bubble-shell").click({ button: "right" });
   await chooseMessageMenuItem(page, "编辑");
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   await composer.fill("第二项承载的说明");
   await composer.press("Enter");
   await expect(caption).toHaveAttribute("data-caption-message-id", secondId!);
@@ -113,7 +113,7 @@ test("sent album captions can be edited, removed, and owned by a later item", as
   await caption.focus();
   await caption.press("Shift+F10");
   await chooseMessageMenuItem(page, "编辑");
-  await expect(composer).toHaveValue("第二项承载的说明");
+  await expect(composer).toHaveJSProperty("value", "第二项承载的说明");
   await composer.fill("修改后的整组说明");
   await composer.press("Enter");
   await expect(caption.locator(".message-rich-text")).toHaveText("修改后的整组说明");

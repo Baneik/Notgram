@@ -5,6 +5,8 @@ export interface ComposerFormattedText {
   entities: MessageTextEntity[];
 }
 
+const editableStyleKinds = new Set(["bold", "italic", "underline", "strikethrough", "spoiler", "blockquote", "code", "pre"]);
+
 const validComposerEntities = (
   text: string,
   entities: readonly MessageTextEntity[],
@@ -46,6 +48,11 @@ export const reconcileComposerMentionEntities = (
     const entityEnd = entity.offset + entity.length;
     if (previousEditEnd <= entity.offset) return [{ ...entity, offset: entity.offset + delta }];
     if (prefixLength >= entityEnd) return [entity];
+    if (editableStyleKinds.has(entity.kind)) {
+      const offset = Math.min(entity.offset, prefixLength);
+      const end = entityEnd > previousEditEnd ? entityEnd + delta : nextEditEnd;
+      return end > offset ? [{ ...entity, offset, length: end - offset }] : [];
+    }
     return [];
   });
 };
@@ -59,11 +66,13 @@ export const trimComposerFormattedText = (
   const trimmedEnd = trimmedStart + trimmedText.length;
   return {
     text: trimmedText,
-    entities: validComposerEntities(text, entities).flatMap((entity) =>
-      entity.offset >= trimmedStart && entity.offset + entity.length <= trimmedEnd
-        ? [{ ...entity, offset: entity.offset - trimmedStart }]
-        : []
-    ),
+    entities: validComposerEntities(text, entities).flatMap((entity) => {
+      const start = Math.max(trimmedStart, entity.offset);
+      const end = Math.min(trimmedEnd, entity.offset + entity.length);
+      if (end <= start) return [];
+      if (!editableStyleKinds.has(entity.kind) && (start !== entity.offset || end !== entity.offset + entity.length)) return [];
+      return [{ ...entity, offset: start - trimmedStart, length: end - start }];
+    }),
   };
 };
 

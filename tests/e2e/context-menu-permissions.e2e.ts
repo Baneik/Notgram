@@ -10,6 +10,7 @@ declare global {
       releases: Array<() => void>;
     };
     __menuCommands: string[];
+    __lateEditCompleted?: boolean;
   }
 }
 
@@ -81,6 +82,49 @@ const nativeMenu = async (page: Page) => {
   return child;
 };
 
+test("native composer format menu preserves the selected range and returns typing after activation", async ({ page }) => {
+  await prepare(page);
+  const input = page.locator(".composer-input");
+  await input.fill("before selected after");
+  await input.evaluate(element => (element as HTMLElement & { setSelectionRange: (start: number, end: number) => void }).setSelectionRange(7, 15));
+  const surface = await nativeMenu(page);
+  await input.focus();
+  await input.evaluate(element => (element as HTMLElement & { setSelectionRange: (start: number, end: number) => void }).setSelectionRange(7, 15));
+  await input.dispatchEvent("contextmenu", { clientX: 700, clientY: 650, button: 2 });
+  await expect(surface.getByRole("menuitem", { name: "格式", exact: true })).toBeVisible();
+  await surface.getByRole("menuitem", { name: "格式", exact: true }).hover();
+  await expect(surface.getByRole("menuitem", { name: "链接", exact: true })).toBeVisible();
+  await surface.getByRole("menuitem", { name: "粗体", exact: true }).click();
+  await page.bringToFront();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(input.locator("strong")).toHaveText("selected");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveJSProperty("selectionStart", 7);
+  await expect(input).toHaveJSProperty("selectionEnd", 15);
+  await surface.close();
+});
+
+test("a delayed ArrowUp permission response cannot replace newly typed text", async ({ page }) => {
+  await prepare(page);
+  const input = page.locator(".composer-input");
+  await input.fill("candidate for delayed edit"); await input.press("Enter");
+  await expect(page.locator(".message-row.is-outgoing").filter({ hasText: "candidate for delayed edit" })).toBeVisible();
+  await page.evaluate(() => {
+    window.__menuProbe.mode = "deferred";
+    const load = window.__menuTransport.getMessageProperties.bind(window.__menuTransport);
+    window.__menuTransport.getMessageProperties = async (...args) => {
+      try { return await load(...args); } finally { window.__lateEditCompleted = true; }
+    };
+  });
+  await input.press("ArrowUp");
+  await expect.poll(() => page.evaluate(() => window.__menuProbe.releases.length)).toBe(1);
+  await input.pressSequentially("keep this draft");
+  await page.evaluate(() => window.__menuProbe.releases.forEach(release => release()));
+  await expect.poll(() => page.evaluate(() => window.__lateEditCompleted)).toBe(true);
+  await expect(input).toHaveJSProperty("value", "keep this draft");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+});
+
 for (const destination of ["conversation", "discussion", "search"] as const) {
   test(`replying from a native message menu respects the focus destination after window activation (${destination})`, async ({ page }) => {
     await prepare(page);
@@ -88,11 +132,11 @@ for (const destination of ["conversation", "discussion", "search"] as const) {
     if (discussion) {
       await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
       await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
-      await expect(page.locator(".channel-discussion-panel textarea")).toBeFocused();
+      await expect(page.locator(".channel-discussion-panel .composer-input")).toBeFocused();
     }
     const surface = await nativeMenu(page);
     const scope = page.locator(discussion ? ".channel-discussion-panel" : ".conversation");
-    const input = scope.locator("textarea").last();
+    const input = scope.locator(".composer-input").last();
     const bubble = scope.locator(".message-bubble-shell").last();
     await bubble.focus();
     await bubble.click({ button: "right" });
@@ -114,8 +158,9 @@ for (const destination of ["conversation", "discussion", "search"] as const) {
     const target = destination === "search" ? search : input;
     await expect(target).toBeFocused();
     await page.keyboard.type("typing after native reply");
-    await expect(target).toHaveValue("typing after native reply");
-    if (destination === "search") await expect(input).toHaveValue("");
+    if (destination === "search") await expect(target).toHaveValue("typing after native reply");
+    else await expect(target).toHaveJSProperty("value", "typing after native reply");
+    if (destination === "search") await expect(input).toHaveJSProperty("value", "");
     await surface.close();
   });
 }

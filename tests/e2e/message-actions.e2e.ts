@@ -49,7 +49,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(page.locator(".message-list").getByText("keyboard edited message", { exact: true }))
     .toBeVisible();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
 
   actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");
@@ -59,7 +59,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await page.keyboard.press("Enter");
   await expect(page.locator(".message-list").getByText("keyboard reply", { exact: true }))
     .toBeVisible();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
 
   actionTrigger = await focusEditableMessage();
   await page.keyboard.press("Shift+F10");

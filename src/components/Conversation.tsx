@@ -7,6 +7,8 @@ import { MessageMetadata } from "./MessageMetadata";
 import { MessageReactions } from "./MessageReactions";
 import { MessageTextFlow } from "./MessageTextFlow";
 import { translate } from "../i18n";
+import type { ComposerInputElement } from "./ComposerInput";
+import { useEditVisibleMessage } from "../hooks/useEditVisibleMessage";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
 import { observeConversationPresentation } from "../utils/conversationPresentation";
 import {
@@ -681,7 +683,7 @@ export function Conversation({
   const memberLabels = useMemo(() => new Map(
     Object.entries(chat ? chatAdministratorLabels.get(chat.id) ?? {} : {}),
   ), [chat, chatAdministratorLabels]);
-  const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const composerInputRef = useRef<ComposerInputElement>(null);
   const conversationRef = useRef<HTMLElement>(null);
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const selectionPointerRef = useRef<SelectionPointerPosition | undefined>(undefined);
@@ -2173,6 +2175,9 @@ export function Conversation({
     focusComposer();
   };
 
+  const editLatestVisible = useEditVisibleMessage(composerInputRef, messageListRef, renderedMessages,
+    conversationIdentity ?? "", onLoadMessageProperties, startEditing);
+
   const confirmDelete = async (revoke: boolean) => {
     if (!deleteTarget || deletePending) return;
     setDeletePending(true);
@@ -3190,6 +3195,7 @@ export function Conversation({
         onTextInsertionApplied={consumeComposerTextInsertion}
         onGeometryChange={reconcileBottomViewport}
         inputRef={composerInputRef}
+        onEditLatestVisible={editLatestVisible}
         focus={composerFocus}
         inert={Boolean(discussionPost)}
         connectionStatus={connectionStatus}

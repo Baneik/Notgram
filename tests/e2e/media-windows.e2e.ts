@@ -534,7 +534,7 @@ test("video uses synchronized transparent playback windows and owns the playback
   const composer = page.getByRole("textbox", { name: "消息内容" });
   await composer.focus();
   await page.keyboard.press("Space");
-  await expect(composer).toHaveValue(" ");
+  await expect(composer).toHaveJSProperty("value", " ");
   await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
     .toBe(true);
   await composer.fill("");

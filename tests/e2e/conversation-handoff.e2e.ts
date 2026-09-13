@@ -280,6 +280,6 @@ for (const interrupt of ["resize", "background", "reduced-motion"] as const) {
     await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0);
     await expect(page.locator(".message-list-shell[inert], .conversation-header[inert]")).toHaveCount(0);
     await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-    await expect(page.locator(".composer textarea")).toBeFocused();
+    await expect(page.locator(".composer .composer-input")).toBeFocused();
   });
 }

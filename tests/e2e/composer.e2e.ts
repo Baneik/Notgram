@@ -20,7 +20,7 @@ test("composer keeps focus, typing status is visible, and previews name the send
   await composer.fill("发送后继续输入");
   await page.keyboard.press("Enter");
   await expect(composer).toBeFocused();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   await composer.fill("第二条消息无需重新点击");
   await page.keyboard.press("Enter");
   await expect(composer).toBeFocused();
@@ -58,7 +58,7 @@ test("multiline composer keeps the latest message visible and hides its scrollba
     samples.push(await messageList.evaluate((list, textarea) => {
       const rows = list.querySelectorAll<HTMLElement>("[data-message-id]");
       const latest = rows.item(rows.length - 1);
-      const input = textarea as HTMLTextAreaElement;
+      const input = textarea as HTMLElement;
       const listBounds = list.getBoundingClientRect();
       return {
         inputHeight: input.getBoundingClientRect().height,
@@ -119,7 +119,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await page.goto("/");
   const composer = page.getByRole("textbox", { name: "消息内容" });
   const composerControls = await page.locator(".composer").evaluate((element) =>
-    [...element.children].map((child) => child.getAttribute("aria-label") ?? child.tagName));
+    [...element.children].map((child) => child.getAttribute("aria-label") ?? child.querySelector('[role="textbox"]')?.getAttribute("aria-label") ?? child.tagName));
   expect(composerControls).toEqual(["添加附件", "消息内容", "表情", "发送消息"]);
   await page.getByRole("button", { name: "表情" }).click();
   const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
@@ -133,7 +133,7 @@ test("composer provides recent Emoji, installed stickers, and saved GIFs", async
   await expect(picker.getByRole("heading", { name: "工作日常" })).toBeVisible();
   await picker.getByRole("tab", { name: "Emoji" }).click();
   await picker.getByRole("button", { name: "插入 😀" }).click();
-  await expect(composer).toHaveValue("😀");
+  await expect(composer).toHaveJSProperty("value", "😀");
   await expect(composer).toBeFocused();
   await picker.getByRole("button", { name: "关闭表情面板" }).click();
   await expect(composer).toBeFocused();
@@ -322,7 +322,7 @@ test("chat list shows draft previews only for inactive conversations", async ({ 
   await expect(productPreview).toContainText(`草稿：${firstDraft}`);
 
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
-  await expect(composer).toHaveValue(firstDraft);
+  await expect(composer).toHaveJSProperty("value", firstDraft);
   await expect(productPreview).not.toHaveClass(/is-draft/);
   await expect(productPreview).not.toContainText("草稿：");
   await composer.fill(secondDraft);
@@ -377,16 +377,16 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
   const mentionLabel = (await mentionAction.innerText()).trim();
   await mentionAction.click();
 
-  await expect(composer).toHaveValue(`${mentionLabel} `);
-  const mentionDraft = await composer.inputValue();
+  await expect(composer).toHaveJSProperty("value", `${mentionLabel} `);
+  const mentionDraft = await composer.evaluate(element => element.textContent ?? "");
   await page.waitForTimeout(250);
   await expect(page.locator(".inline-query-panel")).toHaveCount(0);
   await expect(page.locator(".operation-error")).toHaveCount(0);
 
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
-  await expect(composer).toHaveValue(mentionDraft);
+  await expect(composer).toHaveJSProperty("value", mentionDraft);
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
       telegramStore: {
@@ -398,9 +398,9 @@ test("member mentions stay in their chat and the resulting draft can be cleared"
 
   await composer.fill("");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const storeModule = await import(modulePath) as {
       telegramStore: {
@@ -421,7 +421,7 @@ test("nickname mentions keep their stable profile click after sending", async ({
     .getByRole("menuitem", { name: /^@/ });
   const mentionLabel = (await mentionAction.innerText()).trim();
   await mentionAction.click();
-  await expect(composer).toHaveValue(`${mentionLabel} `);
+  await expect(composer).toHaveJSProperty("value", `${mentionLabel} `);
   await page.getByRole("button", { name: "发送消息" }).click();
 
   const sentMention = page.locator(".message-row.is-outgoing .message-rich-text a")
@@ -434,16 +434,11 @@ test("nickname mentions keep their stable profile click after sending", async ({
 
 test("IME composition defers draft persistence and layout work until commit", async ({ page }) => {
   await page.goto("/");
-  const composer = page.locator(".composer textarea");
+  const composer = page.locator(".composer .composer-input");
   await expect(composer).toBeVisible();
 
   const result = await composer.evaluate(async (textarea) => {
-    const input = textarea as HTMLTextAreaElement;
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )?.set;
-    if (!valueSetter) throw new Error("Textarea value setter is unavailable");
+    const input = textarea as HTMLElement & { value: string };
     input.focus();
     input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -455,13 +450,14 @@ test("IME composition defers draft persistence and layout work until commit", as
         bubbles: true,
         data: value,
       }));
-      valueSetter.call(input, value);
+      input.querySelector("p")!.textContent = value;
       input.dispatchEvent(new InputEvent("input", {
         bubbles: true,
         data: value,
         inputType: "insertCompositionText",
         isComposing: true,
       }));
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
     await new Promise((resolve) => setTimeout(resolve, 850));
     const storeModule = await import("/src/store/telegramStore.ts" as string) as {
@@ -529,7 +525,7 @@ test("suggests group members for @ mentions without invoking inline bots", async
   await composer.fill("@mia_design");
   await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
   await composer.press("Control+1");
-  await expect(composer).toHaveValue("@Mia Chen ");
+  await expect(composer).toHaveJSProperty("value", "@Mia Chen ");
   await expect.poll(async () => page.evaluate(async () => {
     const module = await (0, eval)('import("/src/store/telegramStore.ts")') as {
       telegramStore: {
@@ -539,7 +535,7 @@ test("suggests group members for @ mentions without invoking inline bots", async
     return module.telegramStore.getState().drafts.get("chat-product")?.entities?.[0];
   })).toMatchObject({ kind: "mentionName", userId: "u-mia" });
   await composer.press("Enter");
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
 
   await composer.fill("@陈");
   await composer.press("Control+1");
@@ -641,7 +637,7 @@ test("canceling a draft reply removes the persisted reply target", async ({ page
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
-  await expect(composer).toHaveValue("取消回复后仍是普通草稿");
+  await expect(composer).toHaveJSProperty("value", "取消回复后仍是普通草稿");
   await page.getByRole("button", { name: "发送消息" }).click();
   const sent = page.locator(
     '.message-row.is-outgoing',

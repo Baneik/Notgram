@@ -8,6 +8,12 @@ import {
 const mention = { offset: 6, length: 4, kind: "mentionName" as const, userId: "42" };
 
 describe("composer mention entities", () => {
+  it("keeps selected styles when trimming whitespace and inserting emoji inside them", () => {
+    expect(trimComposerFormattedText("  hello \n", [{ kind: "bold", offset: 0, length: 9 }]))
+      .toEqual({ text: "hello", entities: [{ kind: "bold", offset: 0, length: 5 }] });
+    expect(reconcileComposerMentionEntities("hello", "he🙂llo", [{ kind: "underline", offset: 0, length: 5 }]))
+      .toEqual([{ kind: "underline", offset: 0, length: 7 }]);
+  });
   it("preserves caption formatting when saving or editing outside the formatted span", () => {
     const bold = { kind: "bold" as const, offset: 0, length: 7 };
     expect(reconcileComposerMentionEntities("caption", "caption", [bold])).toEqual([bold]);

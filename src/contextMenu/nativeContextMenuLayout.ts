@@ -88,7 +88,11 @@ interface NativeContextMenuLayoutItem {
   id: string;
   label: string;
   children?: NativeContextMenuLayoutItem[];
+  maxVisibleChildren?: number;
 }
+
+const childRowLimit = (item: NativeContextMenuLayoutItem) =>
+  Math.max(1, Math.min(12, item.maxVisibleChildren ?? NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS));
 
 type MeasureLabel = (label: string) => number;
 
@@ -118,13 +122,13 @@ export const calculateNativeContextMenuGeometry = (
   const expandedRows = expandedIndex >= 0
     ? Math.max(primaryRows, expandedIndex + Math.min(
       items[expandedIndex].children?.length ?? 0,
-      NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
+      childRowLimit(items[expandedIndex]),
     ))
     : primaryRows;
   const maximumExpandedRows = items.reduce(
     (maximum, item, index) => Math.max(maximum, index + Math.min(
       item.children?.length ?? 0,
-      NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
+      childRowLimit(item),
     )),
     primaryRows,
   );

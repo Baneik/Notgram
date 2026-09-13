@@ -71,6 +71,7 @@ import { MotionPresence } from "./MotionPresence";
 import { MediaSpoiler } from "./Spoiler";
 import { StableImage } from "./StableImage";
 import { Avatar } from "./Avatar";
+import { ComposerInput, type ComposerInputElement } from "./ComposerInput";
 
 interface ConversationComposerProps {
   chatId: string;
@@ -90,7 +91,8 @@ interface ConversationComposerProps {
   recentMentionUserIds?: readonly string[];
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
-  inputRef: RefObject<HTMLTextAreaElement | null>;
+  inputRef: RefObject<ComposerInputElement | null>;
+  onEditLatestVisible: () => void;
   focus: ComposerFocus;
   inert?: boolean;
   connectionStatus: ConnectionStatus;
@@ -178,6 +180,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   onTextInsertionApplied,
   onGeometryChange,
   inputRef,
+  onEditLatestVisible,
   connectionStatus,
   queuedMessageCount,
   failedQueuedMessageCount,
@@ -213,6 +216,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       ? `reply:${replyingTo.id}`
       : "";
   const [draft, setDraft] = useState(chatDraft?.text ?? "");
+  const [, refreshFormatting] = useState(0);
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachmentPending, setAttachmentPending] = useState(false);
@@ -706,7 +710,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         : isCaptionContent(editingMessage.content) ? editingMessage.content.captionEntities ?? [] : [];
       setDraft(draftRef.current);
       stopTyping();
-      focusComposer();
+      focusComposer({ cursor: draftRef.current.length });
     } else if (!editingMessage && previous) {
       draftRef.current = draftBeforeEditRef.current ?? chatDraft?.text ?? "";
       mentionEntitiesRef.current = entitiesBeforeEditRef.current ?? chatDraft?.entities ?? [];
@@ -720,8 +724,12 @@ export const ConversationComposer = memo(function ConversationComposer({
   useEffect(() => {
     if (editingMessage || localDraftDirtyRef.current || composingRef.current) return;
     const incoming = chatDraft?.text ?? "";
+    const entitiesChanged = JSON.stringify(mentionEntitiesRef.current) !== JSON.stringify(chatDraft?.entities ?? []);
     mentionEntitiesRef.current = chatDraft?.entities ?? [];
-    if (incoming === draftRef.current) return;
+    if (incoming === draftRef.current) {
+      if (entitiesChanged) refreshFormatting(revision => revision + 1);
+      return;
+    }
     draftRef.current = incoming;
     setDraft(incoming);
   }, [chatDraft?.entities, chatDraft?.text, editingMessage]);
@@ -1470,27 +1478,24 @@ export const ConversationComposer = memo(function ConversationComposer({
             ? <LoaderCircle className="spin" size={19} strokeWidth={1.8} />
             : <Paperclip size={20} strokeWidth={1.8} />}
         </button>
-        <textarea
-          ref={inputRef}
+        <ComposerInput
+          inputRef={inputRef}
           value={draft}
-          onChange={(event) => {
-            const value = event.target.value;
-            mentionEntitiesRef.current = reconcileComposerMentionEntities(
-              draftRef.current,
-              value,
-              mentionEntitiesRef.current,
-            );
+          entities={mentionEntitiesRef.current}
+          colorTheme={colorTheme}
+          focus={focus}
+          onChange={(value, entities) => {
+            if (value === draftRef.current) refreshFormatting(revision => revision + 1);
+            mentionEntitiesRef.current = entities;
             draftRef.current = value;
             setDraft(value);
             if (composingRef.current) return;
             commitInputSideEffects(value);
           }}
-          onPaste={(event) => {
-            if (editingMessage) return;
-            const files = Array.from(event.clipboardData.files);
-            if (files.length === 0) return;
-            event.preventDefault();
+          onPasteFiles={(files) => {
+            if (editingMessage) return false;
             addPendingAttachments(files);
+            return true;
           }}
           onCompositionStart={() => {
             composingRef.current = true;
@@ -1499,15 +1504,22 @@ export const ConversationComposer = memo(function ConversationComposer({
             draftTimerRef.current = undefined;
             stopTyping();
           }}
-          onCompositionEnd={(event) => finishComposition(event.currentTarget.value)}
+          onCompositionEnd={finishComposition}
           onFocus={() => {
             if (!composingRef.current) keepTyping(draftRef.current);
           }}
-          onBlur={(event) => {
-            finishComposition(event.currentTarget.value);
+          onBlur={(value) => {
+            finishComposition(value);
             stopTyping();
           }}
           onKeyDown={(event) => {
+            if (event.key === "ArrowUp" && !event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey &&
+              !event.nativeEvent.isComposing && !composingRef.current && !draftRef.current &&
+              !editingMessage && !replyingTo && !sending && pendingAttachments.length === 0) {
+              event.preventDefault();
+              onEditLatestVisible();
+              return;
+            }
             if (!event.nativeEvent.isComposing && !composingRef.current && mentionSuggestions.length > 0) {
               const shortcutKey = event.code.match(/^(?:Digit|Numpad)([1-9])$/)?.[1] ??
                 event.key.match(/^[1-9]$/)?.[0];
@@ -1566,10 +1578,8 @@ export const ConversationComposer = memo(function ConversationComposer({
             event.preventDefault();
             void submitMessage();
           }}
-          rows={1}
           placeholder={editingMessage ? translate("编辑消息") : translate("写一条消息")}
-          aria-label={translate("消息内容")}
-          aria-busy={sending}
+          busy={sending}
         />
         <button
           className={`icon-button emoji-trigger ${emojiPickerOpen ? "is-active" : ""}`}

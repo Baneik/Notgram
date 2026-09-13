@@ -11,6 +11,7 @@ import {
 } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
+  | "cut" | "paste" | "format" | "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link"
   | "alert"
   | "loading"
   | "archive"
@@ -52,6 +53,7 @@ export interface NativeContextMenuItem {
   keepOpen?: boolean;
   status?: boolean;
   children?: NativeContextMenuItem[];
+  maxVisibleChildren?: number;
 }
 
 export interface NativeContextMenuDescriptor {

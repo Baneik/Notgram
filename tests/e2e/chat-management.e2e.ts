@@ -227,11 +227,11 @@ test("suggests bot commands and sends paginated inline results", { tag: "@smoke"
   await composer.fill("/he");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
   await composer.press("Enter");
-  await expect(composer).toHaveValue("/help@notgram_bot ");
+  await expect(composer).toHaveJSProperty("value", "/help@notgram_bot ");
   await composer.fill("/st");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
   await suggestions.getByRole("option").click();
-  await expect(composer).toHaveValue("/start@notgram_bot ");
+  await expect(composer).toHaveJSProperty("value", "/start@notgram_bot ");
   await composer.fill("/start@notgram_bot campaign");
   await composer.press("Enter");
   await expect(page.getByText("/start campaign", { exact: true })).toBeVisible();

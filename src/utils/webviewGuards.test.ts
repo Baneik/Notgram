@@ -14,6 +14,12 @@ const shortcut = (
 });
 
 describe("webview shortcut guards", () => {
+  it("allows the composer underline shortcut while keeping view-source blocked elsewhere", () => {
+    const underline = shortcut("u", { ctrlKey: true, shiftKey: true });
+    expect(isBlockedWebviewShortcut(underline, true)).toBe(false);
+    expect(isBlockedWebviewShortcut(underline)).toBe(true);
+    expect(isBlockedWebviewShortcut(shortcut("u", { ctrlKey: true }), true)).toBe(true);
+  });
   it.each([
     shortcut("F5"),
     shortcut("F12"),

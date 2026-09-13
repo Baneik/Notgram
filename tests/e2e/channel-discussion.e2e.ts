@@ -623,7 +623,7 @@ test("channel discussion actions use the linked group and preserve composer focu
   await outgoing.locator(".message-bubble-shell").click({ button: "right" });
   messageMenu = page.getByRole("menu", { name: "消息操作" });
   await messageMenu.getByRole("menuitem", { name: "编辑" }).click();
-  await expect(composer).toHaveValue("待编辑的讨论回复");
+  await expect(composer).toHaveJSProperty("value", "待编辑的讨论回复");
   await expect(composer).toBeFocused();
   await composer.fill("已编辑的讨论回复");
   await panel.getByRole("button", { name: "保存编辑" }).click();
@@ -642,7 +642,7 @@ test("channel discussion actions use the linked group and preserve composer focu
   await senderAvatar.click({ button: "right" });
   const senderMenu = page.getByRole("menu", { name: "成员操作" });
   await senderMenu.getByRole("menuitem", { name: "@Mia Chen" }).click();
-  await expect(composer).toHaveValue(/@Mia Chen/);
+  await expect(composer).toContainText("@Mia Chen");
   await expect(composer).toBeFocused();
   await composer.fill("");
 

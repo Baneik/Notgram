@@ -19,6 +19,12 @@ const item = (id: string, label: string, children?: TestMenuItem[]): TestMenuIte
 const measureLabel = (label: string) => Array.from(label).length * 14;
 
 describe("native context menu layout", () => {
+  it("reserves all six composer formats when the submenu opens", () => {
+    const items = [item("cut", "Cut"), item("copy", "Copy"), item("paste", "Paste"),
+      { ...item("format", "Format", Array.from({ length: 6 }, (_, i) => item(String(i), "Format"))), maxVisibleChildren: 6 }];
+    expect(calculateNativeContextMenuGeometry(items).maximumExpandedHeight).toBe(404);
+    expect(calculateNativeContextMenuGeometry(items, "format").height).toBe(404);
+  });
   it("sizes a flush five-row panel without blank space or scrolling", () => {
     const geometry = calculateNativeContextMenuGeometry(
       ["回复", "转发", "复制", "编辑", "删除"].map((label, index) =>

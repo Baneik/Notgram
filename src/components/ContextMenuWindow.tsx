@@ -2,6 +2,7 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  Bold, ClipboardPaste, EyeOff, Link, Quote, Scissors, Strikethrough, Type, Underline,
   Ban,
   Bell,
   BellOff,
@@ -46,6 +47,7 @@ import {
 import {
   calculateNativeContextMenuGeometry,
   measureNativeContextMenuLabel,
+  NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
 } from "../contextMenu/nativeContextMenuLayout";
 import {
   focusFirstMenuButton,
@@ -56,6 +58,8 @@ import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 import { StableImage } from "./StableImage";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
+  cut: Scissors, paste: ClipboardPaste, format: Type, spoiler: EyeOff,
+  strikethrough: Strikethrough, underline: Underline, bold: Bold, blockquote: Quote, link: Link,
   alert: AlertCircle,
   loading: LoaderCircle,
   archive: Archive,
@@ -250,6 +254,7 @@ export function ContextMenuWindow() {
         "--native-context-submenu-width": `${geometry.submenuPanelWidth}px`,
         "--native-context-submenu-x": `${geometry.submenuOffsetX}px`,
         "--native-context-submenu-y": `${geometry.submenuOffsetY}px`,
+        "--native-context-submenu-rows": Math.max(1, Math.min(12, expandedItem?.maxVisibleChildren ?? NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS)),
       } as CSSProperties}
       data-keyboard-navigation={descriptor.keyboardNavigation ? "true" : undefined}
       onContextMenu={(event) => event.preventDefault()}
@@ -353,7 +358,7 @@ export function ContextMenuWindow() {
                   child.avatar ? "native-context-menu-child-item" : "",
                 ].filter(Boolean).join(" ") || undefined}
                 type="button"
-                role="menuitemcheckbox"
+                role={child.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={child.checked}
                 disabled={child.disabled}
                 key={child.id}

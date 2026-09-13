@@ -71,29 +71,20 @@ test("incoming messages do not wait for a bottom pin while reading away from lat
 
 test("composer coalesces resizing and persists drafts without blocking input", { tag: "@performance" }, async ({ page }) => {
   await page.goto("/");
-  const composer = page.locator(".composer textarea");
+  const composer = page.locator(".composer .composer-input");
   await expect(composer).toBeVisible();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
   const result = await composer.evaluate(async (textarea) => {
-    const input = textarea as HTMLTextAreaElement;
+    const input = textarea as HTMLElement & { value: string };
     const text = "responsive-input-".repeat(12);
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )?.set;
-    if (!valueSetter) throw new Error("Textarea value setter is unavailable");
+    input.focus();
 
     const observer = new MutationObserver(() => undefined);
     observer.observe(input, { attributes: true, attributeFilter: ["style"] });
     const startedAt = performance.now();
     for (const [index, character] of [...text].entries()) {
-      valueSetter.call(input, input.value + character);
-      input.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        data: character,
-        inputType: "insertText",
-      }));
+      document.execCommand("insertText", false, character);
       if ((index + 1) % 24 === 0) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }

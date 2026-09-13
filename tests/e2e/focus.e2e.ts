@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { telegramStore as Store } from "../../src/store/telegramStore";
 
 type FocusControl = Window & { releaseFocusSend?: () => void; focusSendStarted?: boolean; focusSendFinished?: boolean };
-const composer = (page: Page) => page.locator(".conversation > .composer-wrap textarea");
+const composer = (page: Page) => page.locator(".conversation > .composer-wrap .composer-input");
 const search = (page: Page) => page.getByRole("searchbox", { name: "搜索会话和消息" });
 const openReady = async (page: Page) => {
   await page.goto("/");
@@ -19,7 +19,7 @@ test("replying from a message context menu returns typing to the composer", asyn
   await expect(menu).toHaveCount(0);
   await expect(composer(page)).toBeFocused();
   await page.keyboard.type("typing after menu");
-  await expect(composer(page)).toHaveValue("typing after menu");
+  await expect(composer(page)).toHaveJSProperty("value", "typing after menu");
 });
 
 for (const media of ["photo", "video"] as const) {
@@ -39,7 +39,7 @@ for (const media of ["photo", "video"] as const) {
     await page.bringToFront();
     await expect(composer(page)).toBeFocused();
     await page.keyboard.type("typing after media");
-    await expect(composer(page)).toHaveValue("typing after media");
+    await expect(composer(page)).toHaveJSProperty("value", "typing after media");
   });
 }
 
@@ -73,7 +73,7 @@ for (const order of ["closed-first", "activation-first"] as const) {
     }, order);
     await expect(composer(page)).toBeFocused();
     await page.keyboard.type("typing after activation");
-    await expect(composer(page)).toHaveValue("typing after activation");
+    await expect(composer(page)).toHaveJSProperty("value", "typing after activation");
   });
 }
 
@@ -100,7 +100,7 @@ for (const navigation of ["search", "switch"] as const) {
     await expect(search(page)).toBeFocused();
     await page.keyboard.type(" Chen");
     await expect(search(page)).toHaveValue("Mia Chen");
-    await expect(composer(page)).toHaveValue("");
+    await expect(composer(page)).toHaveJSProperty("value", "");
   });
 }
 
@@ -142,14 +142,14 @@ test("a channel owner's comment click and Enter stay in the discussion", async (
   });
   await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
   const panel = page.locator(".channel-discussion-panel");
-  const input = panel.locator("textarea");
+  const input = panel.locator(".composer-input");
   await expect(input).toBeFocused();
   await expect(composer(page)).toHaveCount(1);
   expect(await composer(page).evaluate(element => Boolean(element.closest("[inert]")))).toBe(true);
   await panel.locator(".channel-discussion-message-group .message-rich-text").first().click();
   await expect(input).toBeFocused();
   await page.keyboard.type("This is a comment, not a channel post");
-  await expect(composer(page)).toHaveValue("");
+  await expect(composer(page)).toHaveJSProperty("value", "");
   await page.keyboard.press("Enter");
   await expect(panel.getByText("This is a comment, not a channel post", { exact: true })).toBeVisible();
   const sent = await page.evaluate(async () => {
@@ -181,7 +181,7 @@ for (const navigation of ["stay", "switch", "return"] as const) {
     await expect(search(page)).toBeFocused();
     await page.keyboard.type(" Chen");
     await expect(search(page)).toHaveValue("Mia Chen");
-    await expect(composer(page)).toHaveValue("");
+    await expect(composer(page)).toHaveJSProperty("value", "");
   });
 }
 
@@ -198,7 +198,7 @@ test("a pending send and programmatic focus cannot escape a forward dialog", asy
   await releaseSend(page);
   await page.keyboard.type("Mia");
   await expect(field).toHaveValue("Mia");
-  await expect(composer(page)).toHaveValue("");
+  await expect(composer(page)).toHaveJSProperty("value", "");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   expect(await composer(page).evaluate(input => Boolean(input.closest("[inert]")))).toBe(false);
@@ -219,7 +219,7 @@ test("closing a video preview preserves a newer search operation", async ({ page
   await expect(search(page)).toBeFocused();
   await page.keyboard.type(" Chen");
   await expect(search(page)).toHaveValue("Mia Chen");
-  await expect(composer(page)).toHaveValue("");
+  await expect(composer(page)).toHaveJSProperty("value", "");
 });
 
 test("returning to the window restores only unclaimed input focus", async ({ page }) => {
@@ -227,21 +227,21 @@ test("returning to the window restores only unclaimed input focus", async ({ pag
   await page.evaluate(() => { (document.activeElement as HTMLElement).blur(); window.dispatchEvent(new Event("focus")); });
   await expect(composer(page)).toBeFocused();
   await page.keyboard.type("ready immediately");
-  await expect(composer(page)).toHaveValue("ready immediately");
+  await expect(composer(page)).toHaveJSProperty("value", "ready immediately");
   await search(page).fill("Mia");
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.keyboard.type(" Chen");
   await expect(search(page)).toHaveValue("Mia Chen");
-  await expect(composer(page)).toHaveValue("ready immediately");
+  await expect(composer(page)).toHaveJSProperty("value", "ready immediately");
 });
 
 test("window return preserves a message selection and editor caret", async ({ page }) => {
   await openReady(page);
   await composer(page).fill("abcdef");
-  await composer(page).evaluate(input => (input as HTMLTextAreaElement).setSelectionRange(2, 4));
+  await composer(page).evaluate(input => (input as HTMLElement & { setSelectionRange: (start: number, end: number) => void }).setSelectionRange(2, 4));
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await page.keyboard.type("XY");
-  await expect(composer(page)).toHaveValue("abXYef");
+  await expect(composer(page)).toHaveJSProperty("value", "abXYef");
   await page.locator(".message-list .message-rich-text").last().evaluate(element => {
     const range = document.createRange();
     range.selectNodeContents(element);

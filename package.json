@@ -38,6 +38,8 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
     "i18next": "^26.4.0",
     "katex": "^0.18.1",
     "libphonenumber-js": "^1.13.11",

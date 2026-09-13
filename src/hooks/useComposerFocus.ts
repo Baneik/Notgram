@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, type PointerEvent, type RefObject } from "react";
 import { activeModal, hasTextSelection, isAvailableFocusTarget, isUnclaimedFocus } from "../utils/focusPolicy";
+import type { ComposerInputElement } from "../components/ComposerInput";
 
 type FocusReason = "intent" | "entry" | "return";
 interface FocusOptions { reason?: FocusReason; cursor?: number }
@@ -10,7 +11,7 @@ export interface ComposerFocus {
 }
 
 interface Owner {
-  input: RefObject<HTMLTextAreaElement | null>;
+  input: RefObject<ComposerInputElement | null>;
   generation: number;
   timers: Set<ReturnType<typeof setTimeout>>;
   focus: ComposerFocus;
@@ -85,7 +86,7 @@ const createOwner = (input: Owner["input"]): Owner => {
             active.closest(".chat-row") && !matchMedia("(forced-colors: active)").matches;
           if (active !== target && !isUnclaimedFocus(active) && !chatRow) return;
         }
-        target.focus({ preventScroll: true });
+        target.focusEditor();
         if (options.cursor !== undefined) target.setSelectionRange(options.cursor, options.cursor);
       }, 0);
       owner.timers.add(timer);

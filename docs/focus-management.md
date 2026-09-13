@@ -7,7 +7,7 @@ An OS window becoming active does not itself identify a message editor.
 ## Conversation editors
 
 `useComposerFocus` gives each editor an owner tied to its account and conversation
-identity, including a forum topic or discussion thread. The concrete textarea is
+identity, including a forum topic or discussion thread. The concrete editor node is
 also checked, so an old operation cannot target a replacement through a reused ref.
 Disabling or unmounting an owner revokes pending requests and clears its timers.
 
@@ -36,6 +36,20 @@ All editor focus requests use `preventScroll`. A cursor change is applied only
 when its corresponding focus request remains valid. Requests do not run in a
 hidden/unfocused document, during composition, behind an active modal, or against
 an unavailable input.
+
+The shared composer uses a Tiptap/ProseMirror text block with Telegram entities as
+marks. Its DOM adapter exposes UTF-16 text offsets to existing mention insertion
+and focus callers. Newlines occupy one position, including clipboard input.
+Restored drafts start with a collapsed selection at the end; routine focus returns
+preserve the current selection. Native and browser format menus retain the range
+that opened them and return through the same focus owner.
+
+With an empty composer, unmodified ArrowUp chooses the latest editable outgoing
+message intersecting that editor's current message viewport. Virtual overscan and
+offscreen history do not qualify. Permission loading is bounded to those visible
+candidates; subsequent input, scrolling, navigation, or unmounting cancels the
+pending intent. Replies, attachment drafts, and active edits retain their input
+behavior. Composer Ctrl+Shift+M/X/U/B/Q/K shortcuts are local to this editor.
 
 `data-composer-scope` marks ordinary conversations and discussion panels. The
 shared pointer handler processes only the nearest scope. A discussion isolates

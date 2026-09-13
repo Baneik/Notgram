@@ -593,7 +593,7 @@ test("conversation scroll state follows, restores, counts, and resets to latest"
   for (const text of ["滚动定位测试一", "滚动定位测试二"]) {
     await page.getByRole("textbox", { name: "消息内容" }).fill(text);
     await page.getByRole("button", { name: "发送消息" }).click();
-    await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveJSProperty("value", "");
   }
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect(page.getByText("滚动定位测试二", { exact: true })).toBeVisible();

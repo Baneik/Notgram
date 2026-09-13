@@ -5,6 +5,9 @@ import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
 import { useDiscussionRead } from "../hooks/useDiscussionRead";
 import { outboxCounts } from "../store/telegramStore.outbox";
 import { translate } from "../i18n";
+import type { ComposerInputElement } from "./ComposerInput";
+import { useEditVisibleMessage } from "../hooks/useEditVisibleMessage";
+import { isEditableMessageContent } from "../telegram/messageContent";
 import {
   Check,
   ChevronLeft,
@@ -224,7 +227,7 @@ export function ChannelDiscussionPanel({
     const top = element.scrollTop, height = element.scrollHeight;
     return () => { element.scrollTop = top + element.scrollHeight - height; };
   }, []);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<ComposerInputElement>(null);
   const insertionIdRef = useRef(0);
   const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
   const draftKey = `${post.chatId}:discussion:${post.id}`;
@@ -379,13 +382,16 @@ export function ChannelDiscussionPanel({
   }, [composerFocus]);
 
   const startEditing = useCallback((message: Message) => {
-    if (message.content.kind !== "text") return;
+    if (!isEditableMessageContent(message.content)) return;
     setReplyingTo(undefined);
     setReplyQuote(undefined);
     setEditingMessage(message);
     setActionMenu(undefined);
     focusComposer();
   }, [focusComposer]);
+
+  const editLatestVisible = useEditVisibleMessage(inputRef, scrollerRef, comments,
+    draftKey, onLoadMessageProperties, startEditing);
 
   const confirmDelete = useCallback(async (revoke: boolean) => {
     if (!deleteTarget || deletePending) return;
@@ -715,6 +721,7 @@ export function ChannelDiscussionPanel({
             recentMentionUserIds={recentMentionUserIds}
             onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
             inputRef={inputRef}
+            onEditLatestVisible={editLatestVisible}
             focus={composerFocus}
             connectionStatus={connectionStatus}
             {...queueCounts}

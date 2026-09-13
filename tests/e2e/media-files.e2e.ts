@@ -91,7 +91,7 @@ test("pasted images preview, respect Telegram's album limit, and send as one alb
   await composer.fill("粘贴图片说明");
   await composer.press("Enter");
   await expect(preview).toBeHidden();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveJSProperty("value", "");
   const sentAlbum = page.locator(".media-album.is-outgoing").last();
   await expect(sentAlbum.locator(".media-album-grid img")).toHaveCount(2);
   await expect.poll(() => sentAlbum.locator(".media-album-grid img").evaluateAll((images) =>
