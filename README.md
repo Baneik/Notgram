@@ -129,7 +129,11 @@ npm run build     # TypeScript and production web build
 npm test          # Unit tests
 npx playwright install chromium # One-time E2E browser installation
 npm run test:e2e:types # Type-check Playwright configuration and specs
-npm run test:e2e  # Headless Chromium desktop/mobile flows
+npm run test:e2e:smoke # Quick checks of core desktop/mobile flows
+npm run test:e2e:regression # Functional browser regression, excluding visual/performance suites
+npm run test:e2e:visual # Shared screenshot baselines across motion preferences
+npm run test:e2e:performance # Timing and geometry-read budgets, without tracing or retries
+npm run test:e2e  # Complete headless, muted Chromium suite
 npm run test:native-smoke -- -Profile Clean # Prepare an isolated native smoke run
 npm run check     # Frontend plus Rust formatting, lint, and tests
 npm run check:release # Full check plus a native release build
@@ -155,6 +159,9 @@ commands, and the opt-in loopback Playwright endpoint for the real Tauri DOM.
 
 The automated accessibility gate and native Windows checklist are documented in
 [`docs/accessibility-matrix.md`](docs/accessibility-matrix.md).
+
+Browser suite selection, targeted runs, diagnostic capture, and baseline
+maintenance are documented in [`docs/testing.md`](docs/testing.md).
 
 ## Architecture
 

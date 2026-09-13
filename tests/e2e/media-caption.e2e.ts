@@ -51,7 +51,7 @@ async function pastePhoto(page: Page) {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`sent photo captions stay inside the bubble after scrolling to the bottom (${reducedMotion})`, async ({ page }, testInfo) => {
+  test(`sent photo captions stay inside the bubble after scrolling to the bottom (${reducedMotion})`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion });
     await page.goto("/");
     await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -82,7 +82,6 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await page.mouse.wheel(0, 600);
     await expectContainedCaption(photo);
     expect((await captionGeometry(photo)).height).toBeCloseTo(originalHeight, 2);
-    await page.locator(".conversation").screenshot({ path: testInfo.outputPath("sent-photo-caption.png") });
   });
 }
 

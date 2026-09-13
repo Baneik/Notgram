@@ -1,10 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const usesExternalServer = process.env.NOTGRAM_E2E_EXTERNAL_SERVER === "1";
+const suite = process.env.NOTGRAM_E2E_SUITE ?? "all";
+const diagnostics = process.env.NOTGRAM_E2E_DIAGNOSTICS === "1";
+if (!["all", "regression", "smoke", "visual", "performance"].includes(suite)) {
+  throw new Error(`Unknown E2E suite: ${suite}`);
+}
 
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: /\.e2e\.ts/,
+  grep: suite === "smoke" ? /@smoke/ : suite === "visual" ? /@visual/ : suite === "performance" ? /@performance/ : undefined,
+  grepInvert: suite === "regression" ? /@visual|@performance/ : undefined,
+  snapshotPathTemplate: "{testDir}/snapshots/{arg}{-projectName}{-platform}{ext}",
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,
@@ -15,8 +23,8 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:1422",
     headless: true,
     locale: "zh-CN",
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
+    trace: diagnostics ? "on" : process.env.CI ? "on-first-retry" : "off",
+    screenshot: diagnostics ? "on" : "only-on-failure",
     launchOptions: { args: ["--mute-audio"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

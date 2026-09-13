@@ -27,7 +27,7 @@ async function showPost(page: Page, kind: PostKind, outgoing: boolean, reactions
   }, { kind, outgoing, reactions, delivery });
 }
 
-test("channel metadata keeps one neutral color across post layouts, ownership, reactions, and themes", async ({ page }, testInfo) => {
+test("channel metadata keeps one neutral color across post layouts, ownership, reactions, and themes", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
@@ -61,7 +61,6 @@ test("channel metadata keeps one neutral color across post layouts, ownership, r
         }
       }
     }
-    await page.screenshot({ path: testInfo.outputPath(`channel-metadata-${theme}.png`) });
   }
 });
 

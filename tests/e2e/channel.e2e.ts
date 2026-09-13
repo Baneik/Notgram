@@ -151,7 +151,7 @@ test("discussion pagination deduplicates requests, retains comments on errors, a
   expect(errors).toEqual([]);
 });
 
-test("channel albums keep a shared caption, metadata, and one working discussion action", async ({ page }, testInfo) => {
+test("channel albums keep a shared caption, metadata, and one working discussion action", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
@@ -191,13 +191,12 @@ test("channel albums keep a shared caption, metadata, and one working discussion
       return footer.top >= grid.bottom && footer.right <= bounds.right + 1;
     })).toBe(true);
   }
-  await page.screenshot({ path: testInfo.outputPath("channel-album.png") });
   await album.locator(".channel-post-discussion").click();
   await expect(page.locator(".channel-discussion-panel")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("channel album reactions stay in the shared footer through caption and reaction updates", async ({ page }, testInfo) => {
+test("channel album reactions stay in the shared footer through caption and reaction updates", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
@@ -257,7 +256,6 @@ test("channel album reactions stay in the shared footer through caption and reac
             chip.left >= bounds.left && chip.right <= bounds.right && !overlapsMeta;
         });
       })).toBe(true);
-      await album.screenshot({ path: testInfo.outputPath(`album-reactions-${placement}-${width}.png`) });
     }
     const reaction = footer.getByRole("button", { name: /👍，50 个回应/ });
     await reaction.click();

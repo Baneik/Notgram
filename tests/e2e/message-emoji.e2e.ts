@@ -59,7 +59,7 @@ const geometry = (message: Locator) => message.evaluate(element => {
 
 for (const mode of ["markdown", "entities"] as const) {
   for (const outgoing of [false, true]) {
-    test(`multiple emoji share ordinary text height and time alignment (${mode}, outgoing=${outgoing})`, async ({ page }, testInfo) => {
+    test(`multiple emoji share ordinary text height and time alignment (${mode}, outgoing=${outgoing})`, async ({ page }) => {
       await page.goto("/");
       await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
       await showMessages(page, ["哈哈", "😂😂", "😂😂😂", "😂 😂", "👩🏽‍💻👩🏽‍💻", "文字😂"], mode, outgoing);
@@ -76,11 +76,10 @@ for (const mode of ["markdown", "entities"] as const) {
         expect(actual.metaGlyphDelta).toBeLessThanOrEqual(3);
         expect(actual.horizontalGap).toBeGreaterThanOrEqual(7);
       }
-      await page.locator(".conversation").screenshot({ path: testInfo.outputPath("multiple-emoji.png") });
     });
   }
 
-  test(`single emoji enlarges the glyph and keeps time inside the bubble (${mode})`, async ({ page }, testInfo) => {
+  test(`single emoji enlarges the glyph and keeps time inside the bubble (${mode})`, async ({ page }) => {
     await page.goto("/");
     await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
     await showMessages(page, ["😂", "👩🏽‍💻", "❤️", "🇨🇳", "1️⃣"], mode);
@@ -100,7 +99,6 @@ for (const mode of ["markdown", "entities"] as const) {
         expect(actual.metaRightGap).toBeLessThanOrEqual(11);
       }
     }
-    await page.locator(".conversation").screenshot({ path: testInfo.outputPath("single-emoji.png") });
   });
 }
 

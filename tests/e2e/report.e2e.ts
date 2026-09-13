@@ -50,7 +50,7 @@ const fixture = async (page: Page, options: { initial: ChatReportResult | "fail"
   }, options);
 };
 
-test("reports through three category levels, message selection, optional comment and confirmation", async ({ page }) => {
+test("reports through three category levels, message selection, optional comment and confirmation", { tag: "@smoke" }, async ({ page }) => {
   await page.goto("/");
   const report = await openProfileReport(page);
   await expect(report.getByRole("radio")).toHaveCount(10);

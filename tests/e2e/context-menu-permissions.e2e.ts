@@ -97,7 +97,6 @@ for (const native of [false, true]) {
     await page.evaluate(() => { window.__menuProbe.mode = "failure"; });
     await setConnection(page, "online");
     await expect(menu.getByRole("status")).toHaveText("无法读取操作权限");
-    await menu.screenshot({ path: `artifacts/context-menu-${native ? "native" : "browser"}-retry.png` });
     expect(await calls(page)).toBe(1);
     await page.waitForTimeout(150);
     expect(await calls(page)).toBe(1);

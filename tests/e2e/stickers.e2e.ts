@@ -12,7 +12,7 @@ const ready = async (page: Page) => {
 };
 const picker = (page: Page) => page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
 
-test("unloaded stickers show their outline without download controls", async ({ page }, testInfo) => {
+test("unloaded stickers show their outline without download controls", async ({ page }) => {
   await ready(page);
   await page.evaluate(async ({ storePath, outline }) => {
     const { telegramStore } = await import(storePath) as StoreModule;
@@ -39,7 +39,6 @@ test("unloaded stickers show their outline without download controls", async ({ 
   await expect(row.locator(".sticker-outline path")).toHaveAttribute("d", outline);
   await expect(row.locator(".sticker-outline")).toHaveAttribute("viewBox", "0 0 512 512");
   await expect(row.locator(".photo-placeholder")).toHaveCount(0);
-  await row.screenshot({ path: testInfo.outputPath("sticker-outline.png") });
   await expect(row.getByRole("button", { name: "下载 test.webp" })).toHaveCount(0);
   await expect(row.locator(".media-progress")).toHaveCount(0);
   await expect(page.locator(".sticker-set-dialog")).toHaveCount(0);

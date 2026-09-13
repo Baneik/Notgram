@@ -1,4 +1,8 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
+    [ValidateSet("all", "regression", "smoke", "visual", "performance")]
+    [string]$Suite = "all",
+    [switch]$Diagnostics,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$PlaywrightArgs
 )
@@ -13,14 +17,10 @@ $playwrightCli = Join-Path $repositoryRoot "node_modules\playwright\cli.js"
 $logDirectory = Join-Path $repositoryRoot "logs"
 $serverProcess = $null
 $exitCode = 1
-$originalTransport = [Environment]::GetEnvironmentVariable(
-    "VITE_TELEGRAM_TRANSPORT",
-    [EnvironmentVariableTarget]::Process
-)
-$originalExternalServer = [Environment]::GetEnvironmentVariable(
-    "NOTGRAM_E2E_EXTERNAL_SERVER",
-    [EnvironmentVariableTarget]::Process
-)
+$originalEnvironment = @{}
+foreach ($name in @("VITE_TELEGRAM_TRANSPORT", "NOTGRAM_E2E_EXTERNAL_SERVER", "NOTGRAM_E2E_SUITE", "NOTGRAM_E2E_DIAGNOSTICS")) {
+    $originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, [EnvironmentVariableTarget]::Process)
+}
 
 function Restore-ProcessEnvironment([string]$Name, [AllowNull()][string]$Value) {
     if ($null -eq $Value) {
@@ -50,6 +50,9 @@ try {
     }
 
     $env:VITE_TELEGRAM_TRANSPORT = "mock"
+    $env:NOTGRAM_E2E_SUITE = $Suite
+    $env:NOTGRAM_E2E_DIAGNOSTICS = if ($Diagnostics) { "1" } else { "0" }
+    Write-Host "E2E suite: $Suite; diagnostics: $($Diagnostics.IsPresent)"
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     $serverProcess = Start-Process `
         -FilePath $nodePath `
@@ -90,8 +93,9 @@ try {
         Stop-Process -Id $serverProcess.Id -Force
         $serverProcess.WaitForExit()
     }
-    Restore-ProcessEnvironment "VITE_TELEGRAM_TRANSPORT" $originalTransport
-    Restore-ProcessEnvironment "NOTGRAM_E2E_EXTERNAL_SERVER" $originalExternalServer
+    foreach ($name in $originalEnvironment.Keys) {
+        Restore-ProcessEnvironment $name $originalEnvironment[$name]
+    }
     Pop-Location
 }
 

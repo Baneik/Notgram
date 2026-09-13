@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("language setting switches the whole interface and persists", async ({ page }) => {
+test("language setting switches the whole interface and persists", { tag: "@smoke" }, async ({ page }) => {
   await page.goto("/");
 
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
