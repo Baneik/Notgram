@@ -1,13 +1,15 @@
 import { currentLanguage, translate } from "../i18n";
-import { Folder, LoaderCircle, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, Folder, LoaderCircle, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
-import type { Chat, ChatFolder } from "../telegram/types";
+import type { Chat, ChatFolder, User } from "../telegram/types";
+import { filterFolderChats, folderChatKind, type FolderChatFilter } from "../utils/folderChatSelection";
 import { Avatar } from "./Avatar";
 
 interface FolderManagerDialogProps {
   folders: ChatFolder[];
   chats: Chat[];
+  users: ReadonlyMap<string, User>;
   initialFolderId?: string;
   pending: boolean;
   onCreate: (title: string, chatIds: string[]) => Promise<string | undefined>;
@@ -22,6 +24,7 @@ const NEW_FOLDER = "new";
 export function FolderManagerDialog({
   folders,
   chats,
+  users,
   initialFolderId,
   pending,
   onCreate,
@@ -41,6 +44,7 @@ export function FolderManagerDialog({
       : [],
   ));
   const [query, setQuery] = useState("");
+  const [chatFilter, setChatFilter] = useState<FolderChatFilter>("all");
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose, pending || saving);
@@ -56,12 +60,22 @@ export function FolderManagerDialog({
     selectFolder(fallback?.id ?? NEW_FOLDER);
   }, [activeFolder, activeId, customFolders]);
 
-  const visibleChats = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase(currentLanguage());
-    return chats
-      .filter((chat) => !normalized || chat.title.toLocaleLowerCase(currentLanguage()).includes(normalized))
-      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  }, [chats, query]);
+  const language = currentLanguage();
+  const visibleChats = useMemo(() => filterFolderChats(
+    chats, users, selectedChatIds, query, chatFilter, language,
+  ), [chats, users, selectedChatIds, query, chatFilter, language]);
+  const kindLabels = {
+    direct: translate("私聊"),
+    bot: translate("机器人"),
+    group: translate("群聊"),
+    channel: translate("频道"),
+    saved: translate("收藏夹"),
+  };
+
+  function clearFilters() {
+    setQuery("");
+    setChatFilter("all");
+  }
 
   function selectFolder(folderId: string) {
     const folder = customFolders.find((item) => item.id === folderId);
@@ -70,7 +84,7 @@ export function FolderManagerDialog({
     setSelectedChatIds(new Set(folder
       ? chats.filter((chat) => chat.folderIds.includes(folder.id)).map((chat) => chat.id)
       : []));
-    setQuery("");
+    clearFilters();
     setDeleteConfirm(false);
   }
 
@@ -129,7 +143,7 @@ export function FolderManagerDialog({
         tabIndex={-1}
       >
         <header className="folder-dialog-header">
-          <h2 id="folder-dialog-title">{translate("聊天文件夹")}</h2>
+          <h2 id="folder-dialog-title"><Folder size={20} aria-hidden="true" />{translate("聊天文件夹")}</h2>
           <button className="icon-button" type="button" aria-label={translate("关闭")} title={translate("关闭")} disabled={busy} onClick={onClose}>
             <X size={19} />
           </button>
@@ -139,6 +153,8 @@ export function FolderManagerDialog({
             <button
               className={`folder-list-item ${activeId === NEW_FOLDER ? "is-active" : ""}`}
               type="button"
+              disabled={busy}
+              aria-pressed={activeId === NEW_FOLDER}
               onClick={() => selectFolder(NEW_FOLDER)}
             >
               <Plus size={17} />
@@ -148,6 +164,8 @@ export function FolderManagerDialog({
               <button
                 className={`folder-list-item ${activeId === folder.id ? "is-active" : ""}`}
                 type="button"
+                disabled={busy}
+                aria-pressed={activeId === folder.id}
                 key={folder.id}
                 onClick={() => selectFolder(folder.id)}
               >
@@ -160,6 +178,7 @@ export function FolderManagerDialog({
             <label className="folder-name-field">
               <span>{translate("名称")}</span>
               <input
+                aria-label={translate("名称")}
                 value={title}
                 maxLength={12}
                 disabled={busy}
@@ -170,31 +189,57 @@ export function FolderManagerDialog({
             </label>
             <div className="folder-members-heading">
               <h3>{translate("包含的会话")}</h3>
-              <span>{selectedChatIds.size}</span>
+              <span className="folder-selected-count">{translate("已选 {{value0}}", { value0: selectedChatIds.size })}</span>
             </div>
-            <label className="folder-chat-search">
-              <Search size={16} />
-              <span className="sr-only">{translate("筛选会话")}</span>
-              <input
-                type="search"
-                value={query}
-                placeholder={translate("筛选会话")}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-            <div className="folder-chat-list">
-              {visibleChats.map((chat) => (
-                <label className="folder-chat-row" key={chat.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedChatIds.has(chat.id)}
-                    disabled={busy}
-                    onChange={() => toggleChat(chat.id)}
-                  />
-                  <Avatar avatar={chat.avatar} size="small" />
-                  <span>{chat.title}</span>
-                </label>
-              ))}
+            <div className="folder-chat-filters">
+              <label className="folder-chat-search">
+                <Search size={16} aria-hidden="true" />
+                <span className="sr-only">{translate("筛选会话")}</span>
+                <input
+                  type="search"
+                  value={query}
+                  placeholder={translate("筛选会话")}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              <label className="folder-chat-type">
+                <span className="sr-only">{translate("聊天类型")}</span>
+                <select value={chatFilter} onChange={(event) => setChatFilter(event.target.value as FolderChatFilter)}>
+                  <option value="all">{translate("全部类型")}</option>
+                  {Object.entries(kindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  <option value="uncategorized">{translate("未分类")}</option>
+                </select>
+                <ChevronDown size={14} aria-hidden="true" />
+              </label>
+            </div>
+            <div className="folder-chat-results">
+              <div className="folder-chat-list-meta">
+                <span>{translate("已选优先 · 按名称排序")}</span>
+                <span role="status">{translate("{{value0}} 个会话", { value0: visibleChats.length })}</span>
+              </div>
+              <div className="folder-chat-list">
+                {visibleChats.map((chat) => (
+                  <label className={`folder-chat-row${selectedChatIds.has(chat.id) ? " is-selected" : ""}`} key={chat.id}>
+                    <input
+                      type="checkbox"
+                      aria-label={chat.title}
+                      checked={selectedChatIds.has(chat.id)}
+                      disabled={busy}
+                      onChange={() => toggleChat(chat.id)}
+                    />
+                    <Avatar avatar={chat.avatar} size="small" />
+                    <span className="folder-chat-title" title={chat.title}>{chat.title}</span>
+                    <small className="folder-chat-kind">{kindLabels[folderChatKind(chat, users)]}</small>
+                  </label>
+                ))}
+                {visibleChats.length === 0 && (
+                  <div className="folder-chat-empty">
+                    <Search size={24} aria-hidden="true" />
+                    <span>{translate("没有匹配的会话")}</span>
+                    {(query || chatFilter !== "all") && <button type="button" onClick={clearFilters}>{translate("清除筛选")}</button>}
+                  </div>
+                )}
+              </div>
             </div>
             <footer className="folder-editor-actions">
               {activeFolder && (deleteConfirm ? (

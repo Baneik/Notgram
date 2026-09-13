@@ -2128,6 +2128,7 @@ export function App() {
         {folderManagerOpen ? <FolderManagerDialog
           folders={folders}
           chats={[...chats.values()]}
+          users={users}
           initialFolderId={folderManagerInitialId}
           pending={folderManagementPending}
           onCreate={createChatFolder}

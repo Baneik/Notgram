@@ -1,4 +1,9 @@
 export const en = {
+  "全部类型": "All types",
+  "群聊": "Groups",
+  "已选优先 · 按名称排序": "Selected first · Sorted by name",
+  "{{value0}} 个会话": "{{value0}} chats",
+  "清除筛选": "Clear filters",
   "退出后，您将不再接收此频道的新消息。": "You will no longer receive new messages from this channel.",
   "退出频道": "Leave channel",
   "停用“{{value0}}”？": "Stop “{{value0}}”?",
