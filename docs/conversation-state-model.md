@@ -65,11 +65,27 @@ Ordinary entry preserves the reading viewport from departure, including a viewpo
 the bottom. Current-view following is not an instruction to follow messages that arrive while
 the conversation is closed. Save the visible message anchor and offset even while following,
 along with whether the viewport actually reached the raw bottom and the last known message.
-Only an unchanged tail at a saved bottom resumes bottom alignment on entry. Explicit latest
-navigation and incoming messages in an already following, open conversation retain their behavior.
+An unchanged tail at a saved bottom resumes bottom alignment on entry. If the tail grew, a
+viewport that was actually at the bottom and following may also resume following when the last
+old message and every new message fit completely in the current viewport. Use measured height,
+including album metadata, date/group spacing and the end sentinel, rather than message counts.
+An entry with no local old-tail boundary or reading anchor keeps its saved reading position.
+A partial history context cannot establish that every arrival is present, so it also preserves
+the reading position even when its projected tail happens to fit.
+Explicit latest navigation and incoming messages in an already following, open conversation
+retain their behavior.
+
+Measure a candidate tail while entry is hidden, using the existing anchor positioning owner.
+Only fully mounted content with known media geometry can establish fit; an unknown image ratio
+or incomplete rich content preserves the checkpoint. Verify again after bottom settlement to
+include arrivals during positioning. Publish the first visible viewport only after the chosen
+bottom or reading anchor is stable. A later media load must not reconsider an already shown
+entry. Leaving during measurement restores the immutable departure checkpoint; stale callbacks
+cannot publish a result in another conversation.
+
 For short lists, preserve the leading flex space in the measured Header while restoring the
 old viewport. Otherwise restoring the anchor would require a negative scroll offset. Explicit
-latest navigation releases that space and resumes the list's normal bottom alignment.
+latest navigation or an entry whose tail fits releases that space and resumes normal bottom alignment.
 
 The departure capture reads the live scroller and Virtuoso handle when called; their refs may not
 be available when the capture effect first registers. Validate the list identity and positioning

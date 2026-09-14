@@ -50,6 +50,8 @@ import {
   scrollMemoryKey,
   visibleAnchor,
   restoreConversationBottom,
+  conversationEntryTail,
+  conversationEntryTailFits,
   resolveConversationReadingAnchor,
   type ConversationLayoutSnapshot,
   type ConversationScrollMemory,
@@ -213,6 +215,7 @@ interface ConversationScrollOptions {
   onLatestWindow?: () => boolean;
   onHistoryWindow?: (messageId: string, offset: number) => boolean;
   onLoadEntryAnchor?: (messageId: string, isCurrent: () => boolean) => Promise<boolean>;
+  historyWindowIsContext?: boolean;
   cachedMessageIds?: ReadonlySet<string>;
   onUserScroll?: (scroll: ConversationUserScroll) => void;
 }
@@ -233,6 +236,7 @@ export const useConversationScroll = ({
   onLatestWindow,
   onHistoryWindow,
   onLoadEntryAnchor,
+  historyWindowIsContext = false,
   cachedMessageIds,
   onUserScroll,
 }: ConversationScrollOptions) => {
@@ -305,8 +309,12 @@ export const useConversationScroll = ({
   const initialLocationRef = useRef<InitialLocation | undefined>(undefined);
   const entryMemoryRef = useRef<{
     identity: string;
+    key?: string;
     memory?: ConversationScrollMemory;
     bottom: boolean;
+    fitBoundary?: string;
+    fitChecked?: boolean;
+    fitAccepted?: boolean;
   } | undefined>(undefined);
   const appliedEntryMemoryRef = useRef<string | undefined>(undefined);
   const [unavailableEntryAnchor, setUnavailableEntryAnchor] = useState<string>();
@@ -375,8 +383,9 @@ export const useConversationScroll = ({
     // Freeze the departure checkpoint before live layout effects update memory.
     // Later arrivals in an already open conversation still follow user intent.
     entryMemoryRef.current = {
-      identity: entryMemoryIdentity, memory,
+      identity: entryMemoryIdentity, key: currentScrollKey, memory,
       bottom: restoreConversationBottom(memory, visibleMessages),
+      fitBoundary: historyWindowIsContext ? undefined : conversationEntryTail(memory, visibleMessages)?.[0].id,
     };
   }
   const entryMemory = entryMemoryRef.current;
@@ -488,15 +497,17 @@ export const useConversationScroll = ({
         location = { index: "LAST", align: "end", behavior: "auto" };
         mode = "bottom";
       } else if (storedAnchorIndex !== undefined) {
+        const fitBoundaryIndex = entryMemory.fitBoundary
+          ? messageItemIndexes.get(entryMemory.fitBoundary) : undefined;
         location = {
-          index: storedAnchorIndex,
+          index: fitBoundaryIndex ?? storedAnchorIndex,
           align: "start",
-          offset: -(entryAnchor?.offset ?? 0),
+          offset: fitBoundaryIndex !== undefined ? 0 : -(entryAnchor?.offset ?? 0),
           behavior: "auto",
         };
         mode = "anchor";
-        targetMessageId = entryAnchor?.messageId;
-        targetOffset = entryAnchor?.offset;
+        targetMessageId = fitBoundaryIndex !== undefined ? entryMemory.fitBoundary : entryAnchor?.messageId;
+        targetOffset = fitBoundaryIndex !== undefined ? 0 : entryAnchor?.offset;
       } else {
         // An unavailable reading anchor is not a request to skip to latest.
         mode = "anchor";
@@ -532,7 +543,7 @@ export const useConversationScroll = ({
     initialAlignmentRef.current = {
       key: virtuosoKey,
       ready: virtualItemCount > 0,
-      bottom: initialLocation.mode === "bottom" || (entryMemory.memory?.leadingSpace ?? 0) > 0,
+      bottom: initialLocation.mode === "bottom" || Boolean(entryMemory.fitBoundary) || (entryMemory.memory?.leadingSpace ?? 0) > 0,
     };
   }
   // A navigation command must not change Virtuoso's short-list alignment and
@@ -1216,6 +1227,7 @@ export const useConversationScroll = ({
     expectedVirtuosoKey: string,
     generation: number,
     onSettled?: () => void,
+    measuring = false,
   ) => {
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
@@ -1246,7 +1258,9 @@ export const useConversationScroll = ({
       const signature = actualOffset === undefined
         ? "missing"
         : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}`;
-      if (actualOffset !== undefined && Math.abs(actualOffset - expectedOffset) <= 1) {
+      // Measuring a short list only needs stable geometry: the browser may
+      // clamp the requested anchor offset while all candidate rows still fit.
+      if (actualOffset !== undefined && (measuring || Math.abs(actualOffset - expectedOffset) <= 1)) {
         stableFrames = signature === previousSignature ? stableFrames + 1 : 1;
       } else {
         stableFrames = 0;
@@ -1646,6 +1660,43 @@ export const useConversationScroll = ({
         releasePositioning();
         return;
       }
+      const entry = entryMemoryRef.current;
+      const element = messageListRef.current;
+      if (control.mode === "restoring" && entry?.fitBoundary && (!entry.fitChecked || entry.fitAccepted) && element) {
+        const tail = conversationEntryTail(entry.memory, visibleMessagesRef.current);
+        const fits = tail && conversationEntryTailFits(element, tail);
+        if (!entry.fitChecked && fits) {
+          entry.fitChecked = true;
+          entry.fitAccepted = true;
+          // Decide while entry is still hidden, then let the existing bottom
+          // coordinator own final alignment. Never move an already shown entry.
+          initialLocationRef.current = { identity, mode: "bottom", location: { index: "LAST", align: "end" } };
+          element.style.removeProperty("--conversation-entry-start-space");
+          writeMemory(currentScrollKey, element, true, 0, false);
+          pinToBottom();
+          settleBottomPosition(identity, expectedVirtuosoKey, generation, finishPositioning);
+          return;
+        } else if (!fits) {
+          // Include arrivals or layout changes during bottom settlement in the
+          // final decision, before publishing the first visible viewport.
+          entry.fitChecked = true;
+          entry.fitAccepted = false;
+          element.style.setProperty("--conversation-entry-start-space", `${entry.memory?.leadingSpace ?? 0}px`);
+          const pendingNewCount = (entry.memory?.pendingNewCount ?? 0) +
+            appendedMessageCount(visibleMessagesRef.current, entry.memory?.lastKnownMessageId);
+          conversationScrollMemory.set(currentScrollKey, { ...entry.memory!, followLatest: false,
+            lastKnownMessageId: lastVisibleMessageIdRef.current, pendingNewCount });
+          updateFollowingState(currentScrollKey, false);
+          updateNewMessageNotice(currentScrollKey, pendingNewCount);
+          const anchor = resolveConversationReadingAnchor(entry.memory, visibleMessagesRef.current, true);
+          initialLocationRef.current = { ...initialLocationRef.current, mode: "anchor",
+            targetMessageId: anchor?.messageId, targetOffset: anchor?.offset };
+          if (anchor) settleAnchorPosition(element, anchor.messageId, anchor.offset,
+            identity, expectedVirtuosoKey, generation, finishPositioning);
+          else finishPositioning();
+          return;
+        }
+      }
       const memory = conversationScrollMemory.get(currentScrollKey);
       control.mode = memory?.followLatest === false ? "detached" : "following";
       publishPositionedIdentity(identity);
@@ -1702,6 +1753,7 @@ export const useConversationScroll = ({
             expectedVirtuosoKey,
             generation,
             finishPositioning,
+            Boolean(entryMemoryRef.current?.fitBoundary && !entryMemoryRef.current.fitChecked),
           );
         } else finishPositioning();
       });
@@ -1716,6 +1768,9 @@ export const useConversationScroll = ({
     publishPositionedIdentity,
     settleAnchorPosition,
     settleBottomPosition,
+    writeMemory,
+    updateFollowingState,
+    updateNewMessageNotice,
   ]);
 
   const captureJumpAnchor = useCallback((destinationMessageId: string) => {
@@ -2542,8 +2597,12 @@ export const useConversationScroll = ({
       // unmounted list or a still-positioning intermediate viewport.
       const element = messageListRef.current;
       const handle = virtuosoRef.current;
-      if (!element?.isConnected || element.dataset.conversationVirtuosoKey !== virtuosoKey ||
-        positionedIdentityRef.current !== scrollControlRef.current.identity) return;
+      if (!element?.isConnected || element.dataset.conversationVirtuosoKey !== virtuosoKey) return;
+      if (positionedIdentityRef.current !== scrollControlRef.current.identity) {
+        const entry = entryMemoryRef.current;
+        if (entry?.key === key && entry.fitBoundary && entry.memory) conversationScrollMemory.set(key, entry.memory);
+        return;
+      }
       const current = conversationScrollMemory.get(key);
       const followLatest = current?.followLatest ??
         distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
@@ -2661,6 +2720,8 @@ export const useConversationScroll = ({
     }
     const memory = conversationScrollMemory.get(currentScrollKey);
     const control = scrollControlRef.current;
+    if (control.mode === "restoring" && entryMemoryRef.current?.fitBoundary &&
+      !entryMemoryRef.current.fitChecked) return;
     if (
       memory?.followLatest !== false &&
       (control.mode === "following" ||

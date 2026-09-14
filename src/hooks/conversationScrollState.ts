@@ -22,6 +22,40 @@ export const restoreConversationBottom = (
 ) => !memory || (memory.followLatest && memory.atBottom !== false &&
   memory.lastKnownMessageId === messages.at(-1)?.id);
 
+export const conversationEntryTail = (
+  memory: ConversationScrollMemory | undefined,
+  messages: readonly Message[],
+) => {
+  if (!memory?.followLatest || memory.atBottom !== true || !memory.anchorMessageId ||
+    !messages.some(message => message.id === memory.anchorMessageId)) return undefined;
+  const boundary = messages.findIndex(message => message.id === memory.lastKnownMessageId);
+  return boundary >= 0 && boundary < messages.length - 1 ? messages.slice(boundary) : undefined;
+};
+
+export const conversationEntryTailFits = (element: HTMLElement, tail: readonly Message[]) => {
+  if (tail.length < 2) return false;
+  const viewport = element.getBoundingClientRect();
+  let top = Infinity;
+  let bottom = -Infinity;
+  // Every arrival must be measured, including album captions and the footer.
+  // A virtual estimate or an image whose final ratio is unknown cannot prove fit.
+  for (const message of tail) {
+    const row = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(message.id)}"]`);
+    if (!row || row.querySelector(".photo-preview:not(.has-media-ratio)")) return false;
+    if (message.content.kind === "rich" && (!message.content.isFull ||
+      row.querySelector(".rich-media-placeholder") ||
+      [...row.querySelectorAll<HTMLImageElement>(".rich-media-visual img")].some(image => !image.complete || !image.naturalWidth) ||
+      [...row.querySelectorAll<HTMLVideoElement>(".rich-media-visual video")].some(video => !video.videoWidth))) return false;
+    const bounds = (row.closest<HTMLElement>(".media-album") ?? row).getBoundingClientRect();
+    if (bounds.height <= 0) return false;
+    top = Math.min(top, bounds.top);
+    bottom = Math.max(bottom, bounds.bottom);
+    if (bottom - top > viewport.height - 1) return false;
+  }
+  const end = element.querySelector(".message-list-end-sentinel")?.getBoundingClientRect();
+  return Boolean(end && Math.max(end.bottom, bottom) - top <= viewport.height - 1);
+};
+
 export const resolveConversationReadingAnchor = (
   memory: ConversationScrollMemory | undefined,
   messages: readonly Message[],

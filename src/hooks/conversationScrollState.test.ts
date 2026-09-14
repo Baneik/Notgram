@@ -7,6 +7,7 @@ import {
   resolveConversationVirtualIndex,
   commitConversationVirtualIndex,
   restoreConversationBottom,
+  conversationEntryTail,
   resolveConversationReadingAnchor,
   type ConversationScrollMemory,
 } from "./conversationScrollState";
@@ -33,6 +34,20 @@ describe("conversation reentry checkpoints", () => {
   it("retains an unloaded anchor until context recovery has finished", () => {
     expect(resolveConversationReadingAnchor(memory, messages.slice(2)))
       .toEqual({ messageId: "a", offset: -12 });
+  });
+
+  it("measures the old tail together with every arrival only for an actual saved bottom", () => {
+    expect(conversationEntryTail(memory, messages)).toEqual(messages.slice(2));
+    expect(conversationEntryTail({ ...memory, followLatest: false }, messages)).toBeUndefined();
+    expect(conversationEntryTail({ ...memory, atBottom: false }, messages)).toBeUndefined();
+    expect(conversationEntryTail({ ...memory, atBottom: undefined }, messages)).toBeUndefined();
+    expect(conversationEntryTail(memory, messages.slice(0, 3))).toBeUndefined();
+  });
+
+  it("preserves the checkpoint when its anchor or old tail is missing", () => {
+    expect(conversationEntryTail(memory, messages.slice(1))).toBeUndefined();
+    expect(conversationEntryTail(memory, messages.filter(message => message.id !== "c"))).toBeUndefined();
+    expect(conversationEntryTail(undefined, messages)).toBeUndefined();
   });
 
   it("preserves a surviving neighbor's original offset after deletion", () => {

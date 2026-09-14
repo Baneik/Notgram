@@ -59,7 +59,13 @@ test("leaving captures the mounted viewport and a reading anchor even at the bot
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
-  const before = await page.locator(".message-list").evaluate(element => {
+  await expect.poll(() => page.locator(".message-list").evaluate(element =>
+    element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+  const before = await page.locator(".message-list").evaluate(async element => {
+    // Let the virtualizer receive the native scroll events from bottom settling.
+    for (let frame = 0; frame < 3; frame++) {
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    }
     const bounds = element.getBoundingClientRect();
     const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
       .find(row => row.getBoundingClientRect().bottom > bounds.top + 1);
@@ -226,9 +232,10 @@ test("context success without a projected anchor cannot leave reentry waiting fo
 
 for (const { count, scale } of [{ count: 1, scale: 100 }, { count: 20, scale: 100 },
   { count: 1, scale: 125 }, { count: 20, scale: 125 }]) {
-  test(`a short bottom-aligned conversation keeps its old viewport after ${count} away arrivals (${scale}%)`, async ({ page }) => {
+  test(`a short conversation ${count === 1 ? "follows a fitting tail" : "restores an overflowing tail"} after ${count} away arrivals (${scale}%)`, async ({ page }) => {
     await page.goto("/");
     await settled(page);
+    await select(page, "chat-mia");
     await page.evaluate(async ({ path, scale }) => {
       const { preferencesStore } = await import(path) as typeof import("../../src/store/preferencesStore");
       preferencesStore.setState({ interfaceScale: scale });
@@ -245,8 +252,14 @@ for (const { count, scale } of [{ count: 1, scale: 100 }, { count: 20, scale: 10
       histories.set("chat-product", { loading: false, hasMore: false, initialized: true });
       telegramStore.setState({ messages, histories, loadMoreHistory: async () => undefined });
     }, storePath);
-    await page.locator(".message-list").press("End");
-    await expect(page.locator(".message-removal-ghost")).toHaveCount(0);
+    await page.evaluate(async path => {
+      const { conversationScrollMemory, conversationVirtuosoSnapshots } = await import(path);
+      conversationScrollMemory.delete("default:chat-product");
+      conversationVirtuosoSnapshots.delete("default:chat-product");
+    }, memoryPath);
+    await select(page, "chat-product");
+    await settled(page);
+    await expect(page.locator(".jump-to-latest")).toHaveCount(0);
     await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13 * scale / 100);
     await select(page, "chat-mia");
     const memory = await savedPosition(page);
@@ -254,10 +267,18 @@ for (const { count, scale } of [{ count: 1, scale: 100 }, { count: 20, scale: 10
     const anchor = { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! };
     await appendMessages(page, count, "short-away");
     await select(page, "chat-product");
-    await expectAnchor(page, anchor);
+    if (count === 1) {
+      await settled(page);
+      await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13 * scale / 100);
+      await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+      await expect(page.locator('[data-message-id="short-1"]')).toBeVisible();
+    } else await expectAnchor(page, anchor);
     await select(page, "chat-mia");
     await select(page, "chat-product");
-    await expectAnchor(page, anchor);
+    if (count === 1) {
+      await settled(page);
+      await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13 * scale / 100);
+    } else await expectAnchor(page, anchor);
     if (count === 1) await page.locator(".message-list").press("End");
     else await page.getByRole("button", { name: `跳到最新消息，${count} 条新消息` }).click();
     await expect(page.locator(`[data-message-id="short-away-${count - 1}"]`)).toBeVisible();
@@ -282,4 +303,242 @@ test("explicit latest navigation cancels an entry anchor that is still loading",
   await releaseAnchorLoad(page);
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   expect((await savedPosition(page)).followLatest).toBe(true);
+});
+
+const expectFittingTail = async (page: Page, boundary: string, last: string) => {
+  await settled(page);
+  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(16);
+  await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+  for (const id of [boundary, last]) {
+    await expect.poll(() => page.locator(`[data-message-id="${id}"]`).evaluate(row => {
+      const bounds = row.getBoundingClientRect();
+      const viewport = row.closest(".message-list")!.getBoundingClientRect();
+      return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
+    })).toBe(true);
+  }
+};
+
+for (const scale of [100, 125]) {
+  test(`a fitting tail is already aligned on the first visible frame (${scale}%)`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    await settled(page);
+    await page.evaluate(async ({ path, scale }) => {
+      const { preferencesStore } = await import(path);
+      preferencesStore.setState({ interfaceScale: scale });
+    }, { path: "/src/store/preferencesStore.ts", scale });
+    await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(16);
+    await select(page, "chat-mia");
+    const memory = await savedPosition(page);
+    await appendMessages(page, 3, "fit");
+    await page.evaluate(({ boundary, last }) => {
+      type Frame = { boundaryTop: number; lastBottom: number; gap: number };
+      const state = window as typeof window & { __entryFrames?: Frame[] };
+      state.__entryFrames = [];
+      const sample = () => requestAnimationFrame(() => setTimeout(() => {
+        const list = document.querySelector<HTMLElement>(".message-list");
+        const first = list?.querySelector(`[data-message-id="${boundary}"]`);
+        const end = list?.querySelector(`[data-message-id="${last}"]`);
+        if (list && first && getComputedStyle(list).visibility === "visible") {
+          const viewport = list.getBoundingClientRect();
+          state.__entryFrames!.push({ boundaryTop: first.getBoundingClientRect().top - viewport.top,
+            lastBottom: end ? viewport.bottom - end.getBoundingClientRect().bottom : -Infinity,
+            gap: list.scrollHeight - list.clientHeight - list.scrollTop });
+        }
+        if (state.__entryFrames!.length < 12) sample();
+      }, 0));
+      sample();
+    }, { boundary: memory.lastKnownMessageId!, last: "fit-2" });
+    await select(page, "chat-product");
+    await expectFittingTail(page, memory.lastKnownMessageId!, "fit-2");
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { __entryFrames?: unknown[] }).__entryFrames?.length))
+      .toBe(12);
+    const frames = await page.evaluate(() => (window as typeof window & {
+      __entryFrames: { boundaryTop: number; lastBottom: number; gap: number }[];
+    }).__entryFrames);
+    expect(frames.every(frame => frame.boundaryTop >= -1 && frame.lastBottom >= -1 && Math.abs(frame.gap) <= 1),
+      JSON.stringify(frames)).toBe(true);
+    await appendMessages(page, 1, "following-fit");
+    await expectFittingTail(page, memory.lastKnownMessageId!, "following-fit-0");
+  });
+}
+
+test("one small arrival never takes a reader away from history", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await scrollAwayFromBottom(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 1, "history-arrival");
+  await select(page, "chat-product");
+  await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+  await expect(page.getByRole("button", { name: "跳到最新消息，1 条新消息" })).toBeVisible();
+});
+
+test("one tall text arrival preserves the old reading viewport", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 1, "tall");
+  await page.evaluate(async path => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "tall-0"
+      ? { ...message, content: { kind: "text", text: Array.from({ length: 60 }, (_, i) => `Line ${i}`).join("\n") } }
+      : message));
+    telegramStore.setState({ messages });
+  }, storePath);
+  await select(page, "chat-product");
+  await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+  await expect(page.getByRole("button", { name: "跳到最新消息，1 条新消息" })).toBeVisible();
+});
+
+for (const height of [600, 1200]) {
+  test(`one photo arrival uses the actual ${height}px viewport height`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height });
+    await page.goto("/");
+    await settled(page);
+    await select(page, "chat-mia");
+    const memory = await savedPosition(page);
+    await appendMessages(page, 1, "photo-fit");
+    await page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      const state = telegramStore.getState();
+      const messages = new Map(state.messages);
+      messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "photo-fit-0"
+        ? { ...message, content: { kind: "media", mediaType: "photo", fileName: "portrait.jpg", sizeLabel: "1 KB",
+          width: 600, height: 1800 } } : message));
+      telegramStore.setState({ messages });
+    }, storePath);
+    await select(page, "chat-product");
+    if (height === 1200) await expectFittingTail(page, memory.lastKnownMessageId!, "photo-fit-0");
+    else await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+  });
+}
+
+test("an unknown photo size preserves the checkpoint even after its dimensions arrive", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 1, "unknown-photo");
+  await page.evaluate(async path => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "unknown-photo-0"
+      ? { ...message, content: { kind: "media", mediaType: "photo", fileName: "unknown.jpg", sizeLabel: "1 KB" } }
+      : message));
+    telegramStore.setState({ messages });
+  }, storePath);
+  await select(page, "chat-product");
+  const anchor = { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! };
+  await expectAnchor(page, anchor);
+  await page.evaluate(async path => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "unknown-photo-0"
+      ? { ...message, content: { ...message.content, width: 100, height: 100 } } : message));
+    telegramStore.setState({ messages });
+  }, storePath);
+  await expectAnchor(page, anchor);
+  await expect(page.getByRole("button", { name: "跳到最新消息，1 条新消息" })).toBeVisible();
+});
+
+test("a missing old tail cannot opt a saved viewport into following", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  expect(memory.anchorMessageId).not.toBe(memory.lastKnownMessageId);
+  await appendMessages(page, 1, "missing-tail");
+  await page.evaluate(async ({ path, id }) => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.filter(message => message.id !== id));
+    telegramStore.setState({ messages });
+  }, { path: storePath, id: memory.lastKnownMessageId });
+  await select(page, "chat-product");
+  await settled(page);
+  // Deleting a tall tail can clamp the old offset at the reachable bottom.
+  await expect(page.locator(`[data-message-id="${memory.anchorMessageId}"]`)).toBeVisible();
+  expect((await savedPosition(page)).followLatest).toBe(false);
+});
+
+test("leaving during fit measurement retains the original checkpoint", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 1, "interrupted-fit");
+  await page.evaluate(boundary => {
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector(`.message-list.is-entry-positioning [data-message-id="${boundary}"]`)) return;
+      observer.disconnect();
+      document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-chen"]')!.click();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  }, memory.lastKnownMessageId!);
+  await select(page, "chat-product");
+  await expect(page.locator(".conversation-title strong")).toHaveText("陈默");
+  await settled(page);
+  expect(await savedPosition(page)).toEqual(memory);
+  await select(page, "chat-product");
+  await expectFittingTail(page, memory.lastKnownMessageId!, "interrupted-fit-0");
+});
+
+test("arrivals during hidden fit measurement cannot skip unread messages", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 1, "measuring-fit");
+  await page.evaluate(async ({ path, boundary }) => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector(`.message-list.is-entry-positioning [data-message-id="${boundary}"]`)) return;
+      observer.disconnect();
+      requestAnimationFrame(() => {
+        const messages = new Map(telegramStore.getState().messages);
+        const current = messages.get("chat-product")!;
+        const last = current.at(-1)!;
+        messages.set("chat-product", [...current, ...Array.from({ length: 20 }, (_, index) => ({
+          ...last, id: `during-fit-${index}`, sentAt: new Date(Date.now() + 1000 + index * 1000).toISOString(),
+          content: { kind: "text" as const, text: `Arrived during measurement ${index}` },
+        }))]);
+        telegramStore.setState({ messages });
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  }, { path: storePath, boundary: memory.lastKnownMessageId! });
+  await select(page, "chat-product");
+  await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+  await expect(page.getByRole("button", { name: "跳到最新消息，21 条新消息" })).toBeVisible();
+});
+
+test("a partial history projection cannot treat one visible arrival as the complete new tail", async ({ page }) => {
+  await page.goto("/");
+  await settled(page);
+  await select(page, "chat-mia");
+  const memory = await savedPosition(page);
+  await appendMessages(page, 20, "partial-fit");
+  await page.evaluate(async path => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const histories = new Map(state.histories);
+    histories.set("chat-product", { ...histories.get("chat-product")!, view: {
+      id: "context:partial-fit", excludedIds: new Set(),
+      messageIds: new Set(state.messages.get("chat-product")!
+        .filter(message => !message.id.startsWith("partial-fit-") || message.id === "partial-fit-0")
+        .map(message => message.id)),
+    } });
+    telegramStore.setState({ histories });
+  }, storePath);
+  await select(page, "chat-product");
+  await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+  expect((await savedPosition(page)).followLatest).toBe(false);
 });

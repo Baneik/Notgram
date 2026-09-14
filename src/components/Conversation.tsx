@@ -1166,6 +1166,7 @@ export function Conversation({
     onLatestWindow: pinnedViewOpen ? undefined : onLatestWindow,
     onHistoryWindow: pinnedViewOpen ? undefined : onHistoryWindow,
     onLoadEntryAnchor: pinnedViewOpen ? undefined : loadEntryAnchor,
+    historyWindowIsContext,
     cachedMessageIds: pinnedViewOpen ? undefined : cachedMessageIds,
     onUserScroll: handleConversationUserScroll,
   });
