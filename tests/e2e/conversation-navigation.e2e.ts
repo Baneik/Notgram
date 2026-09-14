@@ -818,9 +818,11 @@ test("window resizing and new messages preserve the user's follow intent", async
   await expect(page.locator(".jump-to-latest")).toHaveCount(0);
 });
 
-test("a chat left at the latest position returns to the latest message", async ({ page }) => {
+test("a chat left at the bottom restores its reading position when messages arrive while away", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  const savedAnchor = await visibleMessageAnchor(page);
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
@@ -847,8 +849,11 @@ test("a chat left at the latest position returns to the latest message", async (
     module.telegramStore.setState({ messages });
   }, "/src/store/telegramStore.ts");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
-  await expect(page.getByText("返回时仍在最新位置", { exact: true })).toBeVisible();
-  await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect.poll(async () => (await visibleMessageAnchor(page)).id).toBe(savedAnchor.id);
+  await expect.poll(async () => Math.abs((await visibleMessageAnchor(page)).offset - savedAnchor.offset))
+    .toBeLessThanOrEqual(2);
+  await expect(page.getByRole("button", { name: "跳到最新消息，1 条新消息" })).toBeVisible();
 });
 
 test("clicking the selected conversation repeatedly converges to its latest message", async ({ page }) => {

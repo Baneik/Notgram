@@ -9,7 +9,37 @@ export interface ConversationScrollMemory {
   pendingNewCount: number;
   anchorMessageId?: string;
   anchorOffset?: number;
+  atBottom?: boolean;
+  anchorSentAt?: string;
+  nearbyAnchors?: readonly { messageId: string; offset: number }[];
+  leadingSpace?: number;
 }
+
+/** A following viewport and a saved reading position have different lifetimes. */
+export const restoreConversationBottom = (
+  memory: ConversationScrollMemory | undefined,
+  messages: readonly Message[],
+) => !memory || (memory.followLatest && memory.atBottom !== false &&
+  memory.lastKnownMessageId === messages.at(-1)?.id);
+
+export const resolveConversationReadingAnchor = (
+  memory: ConversationScrollMemory | undefined,
+  messages: readonly Message[],
+  unavailable = false,
+) => {
+  if (!memory?.anchorMessageId) return undefined;
+  const anchor = { messageId: memory.anchorMessageId, offset: memory.anchorOffset ?? 0 };
+  if (!unavailable || messages.some(message => message.id === anchor.messageId)) return anchor;
+  const ids = new Set(messages.map(message => message.id));
+  const neighbor = memory.nearbyAnchors?.find(candidate => ids.has(candidate.messageId));
+  if (neighbor) return neighbor;
+  // If the whole saved viewport was deleted, prefer the next chronological
+  // message, then the closest predecessor. Never interpret absence as latest.
+  const nearest = memory.anchorSentAt
+    ? messages.find(message => message.sentAt >= memory.anchorSentAt!) ?? messages.at(-1)
+    : messages[0];
+  return nearest ? { messageId: nearest.id, offset: anchor.offset } : undefined;
+};
 
 export interface ConversationLayoutSnapshot {
   key?: string;

@@ -1112,6 +1112,13 @@ export function Conversation({
       }, motionLifecycleTiming.transientIndicatorHold);
     });
   }, [hideDateIndicator, messagesById, pinnedViewOpen]);
+  const loadEntryAnchor = useCallback(async (messageId: string, isCurrent: () => boolean) => {
+    if (!chat?.id || !isCurrent()) return false;
+    const loaded = await telegramStore.getState().loadMessage(chat.id, messageId, { onlyIfActive: true, isCurrent });
+    if (!loaded || !isCurrent()) return false;
+    telegramStore.getState().focusHistoryWindow(chat.id, messageId, topic?.id);
+    return true;
+  }, [chat?.id, topic?.id]);
   const {
     messageListRef,
     messageListElement,
@@ -1158,6 +1165,7 @@ export function Conversation({
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
     onLatestWindow: pinnedViewOpen ? undefined : onLatestWindow,
     onHistoryWindow: pinnedViewOpen ? undefined : onHistoryWindow,
+    onLoadEntryAnchor: pinnedViewOpen ? undefined : loadEntryAnchor,
     cachedMessageIds: pinnedViewOpen ? undefined : cachedMessageIds,
     onUserScroll: handleConversationUserScroll,
   });

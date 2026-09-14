@@ -59,6 +59,32 @@ message jump because that operation has one owner and one list. For a distant vi
 snapshot stays still, and only the final controlled deceleration is revealed; source and destination
 must not run separate whole-list transforms.
 
+## Reentering a conversation
+
+Ordinary entry preserves the reading viewport from departure, including a viewport that was at
+the bottom. Current-view following is not an instruction to follow messages that arrive while
+the conversation is closed. Save the visible message anchor and offset even while following,
+along with whether the viewport actually reached the raw bottom and the last known message.
+Only an unchanged tail at a saved bottom resumes bottom alignment on entry. Explicit latest
+navigation and incoming messages in an already following, open conversation retain their behavior.
+For short lists, preserve the leading flex space in the measured Header while restoring the
+old viewport. Otherwise restoring the anchor would require a negative scroll offset. Explicit
+latest navigation releases that space and resumes the list's normal bottom alignment.
+
+The departure capture reads the live scroller and Virtuoso handle when called; their refs may not
+be available when the capture effect first registers. Validate the list identity and positioning
+completion before writing memory. Switching away while restoring must preserve the prior
+checkpoint, and a late snapshot callback cannot overwrite a newer capture. Account/topic/view
+scopes remain independent.
+
+Freeze the entry checkpoint before layout effects update live message counts. An anchor absent
+from the projected history first uses the existing context loader and history-window selector.
+Loading is bounded and tied to the current positioning generation; navigation or user input
+invalidates it. If recovery fails, prefer another saved visible message at its original offset,
+then a chronological neighbor (successor before predecessor), rather than defaulting to latest.
+Do not publish readiness or expose the unpositioned destination while a local anchor is pending.
+The existing anchor/bottom coordinators remain the only owners of final alignment.
+
 ## Positioning completion
 
 `positioning=false` means the requested geometry is stable, not merely that a correction was queued.

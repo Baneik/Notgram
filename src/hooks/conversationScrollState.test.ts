@@ -6,7 +6,50 @@ import {
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
   commitConversationVirtualIndex,
+  restoreConversationBottom,
+  resolveConversationReadingAnchor,
+  type ConversationScrollMemory,
 } from "./conversationScrollState";
+import type { Message } from "../telegram/types";
+
+describe("conversation reentry checkpoints", () => {
+  const messages = ["a", "b", "c", "d"].map((id, index) => ({
+    id, sentAt: new Date(1700000000000 + index * 1000).toISOString(),
+  } as Message));
+  const memory: ConversationScrollMemory = {
+    scrollTop: 300, followLatest: true, atBottom: true, lastKnownMessageId: "c", pendingNewCount: 0,
+    anchorMessageId: "a", anchorOffset: -12, anchorSentAt: messages[0].sentAt,
+    nearbyAnchors: [{ messageId: "a", offset: -12 }, { messageId: "b", offset: 68 }],
+  };
+
+  it("distinguishes the old bottom from a tail extended while away", () => {
+    expect(restoreConversationBottom(memory, messages.slice(0, 3))).toBe(true);
+    expect(restoreConversationBottom(memory, messages)).toBe(false);
+    expect(restoreConversationBottom({ ...memory, atBottom: false }, messages.slice(0, 3))).toBe(false);
+    expect(restoreConversationBottom({ ...memory, followLatest: false }, messages.slice(0, 3))).toBe(false);
+    expect(restoreConversationBottom(undefined, messages)).toBe(true);
+  });
+
+  it("retains an unloaded anchor until context recovery has finished", () => {
+    expect(resolveConversationReadingAnchor(memory, messages.slice(2)))
+      .toEqual({ messageId: "a", offset: -12 });
+  });
+
+  it("preserves a surviving neighbor's original offset after deletion", () => {
+    expect(resolveConversationReadingAnchor(memory, messages.slice(1), true))
+      .toEqual({ messageId: "b", offset: 68 });
+  });
+
+  it("falls back chronologically when the entire saved viewport is missing", () => {
+    expect(resolveConversationReadingAnchor(memory, messages.slice(2), true))
+      .toEqual({ messageId: "c", offset: -12 });
+    expect(resolveConversationReadingAnchor({ ...memory, anchorSentAt: "2099" }, messages.slice(2), true))
+      .toEqual({ messageId: "d", offset: -12 });
+    expect(resolveConversationReadingAnchor({ ...memory, anchorSentAt: undefined }, messages.slice(2), true))
+      .toEqual({ messageId: "c", offset: -12 });
+    expect(resolveConversationReadingAnchor(memory, [], true)).toBeUndefined();
+  });
+});
 
 describe("virtual measurement cache validity", () => {
   it("rejects equal-size timelines with different partitions or ordering", () => {

@@ -1015,7 +1015,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 /* Keep group/date margins inside the boxes measured by the virtualizer. */
 .message-list-content > [data-index] { display: flow-root; }
-.message-list-start-spacer { height: calc(20px + var(--message-removal-start-space, 0px)); }
+.message-list-start-spacer { height: calc(20px + var(--message-removal-start-space, 0px) + var(--conversation-entry-start-space, 0px)); }
 .message-list-end-sentinel { height: 12px; }
 .conversation-jump-button {
   position: absolute; right: 18px; bottom: 16px; z-index: 20; width: 46px; height: 46px; padding: 0;
@@ -3631,7 +3631,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     pointer-events: auto;
   }
   .mobile-back { display: inline-grid; }
-  .message-list-start-spacer { height: calc(14px + var(--message-removal-start-space, 0px)); }
+  .message-list-start-spacer { height: calc(14px + var(--message-removal-start-space, 0px) + var(--conversation-entry-start-space, 0px)); }
   .conversation-jump-button { right: 12px; bottom: 12px; }
   .jump-to-attention.is-stacked { transform: translateY(-54px); }
   .message-group { gap: 6px; }
