@@ -15,13 +15,14 @@ const zeroEncode = (bytes: Uint8Array) => {
   return encoded;
 };
 
-const remoteId = (dcId: number, version = 4) => {
-  const serialized = new Uint8Array(24);
+const remoteId = (dcId: number, version = 4, flags = 0) => {
+  const serialized = new Uint8Array(flags & (1 << 25) ? 32 : 24);
   const view = new DataView(serialized.buffer);
-  view.setInt32(0, 3, true);
+  view.setInt32(0, 2 | flags, true);
   view.setInt32(4, dcId, true);
-  view.setBigInt64(8, 123n, true);
-  const bytes = Uint8Array.from([...zeroEncode(serialized), 42, version]);
+  if (flags & (1 << 25)) serialized.set([4, 11, 22, 33, 44, 0, 0, 0], 8);
+  view.setBigInt64(flags & (1 << 25) ? 16 : 8, 123n, true);
+  const bytes = Uint8Array.from([...zeroEncode(serialized), ...(version === 2 ? [] : [61]), version]);
   const binary = String.fromCharCode(...bytes);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
@@ -34,7 +35,30 @@ describe("parseTdlibRemoteFileDataCenter", () => {
   it("rejects unrelated, malformed, and unsupported identifiers", () => {
     expect(parseTdlibRemoteFileDataCenter("not-a-file-id")).toBeUndefined();
     expect(parseTdlibRemoteFileDataCenter(remoteId(5, 3))).toBeUndefined();
-    expect(parseTdlibRemoteFileDataCenter(remoteId(9))).toBeUndefined();
+    expect(parseTdlibRemoteFileDataCenter(remoteId(1001))).toBeUndefined();
+    expect(parseTdlibRemoteFileDataCenter(remoteId(0))).toBeUndefined();
+    expect(parseTdlibRemoteFileDataCenter(remoteId(4, 4, 1 << 24))).toBeUndefined();
+    expect(parseTdlibRemoteFileDataCenter(remoteId(4, 4, 1 << 26))).toBeUndefined();
+  });
+
+  it.each([1, 2, 3, 4, 5])("reads DC%s when the file-reference flag is present", (dcId) => {
+    expect(parseTdlibRemoteFileDataCenter(remoteId(dcId, 4, 1 << 25))).toBe(dcId);
+  });
+
+  it("supports legacy v2 remote IDs and TDLib's raw DC range", () => {
+    expect(parseTdlibRemoteFileDataCenter(remoteId(4, 2))).toBe(4);
+    expect(parseTdlibRemoteFileDataCenter(remoteId(203))).toBe(203);
+  });
+
+  it("rejects truncated zero runs, payloads, and file references", () => {
+    expect(parseTdlibRemoteFileDataCenter(btoa(String.fromCharCode(2, 0, 61, 4)))).toBeUndefined();
+    const bytes = new Uint8Array(24);
+    const view = new DataView(bytes.buffer);
+    view.setInt32(0, 2 | (1 << 25), true);
+    view.setInt32(4, 4, true);
+    bytes[8] = 100;
+    expect(parseTdlibRemoteFileDataCenter(btoa(String.fromCharCode(...zeroEncode(bytes), 61, 4))))
+      .toBeUndefined();
   });
 
   it("uses the avatar file identifier before querying the TDLib option", async () => {

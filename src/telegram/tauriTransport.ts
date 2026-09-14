@@ -25,7 +25,6 @@ import {
 } from "./tdlibMapper";
 import { FileDownloadQueue } from "./fileDownloadQueue";
 import { TdFileStateCache } from "./tdFileStateCache";
-import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
 import { installConnectionRecoveryMonitor } from "./connectionRecoveryMonitor";
 import { TdUpdateStream } from "./tdUpdateStream";
@@ -518,7 +517,6 @@ export class TauriTelegramTransport implements TelegramTransport {
   private rawFolderInfos: TdObject[] = [];
   private mainChatListPosition = 0;
   private currentUserId?: string;
-  private dataCenterId?: number;
   private bootstrapPromise?: Promise<void>;
   private bootstrapComplete = false;
   private bootstrapFailed = false;
@@ -2576,19 +2574,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     const me = await this.request({ "@type": "getMe" });
     this.currentUserId = tdId(me.id);
     this.upsertUser(me);
-    const profilePhoto = asTdObject(me.profile_photo);
-    const remoteIds = [profilePhoto?.small, profilePhoto?.big].map((size) => {
-      const remoteId = asTdObject(asTdObject(size)?.remote)?.id;
-      return typeof remoteId === "string" ? remoteId : undefined;
-    });
-    // Data-center metadata is only needed for media labels. Do not hold the
-    // initial chat sync on getOption: some TDLib databases take several seconds
-    // to answer that optional query while they finish opening the local store.
-    void resolveTdlibDataCenter(remoteIds, (request) => this.request(request))
-      .then((details) => {
-        this.dataCenterId = details.id;
-      })
-      .catch(() => undefined);
     if (this.currentUserId) {
       this.listener?.({ type: "currentUser.changed", userId: this.currentUserId });
     }
@@ -3590,15 +3575,9 @@ export class TauriTelegramTransport implements TelegramTransport {
     if (this.invalidatedMessageIds.has(`${tdId(raw.chat_id)}:${tdId(raw.id)}`)) return undefined;
     const rawChat = this.rawChats.get(tdId(raw.chat_id) ?? "");
     const chatType = asTdObject(rawChat?.type);
-    const mapped = mapTdMessage(raw, {
+    const message = mapTdMessage(raw, {
       isChannel: chatType?.["@type"] === "chatTypeSupergroup" && chatType.is_channel === true,
     });
-    const message = mapped &&
-      this.dataCenterId !== undefined &&
-      (mapped.content.kind === "media" || mapped.content.kind === "file") &&
-      mapped.content.dataCenterId === undefined
-      ? { ...mapped, content: { ...mapped.content, dataCenterId: this.dataCenterId } }
-      : mapped;
     if (!message || message.delivery !== "sent") return message;
     if (chatType?.["@type"] === "chatTypePrivate" && tdId(chatType.user_id) === this.currentUserId) {
       return { ...message, delivery: "read" as const };
@@ -3960,7 +3939,6 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawFolderInfos = [];
     this.mainChatListPosition = 0;
     this.currentUserId = undefined;
-    this.dataCenterId = undefined;
     this.bootstrapPromise = undefined;
     this.initialChatSyncPending = true;
     this.initialUserSyncPending = false;

@@ -342,7 +342,7 @@ describe("TauriTelegramTransport startup", () => {
     });
   });
 
-  it("uses the avatar data-center fallback for media without a parseable remote identifier", () => {
+  it("never substitutes the account data center for an unknown media storage location", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     internal.dataCenterId = 5;
@@ -371,7 +371,7 @@ describe("TauriTelegramTransport startup", () => {
     expect(message?.content).toMatchObject({
       kind: "media",
       mediaType: "photo",
-      dataCenterId: 5,
+      dataCenterId: undefined,
     });
   });
 

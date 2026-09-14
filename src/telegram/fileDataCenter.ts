@@ -14,7 +14,8 @@ const zeroDecode = (encoded: Uint8Array) => {
   const decoded: number[] = [];
   for (let index = 0; index < encoded.length; index += 1) {
     const value = encoded[index]!;
-    if (value === 0 && index + 1 < encoded.length) {
+    if (value === 0) {
+      if (index + 1 >= encoded.length) return undefined;
       const count = encoded[index + 1]!;
       if (count === 0) return undefined;
       for (let repeat = 0; repeat < count; repeat += 1) decoded.push(0);
@@ -27,18 +28,35 @@ const zeroDecode = (encoded: Uint8Array) => {
 };
 
 export const parseTdlibRemoteFileDataCenter = (remoteId: string) => {
+  if (remoteId.length > 16_384) return undefined;
   const encoded = decodeBase64Url(remoteId.trim());
-  if (!encoded || encoded.length < 4 || encoded.at(-1) !== 4) return undefined;
+  if (!encoded || encoded.length < 4) return undefined;
+  const version = encoded.at(-1);
+  if (version !== 2 && version !== 4) return undefined;
+  if (version === 4 && encoded.at(-2)! > 61) return undefined;
 
   // TDLib persistent file IDs contain zero_encode(serialize(FullRemoteFileLocation)),
-  // followed by the schema byte and persistent ID version. The serialized location
-  // starts with an int32 file type and an int32 data-center identifier.
-  const decoded = zeroDecode(encoded.subarray(0, -2));
-  if (!decoded || decoded.length < 8) return undefined;
+  // followed by the schema byte (v4 only) and persistent ID version. Match
+  // FullRemoteFileLocation::{store,parse} and FileNode::get_persistent_id in
+  // the bundled TDLib: the file type includes flags, not just the enum value.
+  const decoded = zeroDecode(encoded.subarray(0, version === 4 ? -2 : -1));
+  if (!decoded || decoded.length < 24) return undefined;
   const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
-  const fileType = view.getInt32(0, true);
+  const rawType = view.getInt32(0, true);
+  const webLocationFlag = 1 << 24;
+  const fileReferenceFlag = 1 << 25;
+  const fileType = rawType & ~fileReferenceFlag;
   const dataCenterId = view.getInt32(4, true);
-  if (fileType < 0 || fileType > 255 || dataCenterId < 1 || dataCenterId > 5) return undefined;
+  // Web locations and generated IDs do not identify a Telegram storage DC.
+  if ((rawType & webLocationFlag) !== 0 || fileType < 0 || fileType >= 28 || fileType === 7 ||
+      dataCenterId < 1 || dataCenterId > 1000) return undefined;
+  if ((rawType & fileReferenceFlag) !== 0) {
+    const first = decoded[8]!;
+    if (first === 255) return undefined;
+    const header = first === 254 ? 4 : 1;
+    const length = first === 254 ? decoded[9]! + (decoded[10]! << 8) + (decoded[11]! << 16) : first;
+    if (8 + Math.ceil((header + length) / 4) * 4 + 16 > decoded.length) return undefined;
+  }
   return dataCenterId;
 };
 
