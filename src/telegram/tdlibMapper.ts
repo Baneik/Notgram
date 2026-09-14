@@ -2029,6 +2029,11 @@ export const mapTdChat = (
   const status = asTdObject(groupStatus);
   const statusType = status?.["@type"];
 
+  const sendingPermissions = asTdObject(statusType === "chatMemberStatusRestricted" ? status?.permissions : raw.permissions);
+  const allowsAnyMessage = sendingPermissions
+    ? Object.entries(sendingPermissions).some(([key, allowed]) => key.startsWith("can_send_") && allowed === true)
+    : statusType !== "chatMemberStatusRestricted";
+
   return {
     id,
     kind,
@@ -2040,6 +2045,14 @@ export const mapTdChat = (
     management,
     canDeleteForSelf: raw.can_be_deleted_only_for_self === true,
     isBlocked: asTdObject(raw.block_list)?.["@type"] === "blockListMain",
+    ...(kind === "group" || kind === "channel" ? {
+      isBanned: statusType === "chatMemberStatusBanned",
+      joinByRequest: supergroup?.join_by_request === true,
+    } : {}),
+    ...(kind === "group" && status ? { canSendMessages:
+      statusType === "chatMemberStatusCreator" || statusType === "chatMemberStatusAdministrator" ||
+      (statusType === "chatMemberStatusMember" && allowsAnyMessage) ||
+      (statusType === "chatMemberStatusRestricted" && status.is_member === true && allowsAnyMessage) } : {}),
     ...(status ? { isMember: statusType === "chatMemberStatusMember" ||
       statusType === "chatMemberStatusAdministrator" ||
       ((statusType === "chatMemberStatusCreator" || statusType === "chatMemberStatusRestricted") && status.is_member === true) } : {}),

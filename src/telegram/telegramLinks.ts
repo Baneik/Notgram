@@ -45,14 +45,18 @@ export const parseTelegramUrl = (value: string) => {
   try {
     const parsed = new URL(SCHEMELESS_TELEGRAM_URL.test(value) ? `https://${value}` : value);
     const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-    if (parsed.protocol === "tg:") return parsed;
+    if (parsed.protocol === "tg:" && !parsed.username && !parsed.password && !parsed.port) return parsed;
     if (
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       TELEGRAM_WEB_HOSTS.has(host) &&
       !parsed.username &&
       !parsed.password &&
       !parsed.port
-    ) return parsed;
+    ) {
+      parsed.protocol = "https:";
+      parsed.hostname = host;
+      return parsed;
+    }
     return undefined;
   } catch {
     return undefined;
@@ -87,7 +91,19 @@ export const telegramUsernameFromUrl = (value: string) => {
 
 export const telegramUrlDisplayText = (value: string) => {
   const username = telegramUsernameFromUrl(value);
-  return username ? `@${username}` : undefined;
+  return username ? parseTelegramUrl(value)?.protocol === "tg:" ? `t.me/${username}` : value : undefined;
+};
+
+/** Normalize invite aliases before they cross the native request boundary. */
+export const telegramInviteLink = (value: string): string | undefined => {
+  const parsed = parseTelegramUrl(value);
+  if (!parsed) return undefined;
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const hash = parsed.protocol === "tg:"
+    ? parsed.hostname.toLowerCase() === "join" ? parsed.searchParams.get("invite") : undefined
+    : parts.length === 1 && parts[0].startsWith("+") ? parts[0].slice(1)
+      : parts.length === 2 && parts[0].toLowerCase() === "joinchat" ? parts[1] : undefined;
+  return hash && /^[A-Za-z0-9_-]{1,256}$/.test(hash) ? `https://t.me/+${hash}` : undefined;
 };
 
 /** Keep reserved routes separate from usernames, including malformed pack links. */
@@ -126,6 +142,7 @@ export const knownUnsupportedTelegramLink = (value: string): TelegramLinkTarget 
   const parsed = parseTelegramUrl(value);
   if (!parsed) return undefined;
   if (telegramStickerSetName(value)) return undefined;
+  if (telegramInviteLink(value)) return undefined;
   if (parsed.protocol === "tg:") {
     const action = parsed.hostname.toLowerCase() || parsed.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
     if (!action || action === "resolve" || action === "privatepost" || action === "user") return undefined;

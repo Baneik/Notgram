@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { ChatMembershipBar, needsMembershipBar } from "./ChatMembershipBar";
 import {
   ArrowLeft,
   Check,
@@ -55,8 +56,8 @@ export function ForumTopicsView({
   const [menuTopicId, setMenuTopicId] = useState<string>();
   const [pendingTopicId, setPendingTopicId] = useState<string>();
   const topicsListRef = useRef<HTMLDivElement>(null);
-  const canManage = chat.management?.canManageTopics === true;
-  const canCreate = canManage || chat.canCreateTopics === true;
+  const canManage = chat.isMember !== false && chat.management?.canManageTopics === true;
+  const canCreate = chat.isMember !== false && (canManage || chat.canCreateTopics === true);
   const showLoading = useStableVisibility(loading && topics.length === 0);
   const orderedTopics = useMemo(
     () => [...topics].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || Number(right.order) - Number(left.order)),
@@ -219,6 +220,7 @@ export function ForumTopicsView({
           </div>
         )}
       </div>
+      {needsMembershipBar(chat) && <ChatMembershipBar chat={chat} />}
     </section>
   );
 }

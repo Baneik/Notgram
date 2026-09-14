@@ -1,4 +1,5 @@
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
+import { ChatMembershipBar, needsMembershipBar } from "./ChatMembershipBar";
 import { channelDiscussionAvailable, mediaAlbumMetadataMessage } from "../utils/messageMetadata";
 import { useChannelDiscussionHistory } from "../hooks/useChannelDiscussionHistory";
 import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
@@ -1768,7 +1769,7 @@ export function Conversation({
       selectionMode
     ) return;
     composerFocus.request({ reason: "entry" });
-  }, [composerFocus, conversationIdentity, historyLoading, pinnedViewOpen, positioning, selectionMode, discussionPost]);
+  }, [composerFocus, conversationIdentity, chat?.isMember, historyLoading, pinnedViewOpen, positioning, selectionMode, discussionPost]);
 
   useLayoutEffect(() => {
     const anchor = pinnedReturnAnchorRef.current;
@@ -3156,7 +3157,7 @@ export function Conversation({
             </button>
           </div>
         </div>
-      ) : botStartPending ? (
+      ) : needsMembershipBar(chat) ? <ChatMembershipBar chat={chat} /> : botStartPending ? (
         <div className="bot-start-bar">
           <button
             className="bot-start-button"

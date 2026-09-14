@@ -32,6 +32,8 @@ import { NewChatDialog } from "../components/NewChatDialog";
 import { ChatManagementDialog } from "../components/ChatManagementDialog";
 import { AudioPlaybackHost } from "../components/AudioPlaybackHost";
 import { StickerSetPreview } from "../components/StickerSetPreview";
+import { ChatInviteDialog } from "../components/ChatInviteDialog";
+import { installTelegramLinkReceiver } from "../release/telegramLinkReceiver";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
@@ -348,6 +350,7 @@ export function App() {
   const [mobileViewport, setMobileViewport] = useState(false);
   const [activeDiscussionPostId, setActiveDiscussionPostId] = useState<string>();
   const [pendingBotStart, setPendingBotStart] = useState<PendingBotStart>();
+  const [chatInvite, setChatInvite] = useState<Extract<TelegramLinkTarget, { kind: "chatInvite" }> & { accountId: string }>();
   const [botStartSending, setBotStartSending] = useState(false);
   const botStartRequestIdRef = useRef(0);
   const botStartSendingRef = useRef(false);
@@ -1289,6 +1292,10 @@ export function App() {
   useEffect(() => {
     const openTelegramLink = (event: Event) => {
       const detail = (event as CustomEvent<TelegramLinkTarget>).detail;
+      if (detail && "kind" in detail && detail.kind === "chatInvite") {
+        setChatInvite({ ...detail, accountId: telegramStore.getState().activeAccountId });
+        return;
+      }
       if (detail && "kind" in detail && detail.kind === "stickerSet") {
         openStickerSetPreview(detail.stickerSet.id);
         return;
@@ -1326,6 +1333,8 @@ export function App() {
     globalThis.addEventListener("notgram:telegram-link-opened", openTelegramLink);
     return () => globalThis.removeEventListener("notgram:telegram-link-opened", openTelegramLink);
   }, [executeBotStart, loadUserProfile, openGlobalSearchChat, openGlobalSearchMessage, openStickerSetPreview]);
+
+  useEffect(installTelegramLinkReceiver, []);
 
   const openProfilePrivateChat = useCallback(async (userId: string) => {
     const chatId = await startPrivateChat(userId);
@@ -2139,6 +2148,13 @@ export function App() {
           onRemove={removeDownloadRecords}
           onOpenDirectory={openDownloadDirectory}
           onClose={() => setDownloadManagerOpen(false)}
+        /> : null}
+      </MotionPresence>
+      <MotionPresence present={Boolean(chatInvite && chatInvite.accountId === activeAccountId)}>
+        {chatInvite && chatInvite.accountId === activeAccountId ? <ChatInviteDialog
+          key={`${chatInvite.accountId}:${chatInvite.preview.inviteLink}`}
+          preview={chatInvite.preview} accountId={chatInvite.accountId}
+          onClose={() => setChatInvite(undefined)} onOpenChat={chatId => openGlobalSearchChat(chatId, true)}
         /> : null}
       </MotionPresence>
       <MotionPresence present={Boolean(stickerSetPreviewId)}>

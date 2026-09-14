@@ -51,7 +51,7 @@ describe("MessageRichText Telegram links", () => {
     expect(html).toContain('>first\nsecond</span></span>\n<strong>reply</strong>');
   });
 
-  it("renders a schemeless public profile link as an @username mention", () => {
+  it("renders a schemeless public link as a URL instead of a mention", () => {
     const link = "t.me/sylphiette_grayrat_bot";
     const html = renderToStaticMarkup(
       <MessageRichText
@@ -61,8 +61,8 @@ describe("MessageRichText Telegram links", () => {
     );
 
     expect(html).toContain('href="https://t.me/sylphiette_grayrat_bot"');
-    expect(html).toContain('>@sylphiette_grayrat_bot</a> ');
-    expect(html).not.toContain('>t.me/sylphiette_grayrat_bot</a>');
+    expect(html).toContain('>t.me/sylphiette_grayrat_bot</a> ');
+    expect(html).not.toContain('>@sylphiette_grayrat_bot</a>');
   });
 
   it("keeps post and parameterized links visible without losing semantics", () => {

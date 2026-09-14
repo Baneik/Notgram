@@ -753,6 +753,8 @@ describe("TauriTelegramTransport startup", () => {
       "getInternalLinkType",
       "getMessageLinkInfo",
       "getChat",
+      "getChat",
+      "getSupergroup",
     ]);
   });
 

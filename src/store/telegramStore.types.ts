@@ -160,6 +160,7 @@ export interface TelegramState {
   contactsError?: string;
   contactPendingUserId?: string;
   chatManagementPending: Set<string>;
+  chatJoinStates: Map<string, "joining" | "requested" | "joined">;
   folderManagementPending: boolean;
   chatCreationPending: boolean;
   groupManagement?: ChatManagement;
@@ -196,6 +197,8 @@ export interface TelegramState {
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
   setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
   resolveTelegramLink: (url: string) => Promise<import("../telegram/types").TelegramLinkTarget | undefined>;
+  joinChat: (input: import("../telegram/types").JoinChatInput) => Promise<import("../telegram/types").JoinChatResult | undefined>;
+  refreshChatMembership: (chatId: string) => Promise<boolean>;
   loadMoreChats: (chatListId?: string) => Promise<void>;
   setChatPinned: (chatListId: string, chatId: string, pinned: boolean) => Promise<boolean>;
   reorderPinnedChats: (chatListId: string, chatIds: string[]) => Promise<boolean>;

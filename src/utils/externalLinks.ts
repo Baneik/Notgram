@@ -9,6 +9,7 @@ import {
 
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:", "tg:"]);
 const MAX_EXTERNAL_URL_LENGTH = 4_096;
+let telegramLinkRequestId = 0;
 
 export const safeExternalHref = (value?: string) => {
   if (!value || value.length > MAX_EXTERNAL_URL_LENGTH || value.trim() !== value) {
@@ -21,6 +22,7 @@ export const safeExternalHref = (value?: string) => {
   if (telegramUrl) return telegramUrl.href;
   try {
     const parsed = new URL(value);
+    if (parsed.protocol === "tg:") return undefined;
     return ALLOWED_PROTOCOLS.has(parsed.protocol.toLowerCase()) ? parsed.href : undefined;
   } catch {
     return undefined;
@@ -42,8 +44,9 @@ export const openExternalLink = async (value: string) => {
 export const openTelegramLinkInApp = async (value: string) => {
   const parsed = parseTelegramUrl(value);
   if (!parsed) return false;
+  const requestId = ++telegramLinkRequestId;
   const target = await telegramStore.getState().resolveTelegramLink(parsed.href);
-  if (!target || isUnsupportedTelegramLink(target)) return true;
+  if (requestId !== telegramLinkRequestId || !target || isUnsupportedTelegramLink(target)) return true;
   globalThis.dispatchEvent(new CustomEvent("notgram:telegram-link-opened", { detail: target }));
   return true;
 };

@@ -1,4 +1,7 @@
 import { chatReportRequest, mapChatReportResult } from "./chatReport";
+import { mapChatInvitePreview, mapChatJoinResult } from "./chatJoin";
+import { telegramInviteLink } from "./telegramLinks";
+import type { JoinChatInput, JoinChatResult } from "./types";
 import { isInDeletedHistory } from "./deletedHistory";
 import { translate } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
@@ -1494,8 +1497,24 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async resolveTelegramLink(url: string): Promise<TelegramLinkTarget | undefined> {
+    const generation = this.sessionGeneration;
     const parsed = parseTelegramUrl(url);
     if (!parsed) return undefined;
+
+    const inviteLink = telegramInviteLink(url);
+    if (inviteLink) {
+      const raw = await this.request({ "@type": "checkChatInviteLink", invite_link: inviteLink });
+      if (generation !== this.sessionGeneration) return undefined;
+      const preview = mapChatInvitePreview(this.fileStates.resolve(raw), inviteLink);
+      if (preview.chatId) {
+        const chat = await this.refreshChatMembership(preview.chatId).catch(() => undefined);
+        if (generation !== this.sessionGeneration) return undefined;
+        if (chat?.isMember === true) return { chatId: chat.id };
+      }
+      // A nonzero chat_id may only grant temporary preview access. It never
+      // authorizes sending or means that an approval request has succeeded.
+      return { kind: "chatInvite", preview };
+    }
 
     const stickerName = telegramStickerSetName(url);
     if (stickerName) {
@@ -1531,6 +1550,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       "@type": "getInternalLinkType",
       link: parsed.toString(),
     }).catch(() => undefined);
+    if (generation !== this.sessionGeneration) return undefined;
     const linkType = typeof rawLinkType?.["@type"] === "string"
       ? rawLinkType["@type"]
       : undefined;
@@ -1608,6 +1628,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         url: parsed.toString(),
       }).catch(() => undefined);
       const linkedMessage = asTdObject(linkInfo?.message);
+      if (generation !== this.sessionGeneration) return undefined;
       const linkedChatId = tdId(linkInfo?.chat_id) || tdId(linkedMessage?.chat_id);
       const linkedMessageId = tdId(linkedMessage?.id);
       if (linkedChatId && linkedMessageId) {
@@ -1620,6 +1641,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         // TDLib can still return the numeric chat_id for a message link after the
         // group/channel has been deleted or is no longer accessible. Do not expose
         // that stale id to the UI, otherwise it becomes an empty active conversation.
+        if (generation !== this.sessionGeneration) return undefined;
         if (!rawChat) {
           return unsupportedTelegramLink(linkType, translate("链接目标会话不存在或当前账号无权访问"));
         }
@@ -1627,6 +1649,8 @@ export class TauriTelegramTransport implements TelegramTransport {
           return unsupportedTelegramLink(linkType, translate("链接目标会话不存在或当前账号无权访问"));
         }
         this.upsertChat(rawChat);
+        await this.refreshChatMembership(linkedChatId);
+        if (generation !== this.sessionGeneration) return undefined;
         this.emitMessage(linkedMessage);
         return { chatId: linkedChatId, messageId: linkedMessageId };
       }
@@ -1648,6 +1672,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       return unsupportedTelegramLink(linkType ?? "internalLinkTypeUnknownDeepLink");
     }
     const raw = await this.request({ "@type": "searchPublicChat", username: domain }).catch(() => undefined);
+    if (generation !== this.sessionGeneration) return undefined;
     if (!raw) return unsupportedTelegramLink(linkType, translate("找不到链接中的 Telegram 会话或用户"));
     const chatId = tdId(raw.id);
     const chatType = asTdObject(raw.type);
@@ -1655,7 +1680,53 @@ export class TauriTelegramTransport implements TelegramTransport {
       return unsupportedTelegramLink(linkType, translate("此 Telegram 会话类型暂时无法在 Notgram 中打开"));
     }
     this.upsertChat(raw);
+    if (chatType?.["@type"] !== "chatTypePrivate") await this.refreshChatMembership(chatId);
+    if (generation !== this.sessionGeneration) return undefined;
     return { chatId };
+  }
+
+  async refreshChatMembership(chatId: string): Promise<Chat> {
+    const generation = this.sessionGeneration;
+    const raw = await this.refreshChat(chatId);
+    if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+    const type = asTdObject(raw.type);
+    if (type?.["@type"] === "chatTypeBasicGroup") {
+      const group = await this.request({ "@type": "getBasicGroup", basic_group_id: type.basic_group_id });
+      if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+      this.upsertBasicGroup(group);
+    } else if (type?.["@type"] === "chatTypeSupergroup") {
+      const group = await this.request({ "@type": "getSupergroup", supergroup_id: type.supergroup_id });
+      if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+      this.upsertSupergroup(group);
+    }
+    const chat = this.mapChat(raw);
+    if (!chat) throw new Error(translate("无法读取会话状态"));
+    return chat;
+  }
+
+  async joinChat(input: JoinChatInput): Promise<JoinChatResult> {
+    const generation = this.sessionGeneration;
+    let request: TdObject;
+    if ("inviteLink" in input) {
+      const inviteLink = telegramInviteLink(input.inviteLink);
+      if (!inviteLink) throw new Error(translate("邀请链接无效或已过期"));
+      const info = await this.request({ "@type": "checkChatInviteLink", invite_link: inviteLink });
+      if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+      const preview = mapChatInvitePreview(info, inviteLink);
+      if (preview.requiresSubscription) throw new Error(translate("此邀请需要付费订阅，Notgram 暂不支持通过此链接加入"));
+      request = { "@type": "joinChatByInviteLink", invite_link: inviteLink };
+    } else {
+      request = { "@type": "joinChat", chat_id: numericId(input.chatId) };
+    }
+    const raw = await this.request(request);
+    if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+    const result = mapChatJoinResult(raw);
+    if (result.kind === "joined") {
+      // Joining is committed. Failed metadata reads must not repeat the join.
+      await this.refreshChatMembership(result.chatId).catch(() => undefined);
+      if (generation !== this.sessionGeneration) throw new Error(translate("账号已切换"));
+    }
+    return result;
   }
 
   async searchGlobal(input: import("./types").GlobalSearchInput): Promise<import("./types").GlobalSearchPage> {
@@ -1729,17 +1800,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       chat_id: numericId(chatId),
     });
     if (generation !== this.sessionGeneration) return;
-    const raw = await this.refreshChat(chatId);
-    if (generation !== this.sessionGeneration) return;
-    const type = asTdObject(raw.type);
     // List positions can survive leaving a public chat; membership is authoritative.
-    if (type?.["@type"] === "chatTypeBasicGroup") {
-      const group = await this.request({ "@type": "getBasicGroup", basic_group_id: type.basic_group_id });
-      if (generation === this.sessionGeneration) this.upsertBasicGroup(group);
-    } else if (type?.["@type"] === "chatTypeSupergroup") {
-      const group = await this.request({ "@type": "getSupergroup", supergroup_id: type.supergroup_id });
-      if (generation === this.sessionGeneration) this.upsertSupergroup(group);
-    }
+    await this.refreshChatMembership(chatId);
   }
 
   async deletePrivateChat(chatId: string) {

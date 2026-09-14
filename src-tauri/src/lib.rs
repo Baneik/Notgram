@@ -11,6 +11,7 @@ mod proxy;
 mod settings_window;
 mod storage;
 mod telegram;
+mod telegram_links;
 mod video_window;
 mod webview_security;
 mod window_placement;
@@ -41,8 +42,11 @@ pub fn run() {
     development::load_environment();
     let context = tauri::generate_context!();
     tauri::Builder::default()
+        .manage(telegram_links::startup_queue())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if !desktop_lifecycle::arguments_include_startup(args) {
+            let startup = desktop_lifecycle::arguments_include_startup(&args);
+            telegram_links::receive_arguments(app, args);
+            if !startup {
                 desktop_lifecycle::show_main_window(app);
             }
         }))
@@ -84,6 +88,10 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            telegram_links::notgram_take_telegram_links,
+            telegram_links::notgram_telegram_protocol_settings,
+            telegram_links::notgram_register_telegram_protocol,
+            telegram_links::notgram_open_default_apps,
             diagnostics::notgram_diagnostics_settings,
             diagnostics::notgram_export_diagnostics,
             diagnostics::notgram_set_crash_reporting_enabled,

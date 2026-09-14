@@ -363,7 +363,23 @@ export type PrivacySettingKey = "showStatus" | "showPhoneNumber" | "showProfileP
 export type PrivacyRuleKind = "allowAll" | "allowContacts" | "allowUsers" | "restrictAll" | "restrictContacts" | "restrictUsers";
 export interface PrivacyRule { kind: PrivacyRuleKind; userIds?: string[]; }
 
+export type JoinChatInput = { chatId: string } | { inviteLink: string };
+export type JoinChatResult = { kind: "joined"; chatId: string } | { kind: "requested" };
+
+export interface ChatInvitePreview {
+  inviteLink: string;
+  chatId?: string;
+  kind: "group" | "channel";
+  title: string;
+  avatar: Avatar;
+  description: string;
+  memberCount: number;
+  createsJoinRequest: boolean;
+  requiresSubscription: boolean;
+}
+
 export type TelegramLinkTarget =
+  | { kind: "chatInvite"; preview: ChatInvitePreview }
   | { kind: "stickerSet"; stickerSet: StickerSet }
   | { chatId: string; messageId?: string }
   | { kind: "user"; userId: string }
@@ -488,6 +504,9 @@ export interface Chat {
   /** Server capabilities; missing values must not authorize destructive actions. */
   canDeleteForSelf?: boolean;
   isMember?: boolean;
+  isBanned?: boolean;
+  joinByRequest?: boolean;
+  canSendMessages?: boolean;
   isBlocked?: boolean;
   folderIds: string[];
   title: string;

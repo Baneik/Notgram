@@ -69,6 +69,7 @@ import { Avatar } from "./Avatar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { DesktopStartupSettings } from "./DesktopStartupSettings";
+import { TelegramProtocolSettings } from "./TelegramProtocolSettings";
 import { MotionPresence } from "./MotionPresence";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
@@ -631,6 +632,7 @@ function PreferenceSettings({
     <div className="settings-detail-scroll preference-settings">
       {category === "notgram" && <AdBlockingSettings preferences={preferences} onChange={onChange} />}
       {category === "notgram" && <DesktopStartupSettings />}
+      {category === "notgram" && <TelegramProtocolSettings />}
       {category === "chats" && (
         <section className="settings-section" aria-labelledby="chat-display-heading">
           <div className="settings-section-heading">

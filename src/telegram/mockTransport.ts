@@ -1,4 +1,6 @@
 import { mockChatReport } from "./mockChatReport";
+import { telegramInviteLink } from "./telegramLinks";
+import type { JoinChatInput, JoinChatResult } from "./types";
 import { groupOutgoingAttachments, outgoingAlbumCaptionIndex } from "../media/outgoingAttachments";
 import {
   mockProfilePhotoUrl,
@@ -1528,6 +1530,17 @@ export class MockTelegramTransport implements TelegramTransport {
   async resolveTelegramLink(url: string) {
     const parsed = parseTelegramUrl(url);
     if (!parsed) return undefined;
+    const inviteLink = telegramInviteLink(url);
+    if (inviteLink) {
+      const chat = this.snapshot.chats.find(candidate => candidate.id === inviteLink.split("+")[1]);
+      if (!chat || !["group", "channel"].includes(chat.kind)) throw new Error("INVITE_HASH_EXPIRED");
+      if (chat.isMember === true) return { chatId: chat.id };
+      return { kind: "chatInvite" as const, preview: {
+        inviteLink, chatId: chat.id, kind: chat.kind === "channel" ? "channel" as const : "group" as const,
+        title: chat.title, avatar: clone(chat.avatar), description: "", memberCount: chat.memberCount ?? 0,
+        createsJoinRequest: chat.joinByRequest === true, requiresSubscription: false,
+      } };
+    }
     const stickerName = telegramStickerSetName(url);
     if (stickerName) {
       const stickerSet = mockStickerSets.find((set) => set.name.toLowerCase() === stickerName.toLowerCase());
@@ -1585,6 +1598,26 @@ export class MockTelegramTransport implements TelegramTransport {
     return chat
       ? { chatId: chat.id, messageId: parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : parsed.searchParams.get("post") || undefined }
       : unsupportedTelegramLink(undefined, "找不到链接中的 Telegram 会话或用户");
+  }
+
+  async refreshChatMembership(chatId: string): Promise<Chat> {
+    const chat = this.snapshot.chats.find(candidate => candidate.id === chatId);
+    if (!chat) throw new Error("CHAT_NOT_FOUND");
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    return clone(chat);
+  }
+
+  async joinChat(input: JoinChatInput): Promise<JoinChatResult> {
+    const chatId = "chatId" in input ? input.chatId : telegramInviteLink(input.inviteLink)?.split("+")[1];
+    const chat = this.snapshot.chats.find(candidate => candidate.id === chatId);
+    if (!chat || chat.isBanned) throw new Error("CHANNEL_PRIVATE");
+    if (chat.isMember !== true && chat.joinByRequest) return { kind: "requested" };
+    chat.isMember = true;
+    chat.canSendMessages = chat.kind === "group";
+    if (!chat.folderIds.includes("main")) chat.folderIds.push("main");
+    chat.listOrderByFolder = { ...chat.listOrderByFolder, main: String(Date.now()) };
+    this.listener?.({ type: "chat.upsert", chat: clone(chat) });
+    return { kind: "joined", chatId: chat.id };
   }
 
   async searchChats(query: string, limit = 50) {

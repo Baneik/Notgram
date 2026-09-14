@@ -10,6 +10,9 @@ pub struct PreparedTextMention {
 }
 
 const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
+    "checkChatInviteLink",
+    "joinChat",
+    "joinChatByInviteLink",
     "addChatToList",
     "addChatMembers",
     "canTransferOwnership",
@@ -200,6 +203,24 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
     match request_type {
+        "joinChat" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+        }
+        "checkChatInviteLink" | "joinChatByInviteLink" => {
+            validate_invite_link(request)?;
+            let link = request["invite_link"].as_str().unwrap_or_default();
+            let hash = link
+                .strip_prefix("https://t.me/+")
+                .or_else(|| link.strip_prefix("https://telegram.me/+"))
+                .unwrap_or_default();
+            if hash.is_empty()
+                || !hash
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+            {
+                return Err("Invalid invite hash".into());
+            }
+        }
         "deleteChatHistory" => {
             validate_nonzero_identifier(request, "chat_id")?;
             if request
@@ -1167,6 +1188,17 @@ fn validate_invite_link(request: &Value) -> Result<(), String> {
     {
         return Err("Invalid invite link".to_string());
     }
+    let hash = link
+        .rsplit_once("/+")
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    if hash.is_empty()
+        || !hash
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+    {
+        return Err("Invalid invite link".to_string());
+    }
     Ok(())
 }
 
@@ -1893,6 +1925,43 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn accepts_bounded_chat_join_requests_and_rejects_malformed_invites() {
+        assert!(
+            validate_webview_tdlib_request(
+                &json!({ "@type": "joinChat", "chat_id": -10072, "@extra": EXTRA })
+            )
+            .is_ok()
+        );
+        for id in [json!(0), json!("-10072"), json!(null)] {
+            assert!(
+                validate_webview_tdlib_request(
+                    &json!({ "@type": "joinChat", "chat_id": id, "@extra": EXTRA })
+                )
+                .is_err()
+            );
+        }
+        for kind in ["checkChatInviteLink", "joinChatByInviteLink"] {
+            assert!(validate_webview_tdlib_request(&json!({ "@type": kind, "invite_link": "https://t.me/+Abc_DEF-12", "@extra": EXTRA })).is_ok());
+            for link in [
+                "https://t.me/+",
+                "https://t.me/+abc/def",
+                "https://t.me/+abc\n",
+                "https://t.me.evil/+abc",
+                "file:///private",
+                "tg://join?invite=abc",
+            ] {
+                assert!(
+                    validate_webview_tdlib_request(
+                        &json!({ "@type": kind, "invite_link": link, "@extra": EXTRA })
+                    )
+                    .is_err(),
+                    "{link:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn chat_history_deletion_cannot_revoke_history_for_other_users() {

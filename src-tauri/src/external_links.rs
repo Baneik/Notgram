@@ -28,7 +28,7 @@ pub fn notgram_open_external_url(url: String) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn open_external_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_external_url(url: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
 
@@ -55,12 +55,12 @@ fn open_external_url(url: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn open_external_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_external_url(url: &str) -> Result<(), String> {
     open_with_command("open", url)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn open_external_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_external_url(url: &str) -> Result<(), String> {
     open_with_command("xdg-open", url)
 }
 

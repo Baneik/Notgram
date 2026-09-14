@@ -1,5 +1,6 @@
 import { messageCanBeSaved, messageExpired } from "../telegram/messageLifecycle";
 import { isInDeletedHistory } from "../telegram/deletedHistory";
+import { chatJoinError, chatJoinKey } from "../telegram/chatJoin";
 import { canPostToChannel } from "../telegram/chatManagement";
 import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
@@ -243,6 +244,7 @@ export const createTelegramStore = (
     let cacheWrite = Promise.resolve();
     let accountTransition = false;
     let accountGeneration = 0;
+    const chatJoinTargets = new Map<string, string>();
     const pendingPinnedReorders = new Map<string, {
       serverOrders: Map<string, string | undefined>;
       optimisticOrders: Map<string, string>;
@@ -960,6 +962,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      chatJoinTargets.clear();
       history.clear();
       pendingPinnedReorders.clear();
       removedMessageIds.clear();
@@ -1032,6 +1035,7 @@ export const createTelegramStore = (
         contactsError: undefined,
         contactPendingUserId: undefined,
         chatManagementPending: new Set(),
+        chatJoinStates: new Map(),
         groupManagement: undefined,
         groupManagementLoading: false,
         groupManagementError: undefined,
@@ -1822,6 +1826,15 @@ export const createTelegramStore = (
       if (event.type === "chats.upserted" || event.type === "chat.upsert") {
         const incomingChats = event.type === "chats.upserted" ? event.chats : [event.chat];
         const previousChats = get().chats;
+        const chatJoinStates = new Map(get().chatJoinStates);
+        for (const chat of incomingChats) {
+          const transitioned = chat.isMember !== previousChats.get(chat.id)?.isMember;
+          if (chatJoinStates.size > 0 && (chat.isMember === true || transitioned)) {
+            for (const [key, targetId] of chatJoinTargets) {
+              if (targetId === chat.id && chatJoinStates.get(key) !== "joining") chatJoinStates.delete(key);
+            }
+          }
+        }
         const loadedManagement = get().groupManagement;
         const managementChanged = Boolean(loadedManagement && incomingChats.some((chat) =>
           chat.id === loadedManagement.chatId &&
@@ -1851,6 +1864,7 @@ export const createTelegramStore = (
         );
         set({
           chats,
+          chatJoinStates,
           groupManagement: managementChanged ? undefined : loadedManagement,
           groupManagementError: managementChanged ? undefined : get().groupManagementError,
           chatListReady: true,
@@ -2478,6 +2492,7 @@ export const createTelegramStore = (
       contacts: [],
       contactsLoading: false,
       chatManagementPending: new Set(),
+      chatJoinStates: new Map(),
       groupManagement: undefined,
       groupManagementLoading: false,
       groupManagementError: undefined,
@@ -2929,11 +2944,65 @@ export const createTelegramStore = (
       setForumTopicClosed: forumController.setForumTopicClosed,
       setForumTopicPinned: forumController.setForumTopicPinned,
 
+      refreshChatMembership: async (chatId) => {
+        const generation = accountGeneration;
+        if (accountTransition || get().authorization.kind !== "ready") return false;
+        try {
+          await transport.refreshChatMembership(chatId);
+          return generation === accountGeneration && !accountTransition;
+        } catch (error) {
+          if (generation === accountGeneration && !accountTransition) set({ operationError: chatJoinError(error) });
+          return false;
+        }
+      },
+      joinChat: async (input) => {
+        const generation = accountGeneration;
+        const isCurrent = () => generation === accountGeneration && !accountTransition;
+        const key = chatJoinKey(input);
+        if ("chatId" in input) chatJoinTargets.set(key, input.chatId);
+        if (!isCurrent() || get().authorization.kind !== "ready" || get().chatJoinStates.has(key)) return undefined;
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          set({ operationError: translate("联网后才能加入会话") });
+          return undefined;
+        }
+        const update = (status?: "joining" | "requested" | "joined") => {
+          const states = new Map(get().chatJoinStates);
+          if (status) states.set(key, status); else states.delete(key);
+          set({ chatJoinStates: states });
+        };
+        update("joining");
+        set({ operationError: undefined });
+        try {
+          const result = await transport.joinChat(input);
+          if (!isCurrent()) return undefined;
+          update(result.kind);
+          if (result.kind === "joined") {
+            chatJoinTargets.set(key, result.chatId);
+            chatJoinTargets.set(chatJoinKey({ chatId: result.chatId }), result.chatId);
+            const states = new Map(get().chatJoinStates);
+            states.set(chatJoinKey({ chatId: result.chatId }), "joined");
+            set({ chatJoinStates: states });
+          }
+          return result;
+        } catch (error) {
+          if (!isCurrent()) return undefined;
+          update();
+          set({ operationError: chatJoinError(error) });
+          return undefined;
+        }
+      },
       resolveTelegramLink: async (url) => {
         const accountId = get().activeAccountId;
+        const generation = accountGeneration;
+        if (accountTransition) return undefined;
         try {
           const target = await transport.resolveTelegramLink(url);
-          if (get().activeAccountId !== accountId) return undefined;
+          if (get().activeAccountId !== accountId || generation !== accountGeneration || accountTransition) return undefined;
+          if (target && "kind" in target && target.kind === "chatInvite") {
+            const key = chatJoinKey({ inviteLink: target.preview.inviteLink });
+            target.preview.chatId ??= chatJoinTargets.get(key);
+            if (target.preview.chatId) chatJoinTargets.set(key, target.preview.chatId);
+          }
           if (target && "kind" in target && target.kind === "stickerSet") emojiPickerController.rememberStickerSet(target.stickerSet);
           if (target && "kind" in target && target.kind === "unsupported") {
             set({ operationError: target.reason });
@@ -2944,8 +3013,8 @@ export const createTelegramStore = (
           }
           return target;
         } catch (error) {
-          if (get().activeAccountId !== accountId) return undefined;
-          set({ operationError: error instanceof Error ? error.message : translate("Telegram 链接无法打开") });
+          if (get().activeAccountId !== accountId || generation !== accountGeneration || accountTransition) return undefined;
+          set({ operationError: chatJoinError(error) });
           return undefined;
         }
       },
@@ -4360,6 +4429,11 @@ export const createTelegramStore = (
         const formatted = trimComposerFormattedText(text, entities ?? []);
         const normalizedText = formatted.text;
         if (!chatId || !normalizedText) return false;
+        if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "group" &&
+          (get().chats.get(chatId)?.isMember === false || get().chats.get(chatId)?.canSendMessages === false)) {
+          set({ operationError: translate("当前会话不允许发送消息") });
+          return false;
+        }
         if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "channel" && !canPostToChannel(get().chats.get(chatId))) {
           set({ operationError: translate("当前账号没有在此频道发布消息的权限") });
           return false;
@@ -4782,6 +4856,11 @@ export const createTelegramStore = (
         const chatId = context?.chatId ?? get().activeChatId;
         const topicId = context ? context.topicId : get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
+        if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "group" &&
+          (get().chats.get(chatId)?.isMember === false || get().chats.get(chatId)?.canSendMessages === false)) {
+          set({ operationError: translate("当前会话不允许发送消息") });
+          return false;
+        }
         if (!context?.discussionThreadId && get().chats.get(chatId)?.kind === "channel" && !canPostToChannel(get().chats.get(chatId))) {
           set({ operationError: translate("当前账号没有在此频道发布消息的权限") });
           return false;

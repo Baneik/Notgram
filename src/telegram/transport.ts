@@ -150,6 +150,8 @@ export interface TelegramTransport {
   getPrivacySettingRules(setting: PrivacySettingKey): Promise<PrivacyRule[]>;
   setPrivacySettingRules(setting: PrivacySettingKey, rules: PrivacyRule[]): Promise<void>;
   resolveTelegramLink(url: string): Promise<import("./types").TelegramLinkTarget | undefined>;
+  joinChat(input: import("./types").JoinChatInput): Promise<import("./types").JoinChatResult>;
+  refreshChatMembership(chatId: string): Promise<Chat>;
   searchChats(query: string, limit?: number): Promise<void>;
   searchGlobal(input: GlobalSearchInput): Promise<GlobalSearchPage>;
   searchChatMessages(input: ChatMessageSearchInput): Promise<ChatMessageSearchPage>;
