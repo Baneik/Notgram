@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TauriForumTopicService, type TauriForumTopicServiceContext } from "./tauriForumTopicService";
 
 const createHarness = () => {
@@ -11,6 +11,45 @@ const createHarness = () => {
 };
 
 describe("tauri forum topic service", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("rejects thread-sized and invalid IDs without crossing the native boundary", async () => {
+    const { service, context } = createHarness();
+    for (const id of ["3145728000", "0", "-1", "1.5", "invalid"]) {
+      expect(await service.getForumTopic("1001", id)).toBeUndefined();
+    }
+    expect(context.request).not.toHaveBeenCalled();
+  });
+
+  it.each([[400, 60_000], [503, 5_000]])("bounds repeated failures (%s) and allows recovery", async (code, delay) => {
+    vi.useFakeTimers();
+    const { service, context } = createHarness();
+    vi.mocked(context.request).mockRejectedValue(Object.assign(new Error("topic unavailable"), { code }));
+    for (let i = 0; i < 100; i++) await expect(service.getForumTopic("1001", "12")).rejects.toThrow("unavailable");
+    expect(context.request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(delay);
+    await expect(service.getForumTopic("1001", "12")).rejects.toThrow("unavailable");
+    expect(context.request).toHaveBeenCalledTimes(2);
+    service.applyForumTopicUpdate({ chat_id: 1001, forum_topic_id: 12 });
+    vi.mocked(context.request).mockResolvedValue({ info: { chat_id: 1001, forum_topic_id: 12, name: "Recovered" } });
+    expect(await service.getForumTopic("1001", "12")).toMatchObject({ name: "Recovered" });
+    expect(context.request).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not poison a new session with a retired failure", async () => {
+    const { service, context } = createHarness();
+    let reject!: (error: Error) => void;
+    vi.mocked(context.request).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const old = service.getForumTopic("1001", "12");
+    const failed = expect(old).rejects.toThrow("retired");
+    service.reset();
+    reject(Object.assign(new Error("retired"), { code: 400 }));
+    await failed;
+    vi.mocked(context.request).mockResolvedValue({ info: { chat_id: 1001, forum_topic_id: 12 } });
+    expect(await service.getForumTopic("1001", "12")).toMatchObject({ id: "12" });
+    expect(context.request).toHaveBeenCalledTimes(2);
+  });
+
   it("bounds topic list requests and preserves pagination fields", async () => {
     const harness = createHarness();
     vi.mocked(harness.context.request).mockResolvedValue({

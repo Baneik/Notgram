@@ -3,6 +3,7 @@ import { mapTdForumTopic, asTdObject, asTdObjects, tdId, tdNumber } from "./tdli
 import { numericId } from "./tdlibRequests";
 import { identityTextField } from "./identityText";
 import { loadHistoryWindow } from "./historyPager";
+import { isRetryableSyncError } from "./syncRetryQueue";
 import type {
   ChatHistoryPage,
   HistoryPageRequest,
@@ -27,6 +28,7 @@ export class TauriForumTopicService {
   private historyLoads = new Map<string, Promise<ChatHistoryPage>>();
   private topics = new Map<string, ForumTopic>();
   private topicLoads = new Map<string, Promise<ForumTopic | undefined>>();
+  private failedTopics = new Map<string, { retryAt: number; error: unknown }>();
 
   constructor(private readonly context: TauriForumTopicServiceContext) {}
 
@@ -37,6 +39,7 @@ export class TauriForumTopicService {
     this.historyLoads.clear();
     this.topics.clear();
     this.topicLoads.clear();
+    this.failedTopics.clear();
   }
 
   private assertGeneration(generation: number) {
@@ -48,6 +51,7 @@ export class TauriForumTopicService {
   }
 
   private rememberTopic(topic: ForumTopic) {
+    this.failedTopics.delete(this.topicKey(topic.chatId, topic.id));
     this.topics.set(this.topicKey(topic.chatId, topic.id), topic);
     return topic;
   }
@@ -74,7 +78,7 @@ export class TauriForumTopicService {
       const last = asTdObject(topic.last_message);
       return last ? [last] : [];
     });
-    this.context.emitMessages(lastMessages);
+    this.context.emitMessages(lastMessages, false);
     const nextOffsetDate = tdNumber(result.next_offset_date);
     const nextOffsetMessageId = tdId(result.next_offset_message_id) || undefined;
     const nextOffsetTopicId = tdId(result.next_offset_forum_topic_id) || undefined;
@@ -89,12 +93,17 @@ export class TauriForumTopicService {
   }
 
   async getForumTopic(chatId: string, topicId: string): Promise<ForumTopic | undefined> {
+    // Message threads use int53 IDs, but forum topics use positive int32 IDs.
+    if (!/^\d+$/.test(topicId) || Number(topicId) < 1 || Number(topicId) > 2_147_483_647) return undefined;
     const generation = this.generation;
     const key = this.topicKey(chatId, topicId);
     const cached = this.topics.get(key);
     if (cached) return cached;
     const pending = this.topicLoads.get(key);
     if (pending) return pending;
+    const failed = this.failedTopics.get(key);
+    if (failed && failed.retryAt > Date.now()) throw failed.error;
+    this.failedTopics.delete(key);
     const load = (async () => {
       const raw = await this.context.request({
         "@type": "getForumTopic",
@@ -105,9 +114,17 @@ export class TauriForumTopicService {
       const topic = mapTdForumTopic(raw);
       if (!topic || topic.chatId !== chatId || topic.id !== topicId) return undefined;
       const lastMessage = asTdObject(raw.last_message);
-      if (lastMessage) this.context.emitMessages([lastMessage]);
+      if (lastMessage) this.context.emitMessages([lastMessage], false);
       return this.rememberTopic(topic);
-    })().finally(() => {
+    })().catch(error => {
+      if (generation === this.generation) {
+        // Do not retry once per incoming message. Live topic updates and session
+        // resets invalidate this bounded cache; transient failures retry sooner.
+        this.failedTopics.set(key, { error, retryAt: Date.now() + (isRetryableSyncError(error) ? 5_000 : 60_000) });
+        if (this.failedTopics.size > 256) this.failedTopics.delete(this.failedTopics.keys().next().value!);
+      }
+      throw error;
+    }).finally(() => {
       if (this.topicLoads.get(key) === load) this.topicLoads.delete(key);
     });
     this.topicLoads.set(key, load);
@@ -130,6 +147,7 @@ export class TauriForumTopicService {
       unreadReactionCount: Math.max(0, tdNumber(update.unread_reaction_count) ?? 0),
     };
     const key = this.topicKey(chatId, topicId);
+    this.failedTopics.delete(key);
     const cached = this.topics.get(key);
     if (cached) Object.assign(cached, topicUpdate);
     return { chatId, topic: topicUpdate };

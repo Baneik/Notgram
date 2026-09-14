@@ -444,6 +444,24 @@ export function App() {
     const notifyMessage = async (message: Message) => {
       const receivedState = telegramStore.getState();
       const accountId = receivedState.activeAccountId;
+      const receivedChat = receivedState.chats.get(message.chatId);
+      // Reject ineligible messages before doing any network work. Topic overrides
+      // and topic read cursors are checked again once their settings are known.
+      if (!shouldNotifyMessage({
+        chatKind: receivedChat?.kind,
+        outgoing: message.outgoing,
+        notificationsEnabled: preferencesStore.getState().notificationsEnabled,
+        muted: !message.topicId && (receivedChat?.muted ?? false),
+        activeConversation: isMessageInActiveConversation({
+          messageChatId: message.chatId, messageTopicId: message.topicId,
+          activeChatId: receivedState.activeChatId, activeTopicId: receivedState.activeTopicId,
+          forum: receivedChat?.isForum ?? Boolean(message.topicId),
+        }),
+        appVisible: document.visibilityState === "visible",
+        messageId: message.id, sentAt: message.sentAt,
+        lastReadInboxMessageId: message.topicId ? undefined : receivedChat?.lastReadInboxMessageId,
+        notBeforeMs, streaming: isMessageStreaming(message),
+      })) return;
       let topic = message.topicId
         ? receivedState.forumTopics.get(message.chatId)?.find(({ id }) => id === message.topicId)
         : undefined;

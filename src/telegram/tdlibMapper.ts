@@ -1768,9 +1768,9 @@ export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {
   const topic = asTdObject(raw.topic_id);
   const topicId = topic?.["@type"] === "messageTopicForum"
     ? tdId(topic.forum_topic_id)
-    : topic?.["@type"] === "messageTopicThread"
-      ? tdId(topic.message_thread_id)
-      : "";
+    : "";
+  const messageThreadId = topic?.["@type"] === "messageTopicThread"
+    ? tdId(topic.message_thread_id) : "";
 
   const remaining = [raw.self_destruct_in, raw.auto_delete_in].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
   if (remaining.length && typeof raw._notgramExpiresAt !== "string") {
@@ -1804,6 +1804,7 @@ export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {
     id,
     chatId,
     topicId: topicId || undefined,
+    ...(messageThreadId ? { messageThreadId } : {}),
     ...(typeof raw.can_be_saved === "boolean" ? { canSave: raw.can_be_saved } : {}),
     ...(asTdObject(raw.self_destruct_type) ? { selfDestruct: true } : {}),
     ...(typeof raw._notgramExpiresAt === "string" ? { expiresAt: raw._notgramExpiresAt } : {}),

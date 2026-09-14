@@ -3451,13 +3451,13 @@ export const createTelegramStore = (
       sendMessageToThread: (chatId, replyToMessageId, text, entities, replyQuote, options) =>
         get().sendMessage(text, replyToMessageId, replyQuote, entities, options?.disableNotification, {
           chatId,
-          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
+          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.messageThreadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
           clearDraft: false,
         }),
       sendFilesToThread: (chatId, replyToMessageId, attachments, caption, captionEntities, replyQuote, options) =>
         get().sendFiles(attachments, caption, captionEntities, replyToMessageId, replyQuote, options?.disableNotification, {
           chatId,
-          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
+          discussionThreadId: options?.threadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.messageThreadId ?? get().messages.get(chatId)?.find(message => message.id === replyToMessageId)?.topicId ?? replyToMessageId,
           clearDraft: false,
         }),
       markActiveChatRead: async () => {

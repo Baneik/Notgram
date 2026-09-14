@@ -29,7 +29,7 @@ describe("channel discussion history", () => {
     await store.getState().selectChat("chat-release");
     const source = store.getState().messages.get("chat-release")!.find(message => message.id === "release-post-1")!;
     const post = { ...source, discussionThread: { chatId: "linked-group", messageId: "root" } };
-    const comment: Message = { ...source, id: "comment", chatId: "linked-group", topicId: "root", isChannelPost: false,
+    const comment: Message = { ...source, id: "comment", chatId: "linked-group", messageThreadId: "root", isChannelPost: false,
       replyTo: { kind: "message", chatId: "linked-group", messageId: "root" } };
     const messages = new Map(store.getState().messages);
     messages.set(post.chatId, [post]);
@@ -39,7 +39,7 @@ describe("channel discussion history", () => {
     const saved = vi.spyOn(transport, "saveCachedSnapshot");
     const put = vi.spyOn(attachmentOutbox, "put").mockResolvedValue(undefined);
     try {
-      expect(await store.getState().sendMessageToThread(comment.chatId, comment.id, "offline nested reply", undefined, undefined, { threadId: "root", disableNotification: true })).toBe(true);
+      expect(await store.getState().sendMessageToThread(comment.chatId, comment.id, "offline nested reply", undefined, undefined, { disableNotification: true })).toBe(true);
       expect(await store.getState().sendFilesToThread(comment.chatId, comment.id,
         [{ kind: "document", file: new File(["file"], "reply.txt") }], "attachment caption", undefined, undefined, { threadId: "root" })).toBe(true);
       const projection = channelDiscussionProjection(post, store.getState().messages);

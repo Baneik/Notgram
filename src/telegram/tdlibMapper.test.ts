@@ -166,6 +166,16 @@ describe("TDLib mapper", () => {
     });
   });
 
+  it("keeps non-forum int53 threads separate from forum topics", () => {
+    const raw = { id: 1, chat_id: 77, date: 1_700_000_000,
+      content: { "@type": "messageText", text: { text: "reply", entities: [] } } };
+    expect(mapTdMessage({ ...raw, topic_id: { "@type": "messageTopicThread", message_thread_id: 3_145_728_000 } }))
+      .toMatchObject({ topicId: undefined, messageThreadId: "3145728000" });
+    const forum = mapTdMessage({ ...raw, topic_id: { "@type": "messageTopicForum", forum_topic_id: 12 } });
+    expect(forum?.topicId).toBe("12");
+    expect(forum?.messageThreadId).toBeUndefined();
+  });
+
   it("maps forum chats, topic metadata, topic drafts, and message topic ids", () => {
     expect(mapTdChat({
       id: 77,

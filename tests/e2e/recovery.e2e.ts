@@ -15,6 +15,39 @@ const exposeRecoveryTransport = (page: Page) => page.route("**/src/telegram/mock
   }` });
 });
 
+test("notification eligibility is checked before resolving topics in a replay burst", async ({ page }) => {
+  await exposeRecoveryTransport(page);
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const counts = await page.evaluate(async ({ storePath, preferencesPath }) => {
+    const { telegramStore } = await import(storePath) as { telegramStore: {
+      getState: () => TelegramState; setState: (state: Partial<TelegramState>) => void;
+    } };
+    const { preferencesStore } = await import(preferencesPath) as { preferencesStore: {
+      setState: (state: { notificationsEnabled: boolean }) => void;
+    } };
+    const dispatch = (window as typeof window & { __notgramRecoveryDispatch: (event: TelegramEvent) => void }).__notgramRecoveryDispatch;
+    const source = telegramStore.getState().messages.get("chat-product")![0];
+    let resolutions = 0;
+    telegramStore.setState({ resolveForumTopic: async () => { resolutions += 1; return undefined; } });
+    const inject = (id: string, fields: Partial<Message> = {}) => dispatch({ type: "message.upsert", animateEntrance: true, message: {
+      ...source, id, chatId: "chat-forum", topicId: "12", outgoing: false, sentAt: new Date().toISOString(), ...fields,
+    } });
+    preferencesStore.setState({ notificationsEnabled: false });
+    for (let i = 0; i < 100; i++) inject(`disabled-${i}`);
+    const disabled = resolutions;
+    preferencesStore.setState({ notificationsEnabled: true });
+    for (let i = 0; i < 100; i++) inject(`outgoing-${i}`, { outgoing: true });
+    const outgoing = resolutions;
+    for (let i = 0; i < 100; i++) inject(`old-${i}`, { sentAt: "2020-01-01T00:00:00.000Z" });
+    const historical = resolutions;
+    inject("eligible-topic");
+    await Promise.resolve();
+    return { disabled, outgoing, historical, eligible: resolutions };
+  }, { storePath: "/src/store/telegramStore.ts", preferencesPath: "/src/store/preferencesStore.ts" });
+  expect(counts).toEqual({ disabled: 0, outgoing: 0, historical: 0, eligible: 1 });
+});
+
 test("proxy recovery shows retry progress instead of blaming proxy settings", async ({ page }) => {
   await page.goto("/?connection=recovering");
   const progress = page.getByRole("status").filter({ hasText: "连接中断，正在自动重试" });

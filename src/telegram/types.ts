@@ -952,6 +952,8 @@ export interface Message {
   topicId?: string;
   /** Resolved linked discussion root for a channel post. */
   discussionThread?: MessageThreadReference;
+  /** Non-forum thread identity; never pass this int53 to a forum int32 API. */
+  messageThreadId?: string;
   mediaAlbumId?: string;
   senderId: string;
   senderTag?: string;
