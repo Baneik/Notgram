@@ -123,20 +123,20 @@ test("thumbnails stay small and selected images remain visible at every viewport
   await expect(page.locator(".media-viewer-thumbnails button")).toHaveCount(3);
 });
 
-test("wheel intent and duplicate initialization preserve the user's current image", async ({ page }) => {
+test("unthrottled wheel bursts and duplicate initialization preserve the current image", async ({ page }) => {
   await openFixture(page);
-  await page.locator(".media-viewer-viewport").hover();
-  for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 1); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve))); }
-  await expect(page.locator(".media-viewer")).toHaveAttribute("aria-label", "图片查看器：image-6.jpg");
-  await page.mouse.wheel(0, 120);
-  await expect(page.locator(".media-viewer")).toHaveAttribute("aria-label", "图片查看器：image-7.jpg");
+  await page.evaluate(() => {
+    const viewport = document.querySelector(".media-viewer-viewport")!;
+    for (let i = 0; i < 3; i++) viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 1 }));
+  });
+  await expect(page.locator(".media-viewer")).toHaveAttribute("aria-label", "图片查看器：image-9.jpg");
   await page.evaluate(() => {
     const fixture = (window as unknown as FixtureWindow).viewerFixture;
     fixture.channel.postMessage({ type: "init", id: "fixture", descriptor: fixture.descriptor });
   });
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator(".media-viewer")).toHaveAttribute("aria-label", "图片查看器：image-8.jpg");
-  await expect.poll(() => page.evaluate(() => (window as unknown as FixtureWindow).viewerFixture.events.filter(event => event.type === "active").map(event => event.messageId))).toContain("photo-8");
+  await expect(page.locator(".media-viewer")).toHaveAttribute("aria-label", "图片查看器：image-10.jpg");
+  await expect.poll(() => page.evaluate(() => (window as unknown as FixtureWindow).viewerFixture.events.filter(event => event.type === "active").map(event => event.messageId))).toContain("photo-10");
 });
 
 test("storage DC comes from the image and failed saves are visible in the viewer", async ({ page }) => {
@@ -189,12 +189,13 @@ test("drag bursts write once per frame and zooming keeps the pointed image detai
   await expect(surface).toHaveAttribute("style", /translate\(0px, 0px\) scale\(1\)/);
 });
 
-test("late decodes cannot replace a newly selected image and long captions expand without hiding controls", async ({ page }) => {
+test("late decodes cannot replace a newly selected image and captions clamp to five lines without scrollbars", async ({ page }) => {
   await openFixture(page, true);
   await replaceOriginal(page, "/viewer-image/delayed-stale.jpg");
   await expect(page.locator('.media-viewer-image[data-image-retained="true"]')).toHaveCount(1);
   await page.keyboard.press("ArrowRight");
   await expect(page.locator('.media-viewer-image[src="/viewer-image/original-7.jpg"][data-image-state="ready"]')).toHaveCount(1);
+  const beforeCaption = await page.locator(".media-viewer-surface").boundingBox();
   await page.evaluate(() => {
     const fixture = (window as unknown as FixtureWindow).viewerFixture;
     fixture.descriptor.messages = fixture.descriptor.messages.map(message => message.id === "photo-7" ? {
@@ -202,16 +203,78 @@ test("late decodes cannot replace a newly selected image and long captions expan
     } : message);
     fixture.channel.postMessage({ type: "sync", id: "fixture", messages: fixture.descriptor.messages, colorTheme: "dark" });
   });
+  await expect(page.locator(".media-viewer-caption")).toContainText("Caption paragraph 12");
+  expect(await page.locator(".media-viewer-surface").boundingBox()).toEqual(beforeCaption);
+  const imageBounds = (await page.locator(".media-viewer-surface").boundingBox())!;
+  const captionBounds = (await page.locator(".media-viewer-caption").boundingBox())!;
+  expect(captionBounds.y).toBeLessThan(imageBounds.y + imageBounds.height);
   await page.setViewportSize({ width: 390, height: 844 });
   const caption = page.locator(".media-viewer-caption");
-  const collapsed = (await caption.boundingBox())!.height;
-  await page.getByRole("button", { name: "展开说明" }).click();
-  expect((await caption.boundingBox())!.height).toBeGreaterThan(collapsed);
-  await page.getByRole("button", { name: "收起说明" }).click();
-  await expect.poll(async () => (await caption.boundingBox())!.height).toBe(collapsed);
+  await expect(caption).toHaveCSS("-webkit-line-clamp", "5");
+  await expect(caption).toHaveCSS("overflow", "hidden");
+  const metrics = await caption.evaluate(element => ({ height: element.clientHeight, lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight), scrollHeight: element.scrollHeight }));
+  expect(metrics.height).toBeLessThanOrEqual(Math.ceil(metrics.lineHeight * 5));
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.height);
+  await expect(page.getByRole("button", { name: /展开说明|收起说明/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "下载图片", exact: true })).toBeVisible();
   // The delayed request has now either decoded or been cancelled by navigation.
   await page.waitForTimeout(650);
   await expect(page.locator('.media-viewer-image[src="/viewer-image/original-7.jpg"][data-image-state="ready"]')).toHaveCount(1);
   await expect(page.locator('.media-viewer-image[src="/viewer-image/delayed-stale.jpg"]')).toHaveCount(0);
+});
+
+test("image documents replace thumbnail dimensions with the decoded original size", async ({ page }) => {
+  await openFixture(page, true);
+  await page.evaluate(async () => {
+    const mapperPath = "/src/telegram/tdlibMapper.ts";
+    const { mapTdMessageContent } = await import(mapperPath);
+    const fixture = (window as unknown as FixtureWindow).viewerFixture;
+    const content = mapTdMessageContent({
+      "@type": "messageDocument", caption: { text: "Image sent as a file" },
+      document: {
+        file_name: "document.jpg", mime_type: "image/jpeg",
+        thumbnail: { width: 160, height: 100, file: { id: 2, local: { is_downloading_completed: true, path: "/viewer-image/thumb-document.jpg" } } },
+        document: { id: 1, size: 2000000, local: { is_downloading_completed: true, path: "/viewer-image/delayed-document.jpg" }, remote: {} },
+      },
+    });
+    fixture.descriptor.messages = fixture.descriptor.messages.map(message => message.id === "photo-6" ? { ...message, content } : message);
+    fixture.channel.postMessage({ type: "sync", id: "fixture", messages: fixture.descriptor.messages, colorTheme: "dark" });
+  });
+  const original = page.locator('.media-viewer-image[src="/viewer-image/delayed-document.jpg"][data-image-state="ready"]');
+  await expect(original).toHaveCount(1);
+  await expect.poll(() => original.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(3200);
+  await expect.poll(async () => (await original.boundingBox())!.width).toBeGreaterThan(800);
+  await expect(page.locator(".media-viewer-details")).toContainText("3200 × 2000");
+  await original.dblclick();
+  await expect(page.locator(".media-viewer-zoom")).toHaveText("100%");
+});
+
+test("zoomed pixels reach every screen edge while the controls stay above them", async ({ page }) => {
+  await openFixture(page);
+  for (const size of [{ width: 1280, height: 800 }, { width: 1080, height: 1920 }]) {
+    await page.setViewportSize(size);
+    for (let step = 0; step < 4; step++) await page.keyboard.press("+");
+    const viewport = page.locator(".media-viewer-viewport");
+    expect(await viewport.boundingBox()).toEqual({ x: 0, y: 0, ...size });
+    const coverage = await page.evaluate(() => [[1, 1], [innerWidth - 2, 1], [1, innerHeight - 2], [innerWidth - 2, innerHeight - 2]].map(([x, y]) =>
+      document.elementsFromPoint(x!, y!).some(element => element.classList.contains("media-viewer-image"))));
+    expect(coverage).toEqual([true, true, true, true]);
+    await expect(page.getByRole("button", { name: "下载图片", exact: true })).toBeVisible();
+    for (let step = 0; step < 4; step++) await page.keyboard.press("-");
+  }
+});
+
+test("light and dark themes keep metadata legible over a bright complex background", async ({ page }) => {
+  await openFixture(page);
+  for (const colorTheme of ["light", "dark"]) {
+    await page.evaluate(colorTheme => {
+      const fixture = (window as unknown as FixtureWindow).viewerFixture;
+      document.documentElement.style.setProperty("background", "repeating-conic-gradient(white 0% 25%, red 0% 50%) 0 / 32px 32px", "important");
+      fixture.channel.postMessage({ type: "sync", id: "fixture", messages: fixture.descriptor.messages, colorTheme });
+    }, colorTheme);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", `notgram-${colorTheme}`);
+    await expect(page.locator(".media-viewer-backdrop")).toHaveCSS("background-color", "rgba(11, 13, 15, 0.9)");
+    await expect(page.locator(".media-viewer-details")).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(page.locator(".media-viewer-details")).toHaveCSS("font-weight", "500");
+  }
 });

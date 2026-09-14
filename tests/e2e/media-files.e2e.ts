@@ -767,6 +767,21 @@ test("opening an oversized image document previews and downloads it with synchro
     return [style.width, style.height, style.backgroundColor, style.borderRadius];
   })).toEqual(mainProgressStyle);
 
+  await page.evaluate(async storePath => {
+    const { telegramStore } = await import(storePath);
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", (messages.get("chat-product") as Array<{ id: string; content: Record<string, unknown> }>).map(message => message.id === "p-image-document"
+      ? { ...message, content: { ...message.content, localPath: "/mock-video-poster.jpg", isDownloaded: true, isDownloading: false } }
+      : message));
+    telegramStore.setState({ messages });
+  }, "/src/store/telegramStore.ts");
+  const original = popup.locator('.media-viewer-image[src="/mock-video-poster.jpg"][data-image-state="ready"]');
+  await expect(original).toHaveCount(1);
+  await expect.poll(() => original.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(640);
+  await expect.poll(async () => (await original.boundingBox())!.width).toBe(640);
+  await expect(popup.locator(".media-viewer-details")).toContainText("640 × 360");
+  await expect(thumbnailProgress).toHaveCount(0);
+
   const closed = popup.waitForEvent("close");
   await popup.keyboard.down("Escape");
   await closed;

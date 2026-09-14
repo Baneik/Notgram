@@ -80,7 +80,12 @@ The image viewer keeps its transform on a positioned surface outside the decoded
 Upgrading one photo must retain both its painted preview and its zoom/pan; selecting another photo
 resets the viewport before paint. Pointer moves coalesce into one transform write per animation frame,
 and the window entrance changes opacity only so it cannot distort pointer coordinates. Wheel navigation
-accumulates intent separately from zoom. The thumbnail strip selects small sources and adapts its item
+handles every nonzero event without a cooldown or distance threshold, including events within one render.
+The image fits above the controls, but zoomed pixels and panning use the full screen. Original decoded
+dimensions override document thumbnail dimensions. Captions clamp to five lines with ellipsis and never
+scroll or expand. Captions overlay the image without reducing its fitted area; only the bottom controls
+reserve layout space. A dark media backdrop and caption/footer scrim maintain contrast in both themes.
+The thumbnail strip selects small sources and adapts its item
 count to available width; only the two adjacent local originals are warmed after navigation settles.
 Viewer session updates coalesce file progress, ignore duplicate initialization, and cancel pending
 initialization/prefetch when replaced, closed, or the main account changes. Media-window focus return

@@ -6,31 +6,16 @@ export const fitImage = (image: ImageSize, viewport: ImageSize): ImageSize => {
   return { width: Math.max(1, image.width * ratio), height: Math.max(1, image.height * ratio) };
 };
 
-export const clampImageTransform = (transform: ImageTransform, image: ImageSize, viewport: ImageSize): ImageTransform => {
+export const clampImageTransform = (transform: ImageTransform, image: ImageSize, viewport: ImageSize, center = { x: 0, y: 0 }): ImageTransform => {
   const maxX = Math.max(0, (image.width * transform.zoom - viewport.width) / 2);
   const maxY = Math.max(0, (image.height * transform.zoom - viewport.height) / 2);
-  return { zoom: transform.zoom, x: maxX ? Math.max(-maxX, Math.min(maxX, transform.x)) : 0, y: maxY ? Math.max(-maxY, Math.min(maxY, transform.y)) : 0 };
+  // Preserve the fitted center above the controls when zooming. Its offset is
+  // part of the pan range, so a zoom need not jump to cover a screen edge.
+  const clamp = (value: number, limit: number, offset: number) => limit ? Math.max(-limit - Math.abs(offset), Math.min(limit + Math.abs(offset), value)) : 0;
+  return { zoom: transform.zoom, x: clamp(transform.x, maxX, center.x), y: clamp(transform.y, maxY, center.y) };
 };
 
 export const zoomImageAt = (transform: ImageTransform, zoom: number, point: { x: number; y: number }): ImageTransform => {
   const ratio = zoom / transform.zoom;
   return { zoom, x: point.x - (point.x - transform.x) * ratio, y: point.y - (point.y - transform.y) * ratio };
-};
-
-export interface WheelNavigation { distance: number; direction: number; lastEvent: number; lastNavigation: number }
-export const emptyWheelNavigation = (): WheelNavigation => ({ distance: 0, direction: 0, lastEvent: -Infinity, lastNavigation: -Infinity });
-
-/** A touchpad gesture must accumulate intent; its momentum cannot race through the album. */
-export const navigateImageWheel = (state: WheelNavigation, delta: number, now: number): -1 | 1 | undefined => {
-  if (!Number.isFinite(delta) || delta === 0) return undefined;
-  const direction = Math.sign(delta);
-  if (now - state.lastEvent > 180 || direction !== state.direction) state.distance = 0;
-  state.direction = direction;
-  state.lastEvent = now;
-  if (now - state.lastNavigation < 220) return undefined;
-  state.distance += Math.abs(delta);
-  if (state.distance < 60) return undefined;
-  state.distance = 0;
-  state.lastNavigation = now;
-  return direction as -1 | 1;
 };

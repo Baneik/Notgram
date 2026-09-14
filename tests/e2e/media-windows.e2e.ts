@@ -297,7 +297,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(downloadButton).not.toBeFocused();
   await expect.poll(() => popup.evaluate(() => document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
   const details = viewer.getByLabel("图片详细信息");
-  await expect(details.locator("span")).toHaveText(["数据中心：DC2", "尺寸：512 × 512", "大小：186 KB"]);
+  await expect(details.locator("span")).toHaveText(["数据中心：DC2", "尺寸：640 × 360", "大小：186 KB"]);
   await expect(details).toHaveCSS("text-align", "left");
   const caption = popup.locator(".media-viewer-caption");
   await expect(caption).toHaveText("新的媒体预览样式");
@@ -306,7 +306,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const viewportSize = popup.viewportSize();
   expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewportSize?.width, height: viewportSize?.height });
   const stage = popup.locator(".media-viewer-stage");
-  const overlayColor = await popup.locator("html").evaluate(element => getComputedStyle(element).getPropertyValue("--color-overlay").trim());
+  const overlayColor = await popup.locator("html").evaluate(element => getComputedStyle(element).getPropertyValue("--color-media-backdrop").trim());
   await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS("background-color", overlayColor);
   await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });

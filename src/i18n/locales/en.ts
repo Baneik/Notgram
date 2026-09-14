@@ -1,7 +1,5 @@
 export const en = {
   "图片窗口初始化": "Image window initialization",
-  "收起说明": "Collapse caption",
-  "展开说明": "Show caption",
   "图片缩放比例": "Image zoom",
   "图片显示": "Image display",
   "邀请链接无效或已过期": "This invite link is invalid or has expired",

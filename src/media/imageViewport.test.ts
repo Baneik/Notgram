@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampImageTransform, emptyWheelNavigation, fitImage, navigateImageWheel, zoomImageAt } from "./imageViewport";
+import { clampImageTransform, fitImage, zoomImageAt } from "./imageViewport";
 
 describe("image viewport geometry", () => {
   it("fits landscape and portrait images without upscaling small originals", () => {
@@ -22,21 +22,9 @@ describe("image viewport geometry", () => {
   });
 });
 
-describe("wheel navigation intent", () => {
-  it("accumulates small deltas and suppresses inertia immediately after a turn", () => {
-    const state = emptyWheelNavigation();
-    expect(navigateImageWheel(state, 1, 0)).toBeUndefined();
-    expect(navigateImageWheel(state, 1, 20)).toBeUndefined();
-    expect(navigateImageWheel(state, 1, 40)).toBeUndefined();
-    expect(navigateImageWheel(state, 57, 60)).toBe(1);
-    expect(navigateImageWheel(state, 240, 100)).toBeUndefined();
-    expect(navigateImageWheel(state, 120, 400)).toBe(1);
-  });
-  it("does not carry distance across a direction change or a new gesture", () => {
-    const state = emptyWheelNavigation();
-    expect(navigateImageWheel(state, 50, 0)).toBeUndefined();
-    expect(navigateImageWheel(state, -20, 20)).toBeUndefined();
-    expect(navigateImageWheel(state, -50, 300)).toBeUndefined();
-    expect(navigateImageWheel(state, -10, 320)).toBe(-1);
-  });
+it("allows full-screen panning when the fitted image is centered above the footer", () => {
+  expect(clampImageTransform({ zoom: 2, x: 5000, y: -5000 }, { width: 1000, height: 600 }, { width: 1280, height: 800 }, { x: 0, y: -100 }))
+    .toEqual({ zoom: 2, x: 360, y: -300 });
+  expect(clampImageTransform({ zoom: 2, x: -5000, y: 5000 }, { width: 1000, height: 600 }, { width: 1280, height: 800 }, { x: 0, y: -100 }))
+    .toEqual({ zoom: 2, x: -360, y: 300 });
 });

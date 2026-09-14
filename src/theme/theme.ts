@@ -56,6 +56,7 @@ export const THEME_COLOR_TOKENS = [
   "--color-qr-foreground",
   "--color-bg-media",
   "--color-on-media",
+  "--color-media-backdrop",
   "--color-overlay",
   "--color-shadow",
   "--color-scrollbar-thumb",

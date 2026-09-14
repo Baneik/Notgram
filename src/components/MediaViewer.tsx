@@ -10,7 +10,6 @@ import { adjacentPhotoId, photoThumbnailWindow, type PhotoMessage } from "../uti
 import { photoSources } from "../media/photoSources";
 import { hasDecodedImage, rememberDecodedImage } from "../media/decodedImages";
 import { localMediaSource } from "../media/localMediaSource";
-import { emptyWheelNavigation, navigateImageWheel } from "../media/imageViewport";
 import { logPerformance } from "../utils/performanceMonitor";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
@@ -74,7 +73,9 @@ function PhotoSurface({ message, onDownload, onDimensions }: {
     src={source} alt={content.caption || content.fileName} draggable={false} onError={onError}
     onReady={() => {
       onReady();
-      if (imageRef.current) onDimensions(imageRef.current.naturalWidth, imageRef.current.naturalHeight);
+      if (imageRef.current && source === localMediaSource(content.localPath)) {
+        onDimensions(imageRef.current.naturalWidth, imageRef.current.naturalHeight);
+      }
       logPerformance("ui_media_viewer_image", { durationMs: performance.now() - startedAt.current });
     }} /> : <div className="media-viewer-empty" role="status">
     {showDownloading ? <LoaderCircle className="spin" size={34} /> : <ImageOff size={38} strokeWidth={1.5} />}
@@ -96,10 +97,10 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const identity = `${active.chatId}:${active.id}`;
   const stageRef = useRef<HTMLElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose, false, stageRef);
-  const [naturalSize, setNaturalSize] = useState({ identity, width: content.width || 1280, height: content.height || 800 });
+  const [naturalSize, setNaturalSize] = useState<{ identity: string; width: number; height: number }>();
   const dimensions = {
-    width: content.width || (naturalSize.identity === identity ? naturalSize.width : 1280),
-    height: content.height || (naturalSize.identity === identity ? naturalSize.height : 800),
+    width: naturalSize?.identity === identity ? naturalSize.width : content.width || 1280,
+    height: naturalSize?.identity === identity ? naturalSize.height : content.height || 800,
   };
   const viewport = useImageViewport(identity, dimensions);
   const previousId = adjacentPhotoId(messages, activeMessageId, -1);
@@ -128,16 +129,16 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   }, [previousSource, nextSource]);
   const thumbnailSlotRef = useRef<HTMLDivElement>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(1);
-  const [captionExpanded, setCaptionExpanded] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const actionGeneration = useRef(0);
-  const wheelNavigation = useRef(emptyWheelNavigation());
+  const navigationId = useRef(activeMessageId);
   const keyboard = useRef({ previousId, nextId, onActiveMessageChange, viewport });
   useLayoutEffect(() => { keyboard.current = { previousId, nextId, onActiveMessageChange, viewport }; });
   useLayoutEffect(() => {
     actionGeneration.current++;
-    setCaptionExpanded(false); setActionError(undefined); setSaving(false);
+    navigationId.current = activeMessageId;
+    setActionError(undefined); setSaving(false);
   }, [identity]);
 
   useLayoutEffect(() => {
@@ -168,14 +169,15 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
 
   const handleWheel = (event: WheelEvent<HTMLElement>) => {
     event.preventDefault();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1);
+    if (!Number.isFinite(delta) || delta === 0) return;
     if (event.ctrlKey) {
-      if (event.deltaY) viewport.zoomBy(Math.exp(-Math.max(-240, Math.min(240, event.deltaY)) * Math.log(1.5) / 240), { x: event.clientX, y: event.clientY });
+      viewport.zoomBy(Math.exp(-delta * Math.log(1.5) / 240), { x: event.clientX, y: event.clientY });
       return;
     }
-    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1);
-    const direction = navigateImageWheel(wheelNavigation.current, delta, performance.now());
-    const target = direction === -1 ? previousId : direction === 1 ? nextId : undefined;
-    if (target) onActiveMessageChange(target);
+    // Track every event, including a burst delivered before React commits.
+    const target = adjacentPhotoId(messages, navigationId.current, delta < 0 ? -1 : 1);
+    if (target) { navigationId.current = target; onActiveMessageChange(target); }
   };
   const canDownload = messageCanBeSaved(active) && content.fileId !== undefined && content.canDownload !== false && !content.isDownloading && !content.isDownloaded;
   const canSave = allowSave && messageCanBeSaved(active) && Boolean(content.localPath);
@@ -184,7 +186,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const dc = content.remoteId ? parseTdlibRemoteFileDataCenter(content.remoteId) : undefined;
   const imageDetails = [
     translate("数据中心：{{value0}}", { value0: dc ? `DC${dc}` : translate("未知") }),
-    translate("尺寸：{{value0}}", { value0: content.width && content.height ? `${content.width} × ${content.height}` : translate("未知") }),
+    translate("尺寸：{{value0}}", { value0: naturalSize?.identity === identity || (content.width && content.height) ? `${dimensions.width} × ${dimensions.height}` : translate("未知") }),
     translate("大小：{{value0}}", { value0: content.sizeLabel }),
   ];
   const save = async () => {
@@ -200,7 +202,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
     <div ref={dialogRef} className="media-viewer" role="dialog" aria-modal="true"
       aria-label={translate("图片查看器：{{value0}}", { value0: content.fileName })} tabIndex={-1}>
       <main ref={stageRef} tabIndex={-1} className="media-viewer-stage" onWheel={handleWheel}>
-        <div className="media-viewer-canvas" onPointerDown={event => {
+        <div ref={viewport.fitRef} className="media-viewer-canvas" onPointerDown={event => {
           if (event.button === 0 && event.target === event.currentTarget) onClose();
         }}>
           <div ref={viewport.viewportRef} className={`media-viewer-viewport ${viewport.zoom > 1 ? "is-pannable" : ""}`}
@@ -226,7 +228,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
                 try { await onDownload(fileId, fileName); }
                 catch { if (actionGeneration.current === generation) setActionError(translate("文件下载失败")); }
               }}
-                onDimensions={(width, height) => { if (!content.width || !content.height) setNaturalSize(current => current.identity === identity && current.width === width && current.height === height ? current : { identity, width, height }); }} />
+                onDimensions={(width, height) => setNaturalSize(current => current?.identity === identity && current.width === width && current.height === height ? current : { identity, width, height })} />
             </div>
           </div>
           {previousId && <button className="media-viewer-nav is-previous" type="button" aria-label={translate("上一张")} title={translate("上一张")} onClick={() => onActiveMessageChange(previousId)}><ChevronLeft size={28} /></button>}
@@ -234,11 +236,8 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
           {viewport.zoom > 1 && <output className="media-viewer-zoom" aria-label={translate("图片缩放比例")}>{viewport.percentage}%</output>}
         </div>
         <footer className="media-viewer-footer">
-          {content.caption && <div className={`media-viewer-caption-wrap ${captionExpanded ? "is-expanded" : ""}`}>
-            <p className="media-viewer-caption" aria-live="polite" onWheel={event => event.stopPropagation()}>{content.caption}</p>
-            {content.caption.length > 100 && <button type="button" aria-expanded={captionExpanded} onClick={() => setCaptionExpanded(value => !value)}>
-              {captionExpanded ? translate("收起说明") : translate("展开说明")}
-            </button>}
+          {content.caption && <div className="media-viewer-caption-wrap">
+            <p className="media-viewer-caption" aria-live="polite">{content.caption}</p>
           </div>}
           <div className="media-viewer-controls">
             <aside className="media-viewer-details" aria-label={translate("图片详细信息")}>

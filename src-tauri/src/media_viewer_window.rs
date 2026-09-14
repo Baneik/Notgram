@@ -34,7 +34,9 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
         .shadow(false)
         .focused(true)
         .visible(false)
-        .fullscreen(false)
+        // Enter fullscreen during construction, before page-load callbacks can
+        // show the HWND with its initial non-client caption style.
+        .fullscreen(true)
         .zoom_hotkeys_enabled(false)
         .prevent_overflow();
     builder = if let Some((x, y)) =
@@ -51,13 +53,50 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
             if payload.event() != PageLoadEvent::Finished {
                 return;
             }
-            let _ = window.set_fullscreen(true);
-            let _ = window.show();
-            let _ = window.set_focus();
+            let window = window.clone();
+            let _ = window.clone().run_on_main_thread(move || {
+                remove_native_frame(&window);
+                let _ = window.show();
+                let _ = window.set_focus();
+            });
         })
         .build()
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn remove_native_frame(window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GWL_STYLE, GetWindowLongW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SWP_NOZORDER, SetWindowLongW, SetWindowPos, WS_CAPTION, WS_THICKFRAME,
+        };
+        let Ok(hwnd) = window.hwnd() else { return };
+        // Tao keeps WS_CAPTION on some undecorated HWNDs and relies on
+        // non-client handling to hide it. Remove it before the first paint.
+        unsafe {
+            let style = GetWindowLongW(hwnd.0, GWL_STYLE) as u32;
+            if style & (WS_CAPTION | WS_THICKFRAME) != 0 {
+                SetWindowLongW(
+                    hwnd.0,
+                    GWL_STYLE,
+                    (style & !(WS_CAPTION | WS_THICKFRAME)) as i32,
+                );
+                SetWindowPos(
+                    hwnd.0,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+                );
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = window;
 }
 
 #[tauri::command]

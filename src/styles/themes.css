@@ -45,6 +45,7 @@
   --color-qr-foreground: #111111;
   --color-bg-media: #111719;
   --color-on-media: #ffffff;
+  --color-media-backdrop: rgba(11, 13, 15, 0.9);
   --color-overlay: rgba(38, 46, 50, 0.45);
   --color-shadow: rgba(42, 54, 60, 0.22);
   --color-scrollbar-thumb: #aebdc1;
@@ -93,6 +94,7 @@
   --color-qr-foreground: #111111;
   --color-bg-media: #111719;
   --color-on-media: #ffffff;
+  --color-media-backdrop: rgba(11, 13, 15, 0.9);
   --color-overlay: rgba(11, 13, 15, 0.54);
   --color-shadow: rgba(0, 0, 0, 0.28);
   --color-scrollbar-thumb: #59636d;
@@ -152,6 +154,7 @@
     --color-qr-foreground: CanvasText;
     --color-bg-media: Canvas;
     --color-on-media: CanvasText;
+    --color-media-backdrop: Canvas;
     --color-overlay: Canvas;
     --color-shadow: transparent;
     --color-scrollbar-thumb: CanvasText;
