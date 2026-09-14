@@ -1,16 +1,19 @@
 import type { Message } from "../telegram/types";
+import { messageFiles } from "../telegram/messageFileState";
 
 const keyFor = (chatId: string, messageId: string) => `${chatId}\u0000${messageId}`;
-const fileIdsFor = ({ content }: Message) => content.kind === "media" || content.kind === "file"
-  ? [content.fileId, content.thumbnailFileId].filter((id): id is number => id !== undefined) : [];
-const remoteIdsFor = ({ content }: Message) => content.kind === "media" || content.kind === "file"
-  ? [content.remoteId, content.thumbnailRemoteId].filter((id): id is string => Boolean(id)) : [];
+const fileIdsFor = (message: Message) => messageFiles(message)
+  .flatMap(content => [content.fileId, content.thumbnailFileId]).filter((id): id is number => id !== undefined);
+const remoteIdsFor = (message: Message) => messageFiles(message)
+  .flatMap(content => [content.remoteId, content.thumbnailRemoteId]).filter((id): id is string => Boolean(id));
 
 /** File updates outlive the server message and its transport history index. */
-export class RetainedMessageIndex {
+export class MessageFileIndex {
   private messages = new Map<string, Message>();
   private fileReferences = new Map<number, Set<string>>();
   private remoteReferences = new Map<string, Set<string>>();
+
+  constructor(private readonly accepts: (message: Message) => boolean = () => true) {}
 
   get(chatId: string, messageId: string) {
     return this.messages.get(keyFor(chatId, messageId));
@@ -37,8 +40,9 @@ export class RetainedMessageIndex {
 
   upsert(messages: readonly Message[]) {
     for (const message of messages) {
+      if (this.get(message.chatId, message.id) === message) continue;
       this.remove(message.chatId, [message.id]);
-      if (!message.isLocallyDeleted) continue;
+      if (!this.accepts(message)) continue;
       const key = keyFor(message.chatId, message.id);
       this.messages.set(key, message);
       for (const fileId of fileIdsFor(message)) {

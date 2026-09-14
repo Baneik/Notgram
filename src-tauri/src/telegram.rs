@@ -751,6 +751,19 @@ impl TelegramRuntime {
         }
     }
 
+    pub(crate) fn log_download_save_failure(&self, reason: &'static str) {
+        let logger = self
+            .inner
+            .lock()
+            .expect("telegram runtime mutex poisoned")
+            .logger
+            .clone();
+        if let Some(logger) = logger {
+            // Do not persist cache paths, filenames, or raw OS error messages.
+            logger.write("error", "download_save_failed", json!({ "reason": reason }));
+        }
+    }
+
     fn log_performance_batch(&self, records: Vec<PerformanceLogRecord>) -> Result<(), String> {
         if records.is_empty() || records.len() > MAX_PERFORMANCE_LOG_BATCH {
             return Err("性能日志批次大小无效".to_string());

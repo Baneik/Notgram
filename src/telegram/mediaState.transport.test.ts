@@ -1,7 +1,21 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { TauriTelegramTransport } from "./tauriTransport";
 import { TdRequestBroker } from "./tdRequestBroker";
 import type { TdObject } from "./tdlibMapper";
+
+afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+  "Downloaded file is outside the active TDLib files directory",
+  "This message cannot be saved or has expired",
+  "Unable to reserve downloaded file: access denied",
+])("preserves a concrete native saving failure: %s", async error => {
+  const invoke = vi.fn(async () => { throw error; });
+  vi.stubGlobal("window", { __TAURI_INTERNALS__: { invoke } });
+  const transport = new TauriTelegramTransport();
+  (transport as unknown as { request: () => Promise<TdObject> }).request = async () => photo(false);
+  await expect(transport.downloadFile(91, "photo.jpg")).rejects.toThrow(error);
+});
 
 const photo = (active: boolean): TdObject => ({
   "@type": "file", id: 91, size: 4096,

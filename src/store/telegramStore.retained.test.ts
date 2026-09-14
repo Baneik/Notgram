@@ -122,7 +122,7 @@ it("finishes a photo and thumbnail download after their server message has gone"
 it.each([777, 778, 999])("ignores reused runtime ID %s when restoring a legacy archive", async fileId => {
   const { store: initial, photo, archive } = await fixture();
   archive(photo);
-  const saved = cachedSnapshotFrom(initial.getState());
+  const saved = { ...cachedSnapshotFrom(initial.getState()), messages: [] };
   expect(saved.locallyDeletedMessages?.[0].content).toMatchObject({ fileId: undefined, thumbnailFileId: undefined });
   // Old application versions persisted both numeric handles and active transfer flags.
   const snapshot: CachedTelegramSnapshot = JSON.parse(JSON.stringify({ ...saved, locallyDeletedMessages: [{
@@ -167,7 +167,7 @@ it("rebinds persisted photo and thumbnail identities independently before accept
     ...withRemoteIdentity(photo).content as Extract<Message["content"], { kind: "media" }>,
     localPath: undefined, isDownloaded: false,
   } });
-  const snapshot = JSON.parse(JSON.stringify(cachedSnapshotFrom(initial.getState())));
+  const snapshot = JSON.parse(JSON.stringify({ ...cachedSnapshotFrom(initial.getState()), messages: [] }));
   const transport = new RetainedTransport({ cachedSnapshot: snapshot });
   const pending = new Map<string, (file: MessageFileState) => void>();
   vi.spyOn(transport, "resolveRemoteFile").mockImplementation(remoteId => new Promise(resolve => pending.set(remoteId, resolve)));
@@ -263,7 +263,7 @@ it("does not recreate an archive deleted while its persistent file is being reso
 it("discards lookups from the old account and restores the new account independently", async () => {
   const { store: initial, photo, archive } = await fixture();
   archive(withRemoteIdentity(photo));
-  const snapshot = cachedSnapshotFrom(initial.getState());
+  const snapshot = { ...cachedSnapshotFrom(initial.getState()), messages: [] };
   const accounts: TelegramAccount[] = ["default", "secondary"].map(id => ({ id, userId: id, displayName: id, avatar: { label: id, color: "#3390ec" } }));
   const pending = new Map<string, (file: MessageFileState | undefined) => void>();
   class SwitchingTransport extends RetainedTransport {
@@ -281,6 +281,7 @@ it("discards lookups from the old account and restores the new account independe
   await store.getState().initialize();
   expect(pending.size).toBe(2);
   expect(await store.getState().switchAccount("secondary")).toBe(true);
+  transport.setConnectionStatus("online");
   expect(pending.size).toBe(4);
   const file: MessageFileState = { fileId: 1777, remoteId: "photo-remote", remoteUniqueId: "photo-unique", sizeLabel: "4 KB",
     localPath: "C:/cache/old-account.jpg", isDownloaded: true };

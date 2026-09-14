@@ -8,10 +8,11 @@ import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
 import { isCaptionContent } from "../telegram/messageContent";
-import { bindRetainedMessageFile, retainedMessageQuote, retainHydratedContent, updateRetainedMessageFile } from "../telegram/retainedMessages";
+import { retainedMessageQuote, retainHydratedContent } from "../telegram/retainedMessages";
 import { senderNameForMessage } from "../components/conversationMessages";
-import { RetainedMessageIndex } from "./retainedMessageIndex";
-import { RetainedMediaRestorer } from "./retainedMediaRestorer";
+import { MessageFileIndex } from "./messageFileIndex";
+import { bindMessageFile, updateMessageFile } from "../telegram/messageFileState";
+import { MediaFileRestorer } from "./mediaFileRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { ConversationHistory } from "./conversationHistory";
 import { useStore } from "zustand";
@@ -305,7 +306,8 @@ export const createTelegramStore = (
     const blockedReactionReadRequests = new Set<string>();
     let attentionReadGeneration = 0;
     const messageChangeListeners = new Set<MessageChangeListener>();
-    const retainedMessages = new RetainedMessageIndex();
+    const retainedMessages = new MessageFileIndex(message => message.isLocallyDeleted === true);
+    const messageFiles = new MessageFileIndex();
     // A late history/context/cache response must not undo a committed removal.
     // Keep IDs until the account is cleared; raw TDLib caches are evictable.
     const removedMessageIds = new Set<string>();
@@ -341,6 +343,12 @@ export const createTelegramStore = (
         };
         retainedMessages.upsert(event.messages);
       }
+      if (event.type === "reset") messageFiles.reset(event.messages);
+      else if (event.type === "remove") messageFiles.remove(event.chatId, event.messageIds);
+      else if (event.type === "replace") {
+        messageFiles.remove(event.message.chatId, [event.oldMessageId]);
+        messageFiles.upsert([event.message]);
+      } else messageFiles.upsert(event.messages);
       if (event.type === "upsert") {
         const liveIds = new Set(event.liveMessages.map(message => `${message.chatId}:${message.id}`));
         for (const message of event.messages) recordConversationMessage(message.chatId, message.id,
@@ -968,7 +976,7 @@ export const createTelegramStore = (
       removedMessageIds.clear();
       deletedHistory.clear();
       historyDeletionVersions.clear();
-      retainedMediaRestorer.reset();
+      mediaFileRestorer.reset();
       syncGeneration += 1;
       hasConnected = false;
       syncRetries.clear();
@@ -1642,13 +1650,24 @@ export const createTelegramStore = (
       }
     };
 
-    const retainedMediaRestorer = new RetainedMediaRestorer({
-      canRestore: () => !accountTransition && get().authorization.kind === "ready",
-      messages: () => retainedMessages.all(),
+    const mediaFileRestorer = new MediaFileRestorer({
+      canRestore: () => !accountTransition && get().authorization.kind === "ready" && get().connectionStatus === "online",
+      messages: () => [...(get().messages.get(get().activeChatId ?? "") ?? []), ...retainedMessages.all()],
       resolveFile: remoteId => transport.resolveRemoteFile(remoteId),
+      refreshMessage: async message => {
+        const generation = accountGeneration;
+        const fresh = await transport.getMessage(message.chatId, message.id);
+        if (!fresh || generation !== accountGeneration || !acceptsMessage(fresh) ||
+          get().messages.get(message.chatId)?.find(item => item.id === message.id) !== message) return;
+        const messages = new Map(get().messages);
+        messages.set(fresh.chatId, upsertMessage(messages.get(fresh.chatId) ?? [], fresh));
+        set({ messages });
+        publishMessageChange({ type: "upsert", messages: [fresh], liveMessages: [] });
+        scheduleCacheWrite();
+      },
       applyFile: (remoteId, file) => {
-        const updated = retainedMessages.forRemoteFile(remoteId).flatMap(message => {
-          const next = bindRetainedMessageFile(message, remoteId, file);
+        const updated = messageFiles.forRemoteFile(remoteId).flatMap(message => {
+          const next = bindMessageFile(message, remoteId, file);
           return next === message ? [] : [next];
         });
         if (updated.length === 0) return;
@@ -1670,10 +1689,10 @@ export const createTelegramStore = (
       }
       if (event.type === "file.updated") {
         emojiPickerController.updateFile(event.file);
-        const updated = retainedMessages.forFile(event.file.fileId).flatMap(message => {
+        const updated = messageFiles.forFile(event.file.fileId).flatMap(message => {
           const current = get().messages.get(message.chatId)?.find(candidate => candidate.id === message.id);
-          if (!current?.isLocallyDeleted) return [];
-          const next = updateRetainedMessageFile(current, event.file);
+          if (!current) return [];
+          const next = updateMessageFile(current, event.file);
           return next === current ? [] : [next];
         });
         if (updated.length === 0) return;
@@ -1694,7 +1713,7 @@ export const createTelegramStore = (
         });
         if (event.state.kind === "ready") {
           loadInitialVisibleFolder();
-          void retainedMediaRestorer.restore();
+          void mediaFileRestorer.restore();
           scheduleCacheWrite();
           draftSync.resumePending();
           void flushOutbox();
@@ -1743,7 +1762,7 @@ export const createTelegramStore = (
         const recovered = event.status === "online" && get().connectionStatus !== "online" && hasConnected;
         set({ connectionStatus: event.status });
         if (event.status === "online") {
-          void retainedMediaRestorer.restore();
+          void mediaFileRestorer.restore();
           hasConnected = true;
           if (recovered) {
             emojiPickerController.invalidate();
@@ -2231,7 +2250,7 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       accountGeneration += 1;
-      retainedMediaRestorer.reset();
+      mediaFileRestorer.reset();
       registeredAccountKey = undefined;
       set({
         accountPending: true,
@@ -2272,7 +2291,7 @@ export const createTelegramStore = (
           throw new Error(get().error ?? translate("无法切换账号"));
         }
         accountTransition = false;
-        void retainedMediaRestorer.restore();
+        void mediaFileRestorer.restore();
         void registerCurrentAccount();
         return true;
       } catch (error) {
@@ -2633,7 +2652,7 @@ export const createTelegramStore = (
             }
           }
           publishMessageChange({ type: "reset", messages });
-          void retainedMediaRestorer.restore();
+          void mediaFileRestorer.restore();
           void registerCurrentAccount();
           if (settingsOnly) return;
           loadInitialVisibleFolder();
@@ -2910,6 +2929,7 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
+        void mediaFileRestorer.restore();
         if (targetChat?.isForum) {
           if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
           void refreshForumConversation(chatId);
@@ -4716,6 +4736,7 @@ export const createTelegramStore = (
       },
 
       downloadFile: async (fileId, fileName) => {
+        const generation = accountGeneration;
         try {
           const retained = retainedMessages.forFile(fileId).find(({ content }) =>
             (content.kind === "media" || content.kind === "file") && content.fileId === fileId &&
@@ -4723,10 +4744,10 @@ export const createTelegramStore = (
           const content = retained?.content;
           const sourcePath = content?.kind === "media" || content?.kind === "file" ? content.localPath : undefined;
           const path = await transport.downloadFile(fileId, fileName, sourcePath);
-          set({ operationError: undefined });
+          if (generation === accountGeneration) set({ operationError: undefined });
           return path;
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : translate("文件下载失败") });
+          if (generation === accountGeneration) set({ operationError: errorMessage(error, translate("文件下载失败")) });
           throw error;
         }
       },
@@ -4765,7 +4786,7 @@ export const createTelegramStore = (
           await transport.saveFileToDownloads(sourcePath, fileName);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : translate("无法保存文件") });
+          set({ operationError: errorMessage(error, translate("无法保存文件")) });
         }
       },
 
@@ -4774,7 +4795,7 @@ export const createTelegramStore = (
           await transport.saveFileAs(sourcePath, fileName);
           set({ operationError: undefined });
         } catch (error) {
-          set({ operationError: error instanceof Error ? error.message : translate("无法另存文件") });
+          set({ operationError: errorMessage(error, translate("无法另存文件")) });
         }
       },
 

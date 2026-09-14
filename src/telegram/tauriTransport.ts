@@ -3243,7 +3243,9 @@ export class TauriTelegramTransport implements TelegramTransport {
         sourcePath: local.path,
         fileName: pending.fileName,
       }).then((path) => pending.resolve(path)).catch((error: unknown) => {
-        pending.reject(error instanceof Error ? error : new Error(translate("无法保存下载文件")));
+        pending.reject(error instanceof Error ? error : new Error(
+          typeof error === "string" && error.trim() ? error : translate("无法保存下载文件"),
+        ));
       });
     }
   }

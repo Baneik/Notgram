@@ -1,5 +1,6 @@
 import { messageCanBeCached } from "../telegram/messageLifecycle";
 import { translate } from "../i18n";
+import { messageFilesForCache } from "../telegram/messageFileState";
 import { retainedMessageForCache } from "../telegram/retainedMessages";
 import { savedMessagesAvatar } from "../telegram/savedMessages";
 import type {
@@ -91,7 +92,7 @@ const sanitizeMessageOrigin = (origin?: MessageOrigin): MessageOrigin | undefine
   return origin;
 };
 
-const sanitizeCachedMessage = (message: Message): Message => ({
+const sanitizeCachedMessage = (message: Message): Message => messageFilesForCache({
   ...message,
   senderTag: message.senderTag === undefined
     ? undefined

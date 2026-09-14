@@ -667,10 +667,14 @@ export interface MessageRichMedia {
   sizeLabel: string;
   mimeType?: string;
   fileId?: number;
+  remoteId?: string;
+  remoteUniqueId?: string;
   size?: number;
   localPath?: string;
   thumbnailPath?: string;
   thumbnailFileId?: number;
+  thumbnailRemoteId?: string;
+  thumbnailRemoteUniqueId?: string;
   thumbnailCanDownload?: boolean;
   thumbnailIsDownloading?: boolean;
   canDownload?: boolean;

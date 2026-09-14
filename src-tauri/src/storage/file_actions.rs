@@ -13,6 +13,37 @@ pub fn telegram_save_downloaded_file(
     source_path: String,
     file_name: String,
 ) -> Result<String, String> {
+    let result = save_downloaded_file(&app, source_path, file_name);
+    if let Err(error) = &result {
+        app.state::<crate::telegram::TelegramRuntime>()
+            .log_download_save_failure(download_save_failure_kind(error));
+    }
+    result
+}
+
+fn download_save_failure_kind(error: &str) -> &'static str {
+    if error.starts_with("Downloaded cache file") {
+        "cache_unavailable"
+    } else if error == "Downloaded file is outside the active TDLib files directory" {
+        "untrusted_cache_path"
+    } else if error == "This message cannot be saved or has expired" {
+        "export_restricted"
+    } else if error.starts_with("Unable to create download directory") {
+        "download_directory_unavailable"
+    } else if error.starts_with("Unable to reserve downloaded file") {
+        "destination_unavailable"
+    } else if error.starts_with("Unable to save downloaded file") {
+        "copy_failed"
+    } else {
+        "unknown"
+    }
+}
+
+fn save_downloaded_file(
+    app: &AppHandle,
+    source_path: String,
+    file_name: String,
+) -> Result<String, String> {
     let source = PathBuf::from(source_path)
         .canonicalize()
         .map_err(|_| "Downloaded cache file is unavailable".to_string())?;
@@ -22,13 +53,13 @@ pub fn telegram_save_downloaded_file(
             source.display()
         ));
     }
-    let trusted_files = trusted_tdlib_files_directory(&app)?;
+    let trusted_files = trusted_tdlib_files_directory(app)?;
     if !source.starts_with(&trusted_files) {
         return Err("Downloaded file is outside the active TDLib files directory".to_string());
     }
     app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
         .check_export(&source)?;
-    let directory = download_directory(&app)?;
+    let directory = download_directory(app)?;
     let destination = copy_to_available_download(
         &source,
         &directory,
@@ -274,4 +305,39 @@ pub fn prepare_upload_file(path: &Path) -> Result<UploadFileInfo, String> {
         path: path.to_string(),
         size: metadata.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_save_failure_kind;
+
+    #[test]
+    fn download_failure_diagnostics_contain_only_fixed_categories() {
+        for (error, expected) in [
+            ("Downloaded cache file is unavailable", "cache_unavailable"),
+            (
+                "Downloaded file is outside the active TDLib files directory",
+                "untrusted_cache_path",
+            ),
+            (
+                "This message cannot be saved or has expired",
+                "export_restricted",
+            ),
+            (
+                "Unable to reserve downloaded file C:/private/photo.jpg: denied",
+                "destination_unavailable",
+            ),
+            (
+                "Unable to save downloaded file to C:/private/photo.jpg: disk full",
+                "copy_failed",
+            ),
+            (
+                "Unable to create download directory C:/private: denied",
+                "download_directory_unavailable",
+            ),
+            ("Unexpected error containing private data", "unknown"),
+        ] {
+            assert_eq!(download_save_failure_kind(error), expected);
+        }
+    }
 }

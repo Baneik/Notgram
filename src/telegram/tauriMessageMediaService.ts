@@ -298,11 +298,13 @@ export class TauriMessageMediaService {
   }
 
   async getMessage(chatId: string, messageId: string) {
+    const generation = this.context.sessionGeneration();
     const raw = await this.context.request({
       "@type": "getMessage",
       chat_id: numericId(chatId),
       message_id: numericId(messageId),
     });
+    if (generation !== this.context.sessionGeneration()) return undefined;
     const message = this.context.mapMessage(raw);
     if (!message || message.chatId !== chatId || message.id !== messageId) return undefined;
     return this.context.emitMessages([raw], false)[0];

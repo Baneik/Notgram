@@ -342,6 +342,38 @@ jump-return navigation, interrupted renders, bounded recovery continuation, inde
 cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
 adequate assertion for this failure mode.
 
+## Cached message media identity
+
+TDLib numeric file IDs are runtime handles, not persistent media identities. Both snapshot writing
+and legacy snapshot migration clear main/thumbnail IDs and transfer flags from ordinary messages,
+deletion archives, quoted messages, and nested article media. Remote IDs, unique IDs, and existing
+local preview paths survive. A downloaded flag without a local path is not restorable readiness.
+
+When the account is ready and online, `MediaFileRestorer` resolves persistent identities for the
+selected conversation and deletion archives. Inactive ordinary conversations wait until selection.
+Lookups deduplicate remote IDs and run with at most four workers. A selection during an in-flight
+batch requests another pass. A new account invalidates old results. Missing, failed, or mismatched
+identities may refresh the source message once per pass; they never authorize an old numeric handle.
+Deleted and pending messages cannot use that fallback.
+
+`MessageFileIndex` follows committed message reset/upsert/replace/remove events. A `file.updated`
+event reaches ordinary cached messages even when they are absent from the transport's raw history
+index. Match the numeric handle and available persistent identity before applying progress, local
+paths, or completion. Unchanged file updates preserve object identity. Ordinary media follows TDLib
+cache eviction; only deletion archives retain their independently owned local copies.
+
+Media restoration does not change history membership, ordering, deletion facts, or viewport ownership.
+It does not scan every conversation on each file update. Automatic download still follows the user's
+media type and size preferences after a current handle is bound.
+
+Native save failures keep their concrete IPC error in operation feedback. The native
+`download_save_failed` log records only a fixed reason category, never paths, filenames, or raw OS
+errors. Cache-root validation and export restrictions remain enforced.
+
+Regression coverage includes legacy cache migration, repeated restart, automatic/manual download
+without raw history hydration, independent thumbnail completion, nested/reply media, cache eviction,
+account-generation cancellation, and concrete save failure feedback.
+
 ## Background update delivery
 
 The native receive loop owns an ordered update queue for each main/settings WebView. Events only

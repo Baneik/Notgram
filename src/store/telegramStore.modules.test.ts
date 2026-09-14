@@ -228,6 +228,7 @@ describe("telegram store cache and accounts", () => {
         kind: "media",
         mediaType: "photo",
         fileName: "large.jpg",
+        localPath: "C:/cache/large.jpg",
         sizeLabel: "1 MB",
         isDownloading: true,
         isDownloaded: true,
