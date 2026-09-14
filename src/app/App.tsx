@@ -36,6 +36,7 @@ import { ChatInviteDialog } from "../components/ChatInviteDialog";
 import { installTelegramLinkReceiver } from "../release/telegramLinkReceiver";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
+import { closeActiveMediaViewerWindow } from "../media/mediaViewerWindowBridge";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { localUserBlocksStore } from "../store/localUserBlocks";
 import { messageContentText } from "../telegram/messageContent";
@@ -197,6 +198,11 @@ export function App() {
   const accounts = useTelegramStore((state) => state.accounts);
   const accountPending = useTelegramStore((state) => state.accountPending);
   const accountSwitching = useTelegramStore((state) => state.accountSwitching);
+  useEffect(() => telegramStore.subscribe((state, previous) => {
+    // File IDs belong to one account. Stop viewer requests synchronously when
+    // an account transition starts, before its delayed prefetch can run.
+    if (state.accountSwitching || state.activeAccountId !== previous.activeAccountId) closeActiveMediaViewerWindow();
+  }), []);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);
   const folders = useTelegramStore((state) => state.folders);

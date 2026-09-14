@@ -76,6 +76,16 @@ its replacement loads and decodes in an absolute layer. Only the ready replaceme
 it does not fade through an empty surface. Errors and superseded decodes retain the usable image.
 This is scoped to one media identity, not to unrelated items in a viewer or an account switch.
 
+The image viewer keeps its transform on a positioned surface outside the decoded-image lifecycle.
+Upgrading one photo must retain both its painted preview and its zoom/pan; selecting another photo
+resets the viewport before paint. Pointer moves coalesce into one transform write per animation frame,
+and the window entrance changes opacity only so it cannot distort pointer coordinates. Wheel navigation
+accumulates intent separately from zoom. The thumbnail strip selects small sources and adapts its item
+count to available width; only the two adjacent local originals are warmed after navigation settles.
+Viewer session updates coalesce file progress, ignore duplicate initialization, and cancel pending
+initialization/prefetch when replaced, closed, or the main account changes. Media-window focus return
+continues to follow the shared focus contract.
+
 The minimum-visible and exit-animation rules apply to presentation feedback, not to a
 viewport concealment layer. Conversation positioning feedback uses a delayed entrance and
 ends synchronously when its viewport transaction is ready. Retaining an opaque loading

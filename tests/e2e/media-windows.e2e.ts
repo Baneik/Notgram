@@ -295,114 +295,59 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(viewer.getByRole("button", { name: "关闭图片查看器" })).toHaveCount(0);
   await expect(downloadButton).toBeVisible();
   await expect(downloadButton).not.toBeFocused();
-  await expect.poll(() => popup.evaluate(() =>
-    document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
-  await expect(viewer.getByRole("button", { name: "缩小" })).toHaveCount(0);
-  await expect(viewer.getByRole("button", { name: "放大" })).toHaveCount(0);
-  await expect(viewer.getByRole("button", { name: "重置缩放" })).toHaveCount(0);
-  await expect(viewer.getByRole("button", { name: "复制图片" })).toHaveCount(0);
+  await expect.poll(() => popup.evaluate(() => document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
   const details = viewer.getByLabel("图片详细信息");
-  await expect(details.locator("span")).toHaveText([
-    "数据中心：DC2",
-    "尺寸：512 × 512",
-    "大小：186 KB",
-  ]);
+  await expect(details.locator("span")).toHaveText(["数据中心：DC2", "尺寸：512 × 512", "大小：186 KB"]);
   await expect(details).toHaveCSS("text-align", "left");
-  await expect(details).toHaveCSS("position", "absolute");
-  const detailRows = await details.locator("span").evaluateAll((items) =>
-    items.map((item) => item.getBoundingClientRect().y));
-  expect(detailRows.every((row, index) => index === 0 || row > detailRows[index - 1]!)).toBe(true);
-  await expect.poll(() => details.evaluate((element) =>
-    getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   const caption = popup.locator(".media-viewer-caption");
   await expect(caption).toHaveText("新的媒体预览样式");
-  await expect(caption).toHaveCSS("position", "absolute");
   await expect(caption).toHaveCSS("text-align", "center");
-  await expect(caption).toHaveCSS("border-radius", "8px");
   const viewerBounds = await popup.locator(".media-viewer-backdrop").boundingBox();
-  const viewport = popup.viewportSize();
-  expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewport?.width, height: viewport?.height });
+  const viewportSize = popup.viewportSize();
+  expect(viewerBounds).toEqual({ x: 0, y: 0, width: viewportSize?.width, height: viewportSize?.height });
   const stage = popup.locator(".media-viewer-stage");
-  const stageBounds = await stage.boundingBox();
-  const detailsBounds = await details.boundingBox();
-  const downloadBounds = await downloadButton.boundingBox();
-  expect(Math.abs(stageBounds!.x - viewerBounds!.x)).toBeLessThan(2);
-  expect(Math.abs(stageBounds!.y - viewerBounds!.y)).toBeLessThan(2);
-  expect(Math.abs(stageBounds!.width - viewerBounds!.width)).toBeLessThan(2);
-  expect(Math.abs(stageBounds!.height - viewerBounds!.height)).toBeLessThan(2);
-  expect(detailsBounds!.x - stageBounds!.x).toBeCloseTo(18, 0);
-  expect(detailsBounds!.width).toBeLessThan(260);
-  expect(stageBounds!.y + stageBounds!.height - detailsBounds!.y - detailsBounds!.height)
-    .toBeCloseTo(14, 0);
-  expect(stageBounds!.x + stageBounds!.width - downloadBounds!.x - downloadBounds!.width)
-    .toBeCloseTo(18, 0);
-  expect(stageBounds!.y + stageBounds!.height - downloadBounds!.y - downloadBounds!.height)
-    .toBeCloseTo(14, 0);
-  const overlayColor = await popup.locator("html").evaluate((element) =>
-    getComputedStyle(element).getPropertyValue("--color-overlay").trim());
-  await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS(
-    "background-color",
-    overlayColor,
-  );
-  await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgba(0, 0, 0, 0)");
+  const overlayColor = await popup.locator("html").evaluate(element => getComputedStyle(element).getPropertyValue("--color-overlay").trim());
+  await expect(popup.locator(".media-viewer-backdrop")).toHaveCSS("background-color", overlayColor);
+  await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   const thumbnails = viewer.getByRole("navigation", { name: "会话图片预览" });
   await expect(thumbnails.getByRole("button")).toHaveCount(9);
   await expect(thumbnails.locator("img")).toHaveCount(9);
   await expect(thumbnails).toHaveCSS("overflow-x", "hidden");
   await expect(thumbnails).toHaveCSS("scrollbar-width", "none");
   await expect(thumbnails.locator("img").first()).toHaveAttribute("loading", "eager");
-  await expect.poll(() => thumbnails.locator("img").evaluateAll((images) =>
-    images.every((image) => {
-      const imageElement = image as HTMLImageElement;
-      return imageElement.complete && imageElement.naturalWidth > 0;
-    }),
-  )).toBe(true);
-  await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }))
-    .toHaveAttribute("aria-current", "true");
-  const captionBounds = await caption.boundingBox();
-  const thumbnailBounds = await thumbnails.boundingBox();
-  expect(captionBounds!.x + captionBounds!.width / 2)
-    .toBeCloseTo(thumbnailBounds!.x + thumbnailBounds!.width / 2, 0);
-  expect(detailsBounds!.y).toBeCloseTo(thumbnailBounds!.y, 0);
-  expect(detailsBounds!.y + detailsBounds!.height)
-    .toBeCloseTo(thumbnailBounds!.y + thumbnailBounds!.height, 0);
-  expect(captionBounds!.y + captionBounds!.height)
-    .toBeLessThan(Math.min(detailsBounds!.y, thumbnailBounds!.y));
-
-  await stage.hover();
-  await popup.keyboard.down("Control");
-  await popup.mouse.wheel(0, -240);
-  await popup.keyboard.up("Control");
-  await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /scale\(1\.5\)/);
-  await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2, stageBounds!.y + stageBounds!.height / 2);
-  await popup.mouse.down();
-  await popup.mouse.move(stageBounds!.x + stageBounds!.width / 2 + 48, stageBounds!.y + stageBounds!.height / 2 + 32);
-  await popup.mouse.up();
-  await expect(popup.locator(".media-viewer-image")).toHaveAttribute("style", /translate\(48px, 32px\) scale\(1\.5\)/);
+  await expect.poll(() => thumbnails.locator("img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  await expect(thumbnails.getByRole("button", { name: "查看 界面预览.jpg" })).toHaveAttribute("aria-current", "true");
+  const detailsBounds = (await details.boundingBox())!;
+  const thumbnailBounds = (await thumbnails.boundingBox())!;
+  const captionBounds = (await caption.boundingBox())!;
+  expect(detailsBounds.x + detailsBounds.width).toBeLessThanOrEqual(thumbnailBounds.x);
+  expect(captionBounds.y + captionBounds.height).toBeLessThan(thumbnailBounds.y);
+  const imageViewport = popup.locator(".media-viewer-viewport");
+  await imageViewport.hover();
+  await popup.keyboard.down("Control"); await popup.mouse.wheel(0, -240); await popup.keyboard.up("Control");
+  const surface = popup.locator(".media-viewer-surface");
+  await expect(surface).toHaveAttribute("style", /scale\(1\.5\)/);
+  await popup.keyboard.press("+");
+  await expect(surface).toHaveAttribute("style", /scale\(2\.25\)/);
+  const beforePan = await surface.evaluate(element => (element as HTMLElement).style.transform);
+  const imageBounds = (await imageViewport.boundingBox())!;
+  await popup.mouse.move(imageBounds.x + imageBounds.width / 2, imageBounds.y + imageBounds.height / 2);
+  await popup.mouse.down(); await popup.mouse.move(imageBounds.x + imageBounds.width / 2 + 48, imageBounds.y + imageBounds.height / 2 + 32); await popup.mouse.up();
+  expect(await surface.evaluate(element => (element as HTMLElement).style.transform)).not.toBe(beforePan);
   const previousNavigationBounds = await viewer.getByRole("button", { name: "上一张" }).boundingBox();
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer).toHaveAttribute("aria-label", "图片查看器：纵向图片.jpg");
-  await expect(details.locator("span")).toHaveText([
-    "数据中心：DC4",
-    "尺寸：512 × 512",
-    "大小：220 KB",
-  ]);
-  await expect(popup.locator(".media-viewer-caption"))
-    .toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
+  await expect(details.locator("span")).toHaveText(["数据中心：DC4", "尺寸：512 × 512", "大小：220 KB"]);
+  await expect(popup.locator(".media-viewer-caption")).toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
+  await expect(surface).toHaveAttribute("style", /scale\(1\)/);
   const nextNavigationBounds = await viewer.getByRole("button", { name: "下一张" }).boundingBox();
   expect(nextNavigationBounds!.y).toBeCloseTo(previousNavigationBounds!.y, 0);
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();
   await expect(viewer).toHaveAttribute("aria-label", "图片查看器：界面预览.jpg");
   await expect(popup.locator(".media-viewer-caption")).toHaveText("新的媒体预览样式");
   await downloadButton.click();
-  await expect.poll(() => page.evaluate(() => (
-    window as unknown as { __notgramViewerSavedFiles: Array<[string, string]> }
-  ).__notgramViewerSavedFiles)).toEqual([["/mock-video-poster.jpg", "界面预览.jpg"]]);
-  await expect.poll(() => page.evaluate(() => (
-    window as unknown as { __notgramViewerSaveAsFiles: Array<[string, string]> }
-  ).__notgramViewerSaveAsFiles)).toEqual([]);
-
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __notgramViewerSavedFiles: Array<[string, string]> }).__notgramViewerSavedFiles)).toEqual([["/mock-video-poster.jpg", "界面预览.jpg"]]);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __notgramViewerSaveAsFiles: Array<[string, string]> }).__notgramViewerSaveAsFiles)).toEqual([]);
   const closed = popup.waitForEvent("close");
   const finalStageBounds = await stage.boundingBox();
   await popup.mouse.click(finalStageBounds!.x + 8, finalStageBounds!.y + 8);

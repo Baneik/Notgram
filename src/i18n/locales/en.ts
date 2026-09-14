@@ -1,4 +1,9 @@
 export const en = {
+  "图片窗口初始化": "Image window initialization",
+  "收起说明": "Collapse caption",
+  "展开说明": "Show caption",
+  "图片缩放比例": "Image zoom",
+  "图片显示": "Image display",
   "邀请链接无效或已过期": "This invite link is invalid or has expired",
   "此会话需要机器人网页验证，Notgram 暂不支持该验证流程": "This chat requires bot verification in a web app, which Notgram does not yet support",
   "加入请求已被拒绝": "The join request was declined",

@@ -31,7 +31,7 @@ import { useTelegramStore } from "../store/telegramStore";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportResult, ReportChatInput } from "../telegram/types";
 import { colorThemeForThemeId } from "../theme/theme";
-import { photoThumbnailWindow, type PhotoMessage } from "../utils/mediaViewerModel";
+import { type PhotoMessage } from "../utils/mediaViewerModel";
 import { Avatar } from "./Avatar";
 import { MessageRichText } from "./MessageRichText";
 import { MotionPresence } from "./MotionPresence";
@@ -165,33 +165,16 @@ export function ProfileDrawer({
   const openProfileAvatar = useCallback(() => {
     const active = profilePhotoMessages[0];
     if (!active) return;
-    for (const photo of photoThumbnailWindow(profilePhotoMessages, active.id)) {
-      const content = photo.content;
-      if (
-        content.thumbnailFileId !== undefined &&
-        content.thumbnailCanDownload === true &&
-        !content.thumbnailPath &&
-        !content.thumbnailIsDownloading
-      ) {
-        void cacheFile(content.thumbnailFileId, 32).catch(() => undefined);
-      }
-    }
     void openMediaViewerWindow({
       messages: profilePhotoMessages,
       activeMessageId: active.id,
       colorTheme,
       allowSave: false,
-    }, cacheProfilePhoto, async () => undefined);
-    const content = active.content;
-    if (
-      content.fileId !== undefined &&
-      content.canDownload !== false &&
-      !content.isDownloading &&
-      !content.isDownloaded
-    ) {
-      void cacheProfilePhoto(content.fileId, content.fileName);
-    }
-  }, [cacheFile, cacheProfilePhoto, colorTheme, profilePhotoMessages]);
+    }, cacheProfilePhoto, async () => undefined, undefined, async (fileId, priority) => {
+      await cacheFile(fileId, priority);
+      onRetry();
+    });
+  }, [cacheFile, cacheProfilePhoto, colorTheme, onRetry, profilePhotoMessages]);
   const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const chatId = event.currentTarget.dataset.chatId;
     if (chatId) onOpenChat(chatId);

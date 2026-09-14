@@ -99,7 +99,7 @@ import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { captureActiveComposerFocus, focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import { ReportDialog } from "./ReportDialog";
-import { photoMessages, photoThumbnailWindow } from "../utils/mediaViewerModel";
+import { photoMessages } from "../utils/mediaViewerModel";
 import {
   openMediaViewerWindow,
   syncMediaViewerWindow,
@@ -854,32 +854,15 @@ export function Conversation({
     );
     if (activeIndex < 0) return;
     const activeContent = viewerPhotos[activeIndex].content;
-    const nearbyPhotos = photoThumbnailWindow(viewerPhotos, messageId);
-    const thumbnailFileIds = new Set(nearbyPhotos.flatMap((message) => {
-      const content = message.content;
-      return content.thumbnailFileId !== undefined &&
-        content.thumbnailCanDownload === true &&
-        !content.thumbnailPath &&
-        !content.thumbnailIsDownloading
-        ? [content.thumbnailFileId]
-        : [];
-    }));
-    for (const fileId of thumbnailFileIds) {
-      void cacheFile(fileId, 32).catch(() => undefined);
-    }
     const restoreFocus = captureActiveComposerFocus(true);
     void openMediaViewerWindow({
       messages: viewerPhotos,
       activeMessageId: messageId,
       colorTheme,
-    }, onDownloadFile, onSaveFileToDownloads, restoreFocus);
-    if (
-      activeContent.fileId !== undefined &&
-      activeContent.canDownload !== false &&
-      !activeContent.isDownloading &&
-      !activeContent.isDownloaded
-    ) {
-      void onDownloadFile(activeContent.fileId, activeContent.fileName);
+    }, onDownloadFile, onSaveFileToDownloads, restoreFocus, cacheFile);
+    if (activeContent.fileId !== undefined && activeContent.canDownload !== false &&
+        !activeContent.isDownloading && !activeContent.isDownloaded) {
+      void onDownloadFile(activeContent.fileId, activeContent.fileName).catch(() => undefined);
     }
   }, [cacheFile, colorTheme, onDownloadFile, onSaveFileToDownloads, viewerPhotos]);
 

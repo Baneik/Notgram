@@ -2,7 +2,7 @@ import { translate } from "../i18n";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MEDIA_VIEWER_WINDOW_CHANNEL,
   type MediaViewerWindowDescriptor,
@@ -21,6 +21,9 @@ interface MediaViewerWindowProps {
 export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   const channelRef = useRef<BroadcastChannel | undefined>(undefined);
   const closedRef = useRef(false);
+  const initializedRef = useRef(false);
+  const requestSequence = useRef(0);
+  const pendingActions = useRef(new Map<number, { resolve: () => void; reject: () => void }>());
   const [descriptor, setDescriptor] = useState<MediaViewerWindowDescriptor>();
   const [activeMessageId, setActiveMessageId] = useState<string>();
   const showPreparing = useStableVisibility(!descriptor || !activeMessageId);
@@ -55,6 +58,10 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
           globalThis.clearInterval(readyTimer);
           readyTimer = undefined;
         }
+        // Ready retries (including StrictMode setup) can produce late duplicate
+        // init messages. They must not reset navigation or newer file state.
+        if (initializedRef.current) return;
+        initializedRef.current = true;
         closedRef.current = false;
         setDescriptor(message.descriptor);
         setActiveMessageId(message.descriptor.activeMessageId);
@@ -70,6 +77,11 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
         applyTheme(message.colorTheme);
       } else if (message.type === "command" && message.command === "close") {
         void closeWindow();
+      } else if (message.type === "action-result") {
+        const pending = pendingActions.current.get(message.requestId);
+        pendingActions.current.delete(message.requestId);
+        if (message.failed) pending?.reject();
+        else pending?.resolve();
       }
     };
     const handleBeforeUnload = () => {
@@ -85,11 +97,26 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
       globalThis.removeEventListener("beforeunload", handleBeforeUnload);
       channel.close();
       channelRef.current = undefined;
+      for (const pending of pendingActions.current.values()) pending.resolve();
+      pendingActions.current.clear();
       document.documentElement.classList.remove("media-viewer-window-page");
       document.documentElement.removeAttribute("data-theme");
       document.body.classList.remove("media-viewer-window-page");
     };
   }, [id]);
+
+  const changeActiveMessage = useCallback((messageId: string) => {
+    setActiveMessageId(messageId);
+  }, []);
+  useEffect(() => {
+    if (activeMessageId) channelRef.current?.postMessage({ type: "active", id, messageId: activeMessageId } satisfies MediaViewerWindowMessage);
+  }, [activeMessageId, id]);
+
+  const runAction = (action: { type: "save"; sourcePath: string; fileName: string } | { type: "download"; fileId: number; fileName: string }) => new Promise<void>((resolve, reject) => {
+    const requestId = ++requestSequence.current;
+    pendingActions.current.set(requestId, { resolve, reject: () => reject(new Error("media viewer file action failed")) });
+    channelRef.current?.postMessage({ ...action, id, requestId } satisfies MediaViewerWindowMessage);
+  });
 
   if (!descriptor || !activeMessageId) {
     return <div className="media-viewer-window-loading" aria-label={translate("正在准备图片查看器")}>
@@ -101,25 +128,11 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
     <MediaViewer
       messages={descriptor.messages}
       activeMessageId={activeMessageId}
-      onActiveMessageChange={setActiveMessageId}
+      onActiveMessageChange={changeActiveMessage}
       onClose={() => void closeWindow()}
       allowSave={descriptor.allowSave}
-      onDownload={async (fileId, fileName) => {
-        channelRef.current?.postMessage({
-          type: "download",
-          id,
-          fileId,
-          fileName,
-        } satisfies MediaViewerWindowMessage);
-      }}
-      onSave={async (sourcePath, fileName) => {
-        channelRef.current?.postMessage({
-          type: "save",
-          id,
-          sourcePath,
-          fileName,
-        } satisfies MediaViewerWindowMessage);
-      }}
+      onDownload={(fileId, fileName) => runAction({ type: "download", fileId, fileName })}
+      onSave={(sourcePath, fileName) => runAction({ type: "save", sourcePath, fileName })}
     />
   );
 }

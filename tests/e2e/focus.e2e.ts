@@ -290,3 +290,18 @@ test("a temporarily hidden parent dialog retains its eventual focus return", asy
   await expect(trigger).toBeFocused();
   expect(await composer(page).evaluate(input => Boolean(input.closest("[inert]")))).toBe(false);
 });
+
+test("beginning an account switch closes the photo viewer before file IDs can be reused", async ({ page }) => {
+  await openReady(page);
+  const opened = page.waitForEvent("popup");
+  await page.locator(".message-list .photo-open").first().click();
+  const popup = await opened;
+  await expect(popup.locator(".media-viewer")).toBeVisible();
+  const closed = popup.waitForEvent("close");
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    telegramStore.setState({ accountSwitching: true });
+  });
+  await closed;
+  expect(popup.isClosed()).toBe(true);
+});
