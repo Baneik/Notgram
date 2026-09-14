@@ -236,6 +236,9 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
+    if matches!(event, WindowEvent::Destroyed) {
+        crate::telegram::update_delivery::close_window(window.app_handle(), window.label());
+    }
     if window.label() != MAIN_WINDOW_LABEL {
         return;
     }

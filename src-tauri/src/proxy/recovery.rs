@@ -601,8 +601,9 @@ impl ProxyRuntime {
                 "proxy_connection_state",
                 json!(snapshot),
             );
-            let _ = app.emit("telegram://update", &snapshot);
-            state.last_published = Some(snapshot);
+            if crate::telegram::update_delivery::publish(app, &[json!(snapshot)]).is_ok() {
+                state.last_published = Some(snapshot);
+            }
         }
     }
 }

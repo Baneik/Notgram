@@ -10,6 +10,7 @@ type Internal = {
   handleUpdate: (update: TdObject) => void;
   resetSessionState: () => void;
   finishInitialChatSync: () => void;
+  rawChats: Map<string, TdObject>;
   requestImmediateConnectionRecovery: (force: boolean) => void;
 };
 const message = (id: number) => ({
@@ -21,6 +22,30 @@ const connection = (state: string) => ({ "@type": "updateConnectionState", state
 
 describe("TDLib synchronization recovery", () => {
   afterEach(() => vi.useRealTimers());
+
+  it("refreshes overlapping folder chats once per synchronization generation", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as Internal;
+    internal.finishInitialChatSync();
+    const calls: number[] = [];
+    internal.request = vi.fn(async request => {
+      if (request["@type"] === "getChats") return { chat_ids: [7, 8] };
+      if (request["@type"] === "getChat") {
+        calls.push(Number(request.chat_id));
+        return { "@type": "chat", id: request.chat_id, title: "refreshed", type: { "@type": "chatTypePrivate" }, positions: [] };
+      }
+      return { "@type": "ok" };
+    });
+    await Promise.all([transport.loadMoreChats("main"), transport.loadMoreChats("archive")]);
+    calls.length = 0;
+    transport.resetSyncState();
+    await Promise.all([transport.loadMoreChats("main"), transport.loadMoreChats("archive")]);
+    await transport.loadMoreChats("folder:12");
+    expect(calls.sort()).toEqual([7, 8]);
+    transport.resetSyncState();
+    await transport.loadMoreChats("archive");
+    expect(calls).toHaveLength(4);
+  });
 
   it("retries bootstrap after timeouts without needing another authorization event", async () => {
     vi.useFakeTimers();

@@ -341,3 +341,31 @@ bottom, original visible DOM-node identity, every sampled frame's bottom distanc
 jump-return navigation, interrupted renders, bounded recovery continuation, independent reader
 cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
 adequate assertion for this failure mode.
+
+## Background update delivery
+
+The native receive loop owns an ordered update queue for each main/settings WebView. Events only
+wake the consumer; their payload never contains TDLib records. The consumer leases at most 64 records
+and acknowledges a packet only after applying every record. Native read retries replay an unacknowledged
+lease. Frontend application faults stop the stream instead of replaying a partially applied packet.
+Closing a window or replacing its account session retires that window's stream; late closes cannot
+retire a replacement stream. Reconnection retains the stream and ordinary sync-generation rules.
+
+A suspended consumer spills ordered queue chunks beyond 512 records or 1 MiB of serialized content
+to DPAPI-protected temporary files. This bounds the active memory buffer, with a separate bounded
+reading chunk and one lease; it is not a total process-memory limit. Windows delete-on-close handles
+remove spool contents even on process exit. Spill failures retain the current records and backpressure
+the native receive loop. New messages, edits and deletions are never coalesced or dropped to reduce lag.
+
+The frontend applies each lease in approximately 4 ms slices, yielding a macrotask between slices and
+packets. The budget is cooperative: a single update cannot be preempted. Native receive diagnostics
+include pending records, in-flight records and acknowledged batches. Optional UI diagnostics report
+queue age and delivery duration separately from synchronous processing time.
+
+Native connection recovery owns actual system-wake and network detection. Browser focus, visibility
+and timer drift request only a non-forced check; background throttling alone must not reset a healthy
+TDLib connection. Overlapping folder refreshes share chat lookups within the current sync generation.
+Hidden folder warmup waits for a visible document and the selected list to finish loading.
+
+Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
+and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.

@@ -21,17 +21,17 @@ describe("connection recovery lifecycle", () => {
     return { window, document, recover };
   };
 
-  it("forces recovery after sleep and coalesces visibility/focus/online events", async () => {
+  it("nudges native recovery after timer suspension and coalesces foreground events", async () => {
     const { window, document, recover } = setup();
     vi.setSystemTime(200_000);
     await vi.advanceTimersByTimeAsync(10_000);
     window.dispatchEvent(new Event("online"));
     document.dispatchEvent(new Event("visibilitychange"));
     window.dispatchEvent(new Event("focus"));
-    expect(recover.mock.calls.filter(([force]) => force)).toHaveLength(1);
+    expect(recover).toHaveBeenCalledExactlyOnceWith(false);
   });
 
-  it("refreshes a long tray stay even when heartbeat timers never pause", async () => {
+  it("does not force an online client to reconnect after a long tray stay", async () => {
     const { document, recover } = setup();
     document.visibilityState = "hidden";
     document.dispatchEvent(new Event("visibilitychange"));
@@ -39,7 +39,7 @@ describe("connection recovery lifecycle", () => {
     expect(recover).not.toHaveBeenCalled();
     document.visibilityState = "visible";
     document.dispatchEvent(new Event("visibilitychange"));
-    expect(recover).toHaveBeenCalledWith(true);
+    expect(recover).toHaveBeenCalledExactlyOnceWith(false);
   });
 
   it("handles native window focus without a visibility transition and removes listeners", async () => {
@@ -47,7 +47,7 @@ describe("connection recovery lifecycle", () => {
     window.dispatchEvent(new Event("blur"));
     await vi.advanceTimersByTimeAsync(60_000);
     window.dispatchEvent(new Event("focus"));
-    expect(recover).toHaveBeenCalledWith(true);
+    expect(recover).toHaveBeenCalledExactlyOnceWith(false);
     dispose?.();
     recover.mockClear();
     window.dispatchEvent(new Event("online"));

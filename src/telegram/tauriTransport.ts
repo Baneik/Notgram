@@ -28,6 +28,7 @@ import { TdFileStateCache } from "./tdFileStateCache";
 import { resolveTdlibDataCenter } from "./fileDataCenter";
 import { loadHistoryWindow } from "./historyPager";
 import { installConnectionRecoveryMonitor } from "./connectionRecoveryMonitor";
+import { TdUpdateStream } from "./tdUpdateStream";
 import { proxyPreferences } from "./proxySettings";
 import { isRetryableSyncError } from "./syncRetryQueue";
 import {
@@ -325,12 +326,13 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private listener?: TelegramEventListener;
   private accountStorage = new TauriAccountStorage();
-  private unlistenUpdate?: UnlistenFn;
-  private unlistenUpdates?: UnlistenFn;
+  private updateStream?: TdUpdateStream;
   private unlistenError?: UnlistenFn;
   private unlistenProxySettings?: UnlistenFn;
   private requestBroker = new TdRequestBroker();
   private rawChats = new Map<string, TdObject>();
+  private refreshedChats = new Set<string>();
+  private chatRefreshes = new Map<string, Promise<TdObject>>();
   // Recognize snapshots already consumed in TDLib receive order. Async callers
   // may still hold one after a later update has replaced it.
   private consumedChatSnapshots = new WeakSet<TdObject>();
@@ -561,12 +563,18 @@ export class TauriTelegramTransport implements TelegramTransport {
       throw new Error(translate("TDLib 已加载，但缺少 NOTGRAM_API_ID / NOTGRAM_API_HASH。"));
     }
 
-    this.unlistenUpdate = await listen<TdObject>("telegram://update", (event) => {
-      this.handleUpdateBatch([event.payload]);
-    });
-    this.unlistenUpdates = await listen<TdObject[]>("telegram://updates", (event) => {
-      this.handleUpdateBatch(event.payload);
-    });
+    this.updateStream = new TdUpdateStream(
+      (updates, offset, budget) => this.handleUpdateBatch(updates, offset, budget),
+      (error, fatal) => this.listener?.({ type: "sync.error", message: error instanceof Error ? error.message : String(error), fatal }),
+      (batch, durationMs) => {
+        if (isPerformanceMonitoringEnabled() && (batch.pendingCount >= 64 || batch.oldestAgeMs >= 1000)) {
+          logPerformance("ui_tdlib_update_batch", { deliveryDurationMs: durationMs, batchCount: batch.updates.length,
+            pendingUpdateCount: batch.pendingCount, oldestUpdateAgeMs: batch.oldestAgeMs });
+        }
+      },
+    );
+    try { await this.updateStream.start(); }
+    catch (error) { this.updateStream.dispose(); throw error; }
     this.unlistenError = await listen<{ message: string }>(
       "telegram://bridge-error",
       (event) => {
@@ -600,12 +608,10 @@ export class TauriTelegramTransport implements TelegramTransport {
       if (!this.settingsOnly) await invoke("telegram_shutdown");
     } finally {
       this.emitConnectionStatus("offline", { immediate: true });
-      this.unlistenUpdate?.();
-      this.unlistenUpdates?.();
+      this.updateStream?.dispose();
       this.unlistenError?.();
       this.unlistenProxySettings?.();
-      this.unlistenUpdate = undefined;
-      this.unlistenUpdates = undefined;
+      this.updateStream = undefined;
       this.unlistenError = undefined;
       this.unlistenProxySettings = undefined;
       this.requestBroker.rejectAll(new Error(translate("TDLib runtime 已关闭。")));
@@ -614,14 +620,18 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private handleUpdateBatch(updates: TdObject[]) {
-    if (updates.length === 0) return;
-    const startedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
+  private handleUpdateBatch(updates: TdObject[], offset = 0, budgetMs = Infinity) {
+    if (offset >= updates.length) return 0;
+    const startedAt = performance.now();
+    let count = 0;
     const nestedBatch = this.handlingUpdateBatch;
     const shouldBatchFileUpdates = updates.length > 1;
     this.handlingUpdateBatch = nestedBatch || shouldBatchFileUpdates;
     try {
-      for (const update of updates) this.handleUpdate(update);
+      do {
+        this.handleUpdate(updates[offset + count]);
+        count += 1;
+      } while (offset + count < updates.length && performance.now() - startedAt < budgetMs);
     } finally {
       if (!nestedBatch) {
         this.handlingUpdateBatch = false;
@@ -630,15 +640,15 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.handlingUpdateBatch = true;
       }
     }
-    if (startedAt === undefined || !isPerformanceMonitoringEnabled()) return;
+    if (!isPerformanceMonitoringEnabled()) return count;
     const durationMs = performance.now() - startedAt;
-    if (durationMs >= 4 || updates.length >= 32) {
+    if (durationMs >= 4 || count >= 32) {
       const traceId = getActiveConversationTraceId();
       let messageUpdateCount = 0;
       let chatUpdateCount = 0;
       let fileUpdateCount = 0;
       let otherUpdateCount = 0;
-      for (const update of updates) {
+      for (const update of updates.slice(offset, offset + count)) {
         const type = typeof update["@type"] === "string" ? update["@type"] : "";
         if (type === "updateFile") fileUpdateCount += 1;
         else if (type.startsWith("updateChat")) chatUpdateCount += 1;
@@ -648,7 +658,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       logPerformance("ui_tdlib_update_batch", {
         startTimeMs: startedAt,
         durationMs,
-        batchCount: updates.length,
+        batchCount: count,
         traceId,
         duringConversationSwitch: traceId !== undefined,
         messageUpdateCount,
@@ -657,6 +667,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         otherUpdateCount,
       });
     }
+    return count;
   }
 
   async getAccountState() {
@@ -1956,6 +1967,8 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   resetSyncState() {
     this.syncGeneration += 1;
+    this.refreshedChats.clear();
+    this.chatRefreshes.clear();
     this.historyCursors.clear();
     this.exhaustedHistories.clear();
     this.historyLoads.clear();
@@ -2635,10 +2648,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     for (let index = 0; index < newIds.length; index += batchSize) {
       const batchIds = newIds.slice(index, index + batchSize);
       const batch = await Promise.allSettled(batchIds.map(async (id) => {
-        const raw = (refresh ? undefined : this.rawChats.get(id)) ?? await this.request({
-          "@type": "getChat",
-          chat_id: numericId(id),
-        });
+        const raw = await this.chatForList(id, refresh, generation);
         this.assertSyncGeneration(generation);
         const current = this.cacheChat(raw);
         await this.ensureBasicGroupMetadata(current);
@@ -2666,6 +2676,25 @@ export class TauriTelegramTransport implements TelegramTransport {
       loadedCount: newIds.length,
       hasMore: !this.exhaustedChatLists.has(key),
     };
+  }
+
+  private chatForList(id: string, refresh: boolean, generation: number): Promise<TdObject> {
+    const cached = this.rawChats.get(id);
+    if (cached && (!refresh || this.refreshedChats.has(id))) return Promise.resolve(cached);
+    const pending = this.chatRefreshes.get(id);
+    if (pending) return pending;
+    // A chat can belong to many retained folder panels. Their refreshes share
+    // one current-generation lookup, including when a slower folder starts later.
+    const request = this.request({ "@type": "getChat", chat_id: numericId(id) }).then(raw => {
+      this.assertSyncGeneration(generation);
+      const current = this.cacheChat(raw);
+      this.refreshedChats.add(id);
+      return current;
+    }).finally(() => {
+      if (this.chatRefreshes.get(id) === request) this.chatRefreshes.delete(id);
+    });
+    this.chatRefreshes.set(id, request);
+    return request;
   }
 
   private updateChatFolders(update: TdObject) {
@@ -3855,6 +3884,8 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private resetSessionState() {
+    this.updateStream?.dispose();
+    this.updateStream = undefined;
     this.sessionGeneration += 1;
     this.resetSyncState();
     if (this.bootstrapRetryTimer) globalThis.clearTimeout(this.bootstrapRetryTimer);

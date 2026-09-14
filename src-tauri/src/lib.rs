@@ -65,6 +65,7 @@ pub fn run() {
         })
         .on_window_event(desktop_lifecycle::handle_window_event)
         .manage(telegram::TelegramRuntime::new())
+        .manage(telegram::update_delivery::UpdateDelivery::default())
         .manage(proxy::recovery::ProxyRuntime::default())
         .manage(telegram::media_stream::MediaStreamRegistry::default())
         .manage(storage::SnapshotCacheWriteState::default())
@@ -154,6 +155,9 @@ pub fn run() {
             storage::account::telegram_select_account,
             storage::account::telegram_remove_account,
             telegram::telegram_start,
+            telegram::update_delivery::telegram_open_update_stream,
+            telegram::update_delivery::telegram_take_updates,
+            telegram::update_delivery::telegram_close_update_stream,
             telegram::telegram_send,
             telegram::telegram_recover_file,
             telegram::telegram_optimize_storage,

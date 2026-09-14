@@ -3,6 +3,7 @@ pub(crate) mod media_stream;
 mod runtime_log;
 mod security;
 mod tdlib_runtime;
+pub(crate) mod update_delivery;
 
 use assets::{allow_tdlib_assets, trusted_asset_roots};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -202,6 +203,9 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "chatUpdateCount",
     "fileUpdateCount",
     "otherUpdateCount",
+    "pendingUpdateCount",
+    "oldestUpdateAgeMs",
+    "deliveryDurationMs",
     "messageCount",
     "missedFrames",
     "missingStageMask",
@@ -912,6 +916,13 @@ fn receive_loop(
     let mut allowed_assets = HashSet::new();
 
     while !stop.load(Ordering::Acquire) {
+        if pending_updates.len() >= 64 && flush_pending_updates(&app, &mut pending_updates).is_err()
+        {
+            // Preserve delivery on a temporary spool failure. TDLib still owns
+            // unread records; never grow a second unbounded native queue.
+            thread::sleep(Duration::from_millis(100));
+            continue;
+        }
         poll_count += 1;
         let poll_started = Instant::now();
         let receive_timeout = if pending_updates.is_empty() {
@@ -1094,7 +1105,7 @@ fn receive_loop(
                     if pending_updates.len() >= 64
                         || last_update_emit.elapsed() >= Duration::from_millis(8)
                     {
-                        flush_pending_updates(&app, &mut pending_updates);
+                        let _ = flush_pending_updates(&app, &mut pending_updates);
                         last_update_emit = Instant::now();
                     }
                     if closed {
@@ -1104,7 +1115,7 @@ fn receive_loop(
             }
             Ok(None) => {
                 let had_pending_updates = !pending_updates.is_empty();
-                flush_pending_updates(&app, &mut pending_updates);
+                let _ = flush_pending_updates(&app, &mut pending_updates);
                 last_update_emit = Instant::now();
                 consecutive_errors = 0;
                 let elapsed = poll_started.elapsed();
@@ -1113,7 +1124,7 @@ fn receive_loop(
                 }
             }
             Err(error) => {
-                flush_pending_updates(&app, &mut pending_updates);
+                let _ = flush_pending_updates(&app, &mut pending_updates);
                 last_update_emit = Instant::now();
                 error_count += 1;
                 consecutive_errors = consecutive_errors.saturating_add(1);
@@ -1150,6 +1161,7 @@ fn receive_loop(
         if stats_started.elapsed() >= Duration::from_secs(60) {
             let window_seconds = stats_started.elapsed().as_secs_f64().max(1.0);
             if let Some(logger) = &logger {
+                let (pending_ui, leased_ui, acknowledged_ui) = update_delivery::stats(&app);
                 logger.write(
                     "info",
                     "receive_stats",
@@ -1157,6 +1169,9 @@ fn receive_loop(
                         "polls": poll_count,
                         "updates": update_count,
                         "errors": error_count,
+                        "pendingUiUpdates": pending_ui,
+                        "inFlightUiUpdates": leased_ui,
+                        "acknowledgedUiBatches": acknowledged_ui,
                         "windowSeconds": window_seconds,
                         "pollsPerSecond": (poll_count as f64 / window_seconds).round(),
                     }),
@@ -1177,12 +1192,13 @@ fn receive_loop(
     app.state::<TelegramRuntime>().mark_closed(client_id);
 }
 
-fn flush_pending_updates(app: &AppHandle, updates: &mut Vec<Value>) {
+fn flush_pending_updates(app: &AppHandle, updates: &mut Vec<Value>) -> Result<(), String> {
     if updates.is_empty() {
-        return;
+        return Ok(());
     }
-    let batch = std::mem::take(updates);
-    let _ = app.emit("telegram://updates", batch);
+    update_delivery::publish(app, updates)?;
+    updates.clear();
+    Ok(())
 }
 
 fn api_credentials() -> Result<ApiCredentials, String> {
