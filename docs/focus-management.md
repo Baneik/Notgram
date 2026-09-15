@@ -72,6 +72,10 @@ updating that visibility must never replace the composing document.
 shared pointer handler processes only the nearest scope. A discussion isolates
 the channel header, timeline, and post editor with `inert`; the covered channel
 editor must never receive comment text or Enter.
+When the scope's editor already has focus, pointer down on a non-selectable
+background preserves that focus and selection, and pointer up skips restoration.
+Selectable message text and interactive controls retain their native pointer
+behavior. An unfocused editor still receives focus after an eligible blank click.
 
 ## Modal surfaces
 

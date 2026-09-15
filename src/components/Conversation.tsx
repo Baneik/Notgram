@@ -2283,6 +2283,9 @@ export function Conversation({
       className={`conversation ${isChannelConversation ? "is-channel-conversation" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       aria-hidden={mobileViewHidden ? true : undefined}
       inert={mobileViewHidden ? true : undefined}
+      onPointerDown={(event) => {
+        if (!selectionMode && !pinnedViewOpen && !discussionPost) focusComposerFromPointer(event, composerFocus);
+      }}
       onPointerUp={(event) => {
         if (!selectionMode && !pinnedViewOpen && !discussionPost) focusComposerFromPointer(event, composerFocus);
       }}

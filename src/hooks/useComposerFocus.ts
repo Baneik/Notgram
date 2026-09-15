@@ -129,10 +129,17 @@ export function useComposerFocus(input: Owner["input"], identity: string, enable
 }
 
 export function focusComposerFromPointer(event: PointerEvent<HTMLElement>, focus: ComposerFocus) {
-  if (event.button !== 0 || event.defaultPrevented || hasTextSelection()) return;
+  if (event.button !== 0 || event.defaultPrevented) return;
   const target = event.target;
   if (!(target instanceof Element) || target.closest("[data-composer-scope]") !== event.currentTarget) return;
   if (target.closest("button, a, input, textarea, select, video, audio, [contenteditable], [role='button'], [role='dialog'], [role='menu']")) return;
+  const focused = [...owners].some(owner => owner.focus === focus && owner.input.current === document.activeElement);
+  if (event.type === "pointerdown") {
+    // Blank clicks must not blur the editor before pointerup; selectable message text keeps its native behavior.
+    if (focused && getComputedStyle(target).userSelect === "none") event.preventDefault();
+    return;
+  }
+  if (focused || hasTextSelection()) return;
   focus.request();
 }
 

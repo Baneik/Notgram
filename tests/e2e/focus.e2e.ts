@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { telegramStore as Store } from "../../src/store/telegramStore";
+import type { ComposerInputElement } from "../../src/components/ComposerInput";
 
 type FocusControl = Window & { releaseFocusSend?: () => void; focusSendStarted?: boolean; focusSendFinished?: boolean };
 const composer = (page: Page) => page.locator(".conversation > .composer-wrap .composer-input");
@@ -9,6 +10,59 @@ const openReady = async (page: Page) => {
   await expect(composer(page)).toBeFocused();
   await expect(page.getByRole("log", { name: "消息列表" })).toHaveAttribute("aria-busy", "false");
 };
+
+for (const surface of ["conversation", "discussion"] as const) {
+  test(`repeated blank clicks retain ${surface} composer focus without resetting the caret`, async ({ page }) => {
+    await openReady(page);
+    if (surface === "discussion") {
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+      await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+    }
+    const scope = page.locator(surface === "conversation" ? ".conversation" : ".channel-discussion-panel");
+    const input = scope.locator(".composer-input");
+    const timeline = scope.getByRole("log");
+    await expect(input).toBeFocused();
+    await input.fill("abcdef");
+    await input.evaluate(element => {
+      const editor = element as ComposerInputElement;
+      editor.setSelectionRange(2, 2);
+      editor.dataset.focusCalls = "0";
+      editor.dataset.focusEvents = "0";
+      editor.dataset.blurEvents = "0";
+      const focus = editor.focusEditor;
+      editor.focusEditor = () => { editor.dataset.focusCalls = String(Number(editor.dataset.focusCalls) + 1); focus(); };
+      editor.addEventListener("focus", () => { editor.dataset.focusEvents = String(Number(editor.dataset.focusEvents) + 1); });
+      editor.addEventListener("blur", () => { editor.dataset.blurEvents = String(Number(editor.dataset.blurEvents) + 1); });
+    });
+    const bounds = await timeline.boundingBox();
+    expect(bounds).not.toBeNull();
+    const point = { x: bounds!.x + 4, y: bounds!.y + bounds!.height / 2 };
+    expect(await page.evaluate(point => getComputedStyle(document.elementFromPoint(point.x, point.y)!).userSelect, point)).toBe("none");
+    for (let click = 0; click < 5; click += 1) await page.mouse.click(point.x, point.y);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(await input.evaluate(element => ({
+      focusCalls: element.dataset.focusCalls, focusEvents: element.dataset.focusEvents, blurEvents: element.dataset.blurEvents,
+    }))).toEqual({ focusCalls: "0", focusEvents: "0", blurEvents: "0" });
+    await expect(input).toBeFocused();
+    await page.keyboard.type("XY");
+    await expect(input).toHaveJSProperty("value", "abXYcdef");
+
+    await input.evaluate(element => (element as ComposerInputElement).setSelectionRange(2, 4));
+    await page.mouse.dblclick(point.x, point.y);
+    await expect(input).toBeFocused();
+    await expect(input).toHaveAttribute("data-blur-events", "0");
+    await expect(input).toHaveAttribute("data-focus-calls", "0");
+    await page.keyboard.type("Z");
+    await expect(input).toHaveJSProperty("value", "abZcdef");
+
+    await search(page).click();
+    await expect(search(page)).toBeFocused();
+    await page.mouse.click(point.x, point.y);
+    await expect(input).toBeFocused();
+    await page.keyboard.type("!");
+    await expect(input).toHaveJSProperty("value", "abZ!cdef");
+  });
+}
 
 test("replying from a message context menu returns typing to the composer", async ({ page }) => {
   await openReady(page);

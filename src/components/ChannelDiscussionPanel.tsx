@@ -526,6 +526,7 @@ export function ChannelDiscussionPanel({
     <section
       className={`channel-discussion-panel ${forwarding.selectionMode ? "is-selecting-messages" : ""}`}
       data-composer-scope={draftKey}
+      onPointerDown={preserveComposerFocus}
       onPointerUp={preserveComposerFocus}
       aria-label={translate("{{value0}} 的讨论", { value0: channel.title })}
     >
