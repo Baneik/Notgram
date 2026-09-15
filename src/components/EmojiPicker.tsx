@@ -28,7 +28,7 @@ interface EmojiPickerProps {
   disableNotification?: boolean;
   onEmoji: (emoji: string) => void;
   onAssetSent: () => void;
-  onClose: () => void;
+  onClose: (restoreFocus?: boolean) => void;
   onRequestComposerFocus: () => void;
   onCaptureComposerFocus: () => () => void;
   onPointerEnter?: PointerEventHandler<HTMLElement>;
@@ -167,7 +167,7 @@ export function EmojiPicker({
       onClose();
     };
     const closeFromKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onClose(true);
     };
     document.addEventListener("pointerdown", closeFromOutside);
     document.addEventListener("keydown", closeFromKeyboard);

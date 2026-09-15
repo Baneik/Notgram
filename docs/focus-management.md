@@ -12,6 +12,16 @@ also checked, so an old operation cannot target a replacement through a reused r
 Disabling or unmounting an owner revokes pending requests and clears its timers.
 
 - `request()` follows an explicit user action such as replying or inserting Emoji.
+- Latest/return, pinned-message, reply-preview and attention jumps return typing
+  to the current editor, retaining its selection. Silent-send toggles do the same.
+  These returns use the existing owner and interaction checks; a subsequent
+  search or conversation change takes precedence.
+- Explicit multi-select cancellation commits the editor remount before requesting
+  focus. Routine selection clearing (including asynchronous forwarding) does not
+  make this request. Cancellation does not take focus from another surface.
+- Emoji toggle, Escape and hover dismissals return focus only while that picker's
+  controls or trigger still own it. Passive hovering and outside clicks preserve
+  the user's current input destination.
 - `request({ reason: "entry" })` defaults to the editor after navigation when focus
   is unclaimed or still on a chat row. It preserves native selections and the
   existing forced-colors keyboard behavior.
@@ -78,8 +88,9 @@ an editor-related modal can supply a return bound to its originating editor.
 
 ## Verification
 
-`tests/e2e/focus.e2e.ts` covers typing destination, delayed completion, background
-isolation, window return, selections, caret position, and exit races. Existing
+`tests/e2e/focus.e2e.ts` and `tests/e2e/focus-actions.e2e.ts` cover typing destination,
+delayed completion, background isolation, window return, selections, caret position,
+and exit races. Existing
 composer, message action, discussion, media, report, motion, and account suites
 cover their integrations. Browser tests run headless with muted audio and Mock
 transport. Real WebView2 activation, Alt+Tab, native previews, and OS IME still

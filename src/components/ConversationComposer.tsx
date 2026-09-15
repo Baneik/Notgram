@@ -482,12 +482,17 @@ export const ConversationComposer = memo(function ConversationComposer({
     emojiCloseTimerRef.current = undefined;
   }, []);
 
-  const closeEmojiPicker = useCallback(() => {
+  const closeEmojiPicker = useCallback((restoreFocus = false) => {
+    const active = document.activeElement;
+    // A hover timer can outlive a move to search or another conversation.
+    // Only return focus while this picker or its trigger still owns it.
+    if (restoreFocus && active instanceof Element && active.closest(".emoji-picker, .emoji-trigger") &&
+      inputRef.current?.closest(".composer-wrap")?.contains(active)) focusComposer();
     clearEmojiOpenTimer();
     clearEmojiCloseTimer();
     emojiOpenedByHoverRef.current = false;
     setEmojiPickerOpen(false);
-  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer, focusComposer, inputRef]);
 
   const scheduleEmojiPickerOpen = useCallback(() => {
     clearEmojiCloseTimer();
@@ -503,24 +508,20 @@ export const ConversationComposer = memo(function ConversationComposer({
     clearEmojiOpenTimer();
     clearEmojiCloseTimer();
     emojiCloseTimerRef.current = globalThis.setTimeout(() => {
-      emojiCloseTimerRef.current = undefined;
-      emojiOpenedByHoverRef.current = false;
-      setEmojiPickerOpen(false);
+      closeEmojiPicker(true);
     }, motionLifecycleTiming.popoverHoverClose);
-  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer, closeEmojiPicker]);
 
   const toggleEmojiPicker = useCallback(() => {
     clearEmojiOpenTimer();
     clearEmojiCloseTimer();
-    setEmojiPickerOpen((open) => {
-      if (open && emojiOpenedByHoverRef.current) {
-        emojiOpenedByHoverRef.current = false;
-        return true;
-      }
+    if (emojiPickerOpen && !emojiOpenedByHoverRef.current) {
+      closeEmojiPicker(true);
+    } else {
       emojiOpenedByHoverRef.current = false;
-      return !open;
-    });
-  }, [clearEmojiCloseTimer, clearEmojiOpenTimer]);
+      setEmojiPickerOpen(true);
+    }
+  }, [clearEmojiCloseTimer, clearEmojiOpenTimer, closeEmojiPicker, emojiPickerOpen]);
 
   const flushDraft = useCallback(() => {
     if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
@@ -1606,7 +1607,10 @@ export const ConversationComposer = memo(function ConversationComposer({
           aria-pressed={disableNotification}
           title={disableNotification ? translate("已开启静默发送") : translate("开启静默发送")}
           disabled={Boolean(editingMessage)}
-          onClick={() => setDisableNotification((enabled) => !enabled)}
+          onClick={() => {
+            setDisableNotification((enabled) => !enabled);
+            focusComposer();
+          }}
         >
           {disableNotification
             ? <BellOff size={20} strokeWidth={1.8} />

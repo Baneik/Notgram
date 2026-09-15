@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type {
   Chat,
   ForwardMessagesResult,
@@ -18,6 +19,7 @@ interface MessageForwardingOptions {
   messagesById: Map<string, Message>;
   targets: Chat[];
   getTargetsSnapshot?: () => Chat[];
+  onSelectionCancelled?: () => void;
   onLoadMessageProperties: (
     chatId: string,
     messageId: string,
@@ -41,6 +43,7 @@ export const useMessageForwarding = ({
   messagesById,
   targets,
   getTargetsSnapshot,
+  onSelectionCancelled,
   onLoadMessageProperties,
   onForwardMessages,
 }: MessageForwardingOptions) => {
@@ -95,28 +98,33 @@ export const useMessageForwarding = ({
     });
   }, [messagesById]);
 
+  const clearSelection = useCallback(() => {
+    setSelectionActive(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const cancelSelection = useCallback(() => {
+    // Cancelling remounts the editor. Its new node must exist before requesting focus.
+    flushSync(clearSelection);
+    onSelectionCancelled?.();
+  }, [clearSelection, onSelectionCancelled]);
+
   useEffect(() => {
     if (!selectionActive) return;
     const closeWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       if (dialogOpen && !pending) {
         setDialogOpen(false);
         setForwardMessageIds([]);
         setInitialTargetId(undefined);
         setQuery("");
       } else if (!pending) {
-        setSelectionActive(false);
-        setSelectedIds(new Set());
+        cancelSelection();
       }
     };
     document.addEventListener("keydown", closeWithKeyboard);
     return () => document.removeEventListener("keydown", closeWithKeyboard);
-  }, [dialogOpen, pending, selectionActive]);
-
-  const clearSelection = useCallback(() => {
-    setSelectionActive(false);
-    setSelectedIds(new Set());
-  }, []);
+  }, [cancelSelection, dialogOpen, pending, selectionActive]);
 
   const startSelection = useCallback((message?: Message) => {
     setTargetSnapshot(captureTargets());
@@ -306,6 +314,7 @@ export const useMessageForwarding = ({
     pendingTargetId,
     filteredTargets,
     clearSelection,
+    cancelSelection,
     startSelection,
     toggleSelection,
     selectMessages,

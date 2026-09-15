@@ -1040,6 +1040,10 @@ export function Conversation({
     getTargetsSnapshot: getForwardTargetsSnapshot,
     onLoadMessageProperties,
     onForwardMessages,
+    onSelectionCancelled: () => {
+      const active = document.activeElement;
+      if (active === document.body || conversationRef.current?.contains(active)) focusComposer();
+    },
   });
   const {
     selectedIds: selectedMessageIds,
@@ -1370,7 +1374,8 @@ export function Conversation({
   const openPinnedBannerMessage = useCallback((chatId: string, messageId: string) => {
     rememberJumpOrigin(messageId);
     onOpenMessage(chatId, messageId, { behavior: "smooth", highlight: true });
-  }, [onOpenMessage, rememberJumpOrigin]);
+    focusComposer();
+  }, [focusComposer, onOpenMessage, rememberJumpOrigin]);
 
   useEffect(() => {
     const conversation = conversationRef.current;
@@ -2215,6 +2220,7 @@ export function Conversation({
     }
     rememberJumpOrigin(messageId);
     onOpenMessage(chatId, messageId);
+    focusComposer();
   };
 
   const confirmPin = async (disableNotification: boolean, onlyForSelf: boolean) => {
@@ -2292,7 +2298,7 @@ export function Conversation({
               type="button"
               aria-label={translate("取消选择")}
               title={translate("取消选择")}
-              onClick={forwarding.clearSelection}
+              onClick={forwarding.cancelSelection}
             >
               <X size={20} strokeWidth={2} />
             </button>
@@ -2938,6 +2944,7 @@ export function Conversation({
                   highlight: true,
                   loadContext: true,
                 });
+                focusComposer();
               }
             }}
           >
@@ -2959,6 +2966,7 @@ export function Conversation({
                 if (jumpHistoryCount === 0 || !returnFromJump()) {
                   jumpToLatest("smooth", true);
                 }
+                focusComposer();
               }}
             >
               <ArrowDown size={19} strokeWidth={2.1} />
