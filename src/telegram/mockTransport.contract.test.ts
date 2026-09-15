@@ -19,28 +19,31 @@ describe("Mock transport fixture contracts", () => {
       expect(internal.snapshot.messages.some((message) => message.content.kind === "text" && message.content.text === "/start campaign")).toBe(true);
     });
 
-    it("keeps bot deep-link parameters and autostarts known bot chats", async () => {
+    it.each(["verify_A1b2-token", "SetGroupOperate=-1001234567890"])("keeps bot deep-link parameter %s and autostarts known bot chats", async (parameter) => {
       const transport = new MockTelegramTransport();
       const first = await transport.resolveTelegramLink(
-        "https://t.me/notgram_bot?start=verify_A1b2-token",
+        `https://t.me/notgram_bot?start=${parameter}`,
       );
       expect(first).toMatchObject({
         kind: "botStart",
         botUserId: "u-notgram-bot",
-        parameter: "verify_A1b2-token",
+        parameter,
         autostart: false,
       });
       if (!first || !("kind" in first) || first.kind !== "botStart") return;
 
       await transport.sendBotStartMessage(first.chatId, first.botUserId, first.parameter);
       await expect(transport.resolveTelegramLink(
-        "tg://resolve?domain=notgram_bot&start=verify_A1b2-token",
+        `tg://resolve?domain=notgram_bot&start=${encodeURIComponent(parameter)}`,
       )).resolves.toMatchObject({
         kind: "botStart",
         chatId: first.chatId,
-        parameter: "verify_A1b2-token",
+        parameter,
         autostart: true,
       });
+      await transport.setMessageSenderBlocked(first.botUserId, "user", true);
+      await expect(transport.resolveTelegramLink(`https://t.me/notgram_bot?start=${parameter}`))
+        .resolves.toMatchObject({ kind: "botStart", parameter, autostart: false });
     });
   });
 

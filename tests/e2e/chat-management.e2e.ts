@@ -303,6 +303,52 @@ test("opens parameterized bot links and preserves the start payload", async ({ p
   });
 });
 
+for (const scheme of ["https", "tg"]) {
+  test(`starts a bot from a ${scheme} inline button with an equals-separated payload`, async ({ page }) => {
+    await page.goto("/");
+    await revealVirtualMessage(page, "p-bot-keyboard");
+    const parameter = "SetGroupOperate=-1001234567890";
+    const url = scheme === "https"
+      ? `https://t.me/notgram_bot?start=${parameter}`
+      : `tg://resolve?domain=notgram_bot&start=${encodeURIComponent(parameter)}`;
+    await page.evaluate(async (url) => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+      const { mapTdMessage } = await (0, eval)('import("/src/telegram/tdlibMapper.ts")') as typeof import("../../src/telegram/tdlibMapper");
+      const mapped = mapTdMessage({
+        "@type": "message", id: 123, chat_id: 72, date: 1_700_000_000,
+        sender_id: { "@type": "messageSenderUser", user_id: 901 },
+        content: { "@type": "messageText", text: { "@type": "formattedText", text: "点击以下按钮设置群组", entities: [] } },
+        reply_markup: { "@type": "replyMarkupInlineKeyboard", rows: [[{
+          "@type": "inlineKeyboardButton", text: "设置群组",
+          type: { "@type": "inlineKeyboardButtonTypeUrl", url },
+        }]] },
+      });
+      if (!mapped?.replyMarkup) throw new Error("Missing inline keyboard");
+      const state = telegramStore.getState();
+      const messages = new Map(state.messages);
+      messages.set("chat-product", (messages.get("chat-product") ?? []).map(message => message.id === "p-bot-keyboard"
+        ? { ...message, content: mapped.content, replyMarkup: mapped.replyMarkup } : message));
+      telegramStore.setState({ messages });
+    }, url);
+
+    const settingsButton = page.locator('[data-message-id="p-bot-keyboard"]').getByRole("button", { name: "设置群组", exact: true });
+    await settingsButton.click();
+    const startButton = page.getByRole("button", { name: "启动机器人" });
+    await expect(startButton).toBeVisible();
+    const sentMessages = page.locator(".message-list").getByText(`/start ${parameter}`, { exact: true });
+    await expect(sentMessages).toHaveCount(0);
+    await startButton.click();
+    await expect(sentMessages).toHaveCount(1);
+    await expect(startButton).toHaveCount(0);
+
+    await page.getByRole("button", { name: /产品讨论/ }).first().click();
+    await revealVirtualMessage(page, "p-bot-keyboard");
+    await settingsButton.click();
+    await expect(sentMessages).toHaveCount(2);
+    await expect(startButton).toHaveCount(0);
+  });
+}
+
 test("blocks users and reports chats or selected messages", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();

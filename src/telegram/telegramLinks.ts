@@ -94,6 +94,23 @@ export const telegramUrlDisplayText = (value: string) => {
   return username ? parseTelegramUrl(value)?.protocol === "tg:" ? `t.me/${username}` : value : undefined;
 };
 
+/** Read private bot links, including legacy payloads that use '=' as a separator. */
+export const telegramBotStartParameters = (value: string) => {
+  const parsed = parseTelegramUrl(value);
+  if (!parsed || parsed.hash) return undefined;
+  const parameter = parsed.searchParams.get("start");
+  if (parameter === null || parameter.length > 64 || /[^A-Za-z0-9_=-]/.test(parameter)) return undefined;
+  const keys = [...parsed.searchParams.keys()];
+  const isTg = parsed.protocol === "tg:";
+  if (isTg && parsed.pathname && parsed.pathname !== "/") return undefined;
+  if (keys.length !== (isTg ? 2 : 1) || keys.some((key) => key !== "start" && (!isTg || key !== "domain"))) {
+    return undefined;
+  }
+  parsed.searchParams.delete("start");
+  const botUsername = telegramUsernameFromUrl(parsed.href);
+  return botUsername && !/[^A-Za-z0-9_]/.test(botUsername) ? { botUsername, parameter } : undefined;
+};
+
 /** Normalize invite aliases before they cross the native request boundary. */
 export const telegramInviteLink = (value: string): string | undefined => {
   const parsed = parseTelegramUrl(value);

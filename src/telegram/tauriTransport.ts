@@ -163,6 +163,7 @@ import {
 import {
   knownUnsupportedTelegramLink,
   parseTelegramUrl,
+  telegramBotStartParameters,
   telegramStickerSetName,
   unsupportedTelegramLink,
 } from "./telegramLinks";
@@ -1555,11 +1556,29 @@ export class TauriTelegramTransport implements TelegramTransport {
       return { kind: "user", userId };
     }
 
-    const rawLinkType = await this.request({
+    let rawLinkType = await this.request({
       "@type": "getInternalLinkType",
       link: parsed.toString(),
     }).catch(() => undefined);
     if (generation !== this.sessionGeneration) return undefined;
+    const legacyStart = rawLinkType?.["@type"] === "internalLinkTypePublicChat"
+      ? telegramBotStartParameters(parsed.href)
+      : undefined;
+    if (legacyStart?.parameter.includes("=")) {
+      // TDLib drops non-base64url payloads when classifying links. Ask it for
+      // the same bot's start policy without the payload, then restore it verbatim.
+      // Do not infer autostart from cached messages or mark the link as trusted.
+      const startType = await this.request({
+        "@type": "getInternalLinkType",
+        link: `https://t.me/${legacyStart.botUsername}?start`,
+      }).catch(() => undefined);
+      if (generation !== this.sessionGeneration) return undefined;
+      if (startType?.["@type"] !== "internalLinkTypeBotStart" ||
+        String(startType.bot_username).toLowerCase() !== legacyStart.botUsername.toLowerCase()) {
+        return unsupportedTelegramLink("internalLinkTypeBotStart", translate("Telegram 机器人链接无效"));
+      }
+      rawLinkType = { ...startType, start_parameter: legacyStart.parameter };
+    }
     const linkType = typeof rawLinkType?.["@type"] === "string"
       ? rawLinkType["@type"]
       : undefined;
@@ -1577,6 +1596,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         "@type": "searchPublicChat",
         username: botUsername,
       }).catch(() => undefined);
+      if (generation !== this.sessionGeneration) return undefined;
       const chatId = tdId(rawChat?.id);
       const chatType = asTdObject(rawChat?.type);
       const botUserId = tdId(chatType?.user_id);
@@ -1587,6 +1607,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         "@type": "getUser",
         user_id: numericId(botUserId),
       }).catch(() => undefined);
+      if (generation !== this.sessionGeneration) return undefined;
       if (asTdObject(rawUser?.type)?.["@type"] !== "userTypeBot") {
         return unsupportedTelegramLink(linkType, translate("链接目标不是 Telegram 机器人"));
       }

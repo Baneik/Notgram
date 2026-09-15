@@ -95,6 +95,7 @@ import type {
 import {
   knownUnsupportedTelegramLink,
   parseTelegramUrl,
+  telegramBotStartParameters,
   telegramStickerSetName,
   unsupportedTelegramLink,
 } from "./telegramLinks";
@@ -1560,7 +1561,8 @@ export class MockTelegramTransport implements TelegramTransport {
     const username = parsed.protocol === "tg:" ? parsed.searchParams.get("domain") : parts[0];
     if (!username) return unsupportedTelegramLink("internalLinkTypeUnknownDeepLink");
     const user = this.snapshot.users.find((candidate) => candidate.username?.toLowerCase() === username.toLowerCase());
-    if (user?.isBot && parsed.searchParams.has("start")) {
+    const botStart = telegramBotStartParameters(parsed.href);
+    if (user?.isBot && botStart) {
       let privateChat = this.snapshot.chats.find((candidate) => candidate.peerId === user.id);
       if (!privateChat) {
         privateChat = {
@@ -1586,8 +1588,8 @@ export class MockTelegramTransport implements TelegramTransport {
         kind: "botStart" as const,
         chatId: privateChat.id,
         botUserId: user.id,
-        parameter: parsed.searchParams.get("start") ?? "",
-        autostart: this.snapshot.messages.some((message) => message.chatId === privateChat.id),
+        parameter: botStart.parameter,
+        autostart: !privateChat.isBlocked && this.snapshot.messages.some((message) => message.chatId === privateChat.id),
       };
     }
     if (user) {

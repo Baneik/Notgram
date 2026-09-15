@@ -5,9 +5,48 @@ import {
   telegramUrlDisplayText,
   telegramUsernameFromUrl,
   telegramInviteLink,
+  telegramBotStartParameters,
 } from "./telegramLinks";
 
 describe("Telegram link compatibility", () => {
+  it("keeps empty starts and accepts the full 64-character payload limit", () => {
+    expect(telegramBotStartParameters("https://t.me/notgram_bot?start")?.parameter).toBe("");
+    const parameter = `key=${"x".repeat(60)}`;
+    expect(telegramBotStartParameters(`https://t.me/notgram_bot?start=${parameter}`)?.parameter).toBe(parameter);
+  });
+
+  it.each([
+    "https://t.me/notgram_bot?start=SetGroupOperate=-1001234567890",
+    "t.me/notgram_bot?start=SetGroupOperate%3D-1001234567890",
+    "tg://resolve?domain=notgram_bot&start=SetGroupOperate%3D-1001234567890",
+  ])("preserves legacy private bot start parameters in %s", (url) => {
+    expect(telegramBotStartParameters(url)).toEqual({
+      botUsername: "notgram_bot", parameter: "SetGroupOperate=-1001234567890",
+    });
+  });
+
+  it.each([
+    "https://example.com/notgram_bot?start=key=value",
+    "https://t.me/notgram_bot/123?start=key=value",
+    "https://t.me/notgram_bot?start=key=value&start=other",
+    "https://t.me/notgram_bot?start=key=value&startgroup=other",
+    "https://t.me/notgram_bot?start=key=value&startapp=other",
+    "https://t.me/notgram_bot?start=key=value&profile",
+    "https://t.me/notgram_bot?start=key=value#fragment",
+    "tg://join?domain=notgram_bot&start=key=value",
+    "tg://resolve/extra?domain=notgram_bot&start=key=value",
+    "tg://resolve?domain=notgram_bot&start=key=value&post=123",
+    "tg://resolve?domain=notgram_bot&domain=other_bot&start=key=value",
+    "https://t.me/addtheme?start=key=value",
+    "https://t.me/notgram_bot?start=key%253Dvalue",
+    "https://t.me/notgram_bot?start=key=value%0Acommand",
+    "https://t.me/notgram_bot?start=key=value%0A",
+    "https://t.me/notgram_bot?start=key=value+command",
+    `https://t.me/notgram_bot?start=${"x".repeat(64)}=`,
+  ])("does not reinterpret ambiguous or invalid start links: %s", (url) => {
+    expect(telegramBotStartParameters(url)).toBeUndefined();
+  });
+
   it("recognizes Telegram web and deep-link hosts", () => {
     expect(parseTelegramUrl("https://t.me/mia_design")?.hostname).toBe("t.me");
     expect(parseTelegramUrl("t.me/sylphiette_grayrat_bot")?.href)
