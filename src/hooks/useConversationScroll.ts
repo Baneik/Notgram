@@ -826,7 +826,17 @@ export const useConversationScroll = ({
     if (removalRef.current) { removalRef.current.refresh(); return; }
     const request = bottomPinRequestRef.current;
     const control = scrollControlRef.current;
-    if (!request || request.mode === "settle" ||
+    if (!request) {
+      const element = messageListRef.current;
+      // A late virtual range commit can change the endpoint after settlement.
+      // Reconcile committed geometry before paint, without waiting for the
+      // subsequent scroll/resize notification to start another transaction.
+      if (element && (control.mode === "following" ||
+        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")) &&
+        distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) scheduleBottomPin(undefined, "track");
+      return;
+    }
+    if (request.mode === "settle" ||
       request.identity !== control.identity || request.generation !== control.generation) return;
     // Virtuoso can commit newly measured rows after this frame's pin. Finish
     // that active tracking pass before paint, preserving its existing deadline.
@@ -2603,6 +2613,11 @@ export const useConversationScroll = ({
         if (entry?.key === key && entry.fitBoundary && entry.memory) conversationScrollMemory.set(key, entry.memory);
         return;
       }
+      // A child resize or passive virtualizer correction can precede its
+      // observer/RAF. Finish authorized bottom following before freezing that
+      // transient displacement as a detached departure checkpoint. The normal
+      // coordinator still yields to reading, navigation and active user input.
+      if (distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) reconcileBottomViewport();
       const current = conversationScrollMemory.get(key);
       const followLatest = current?.followLatest ??
         distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
@@ -2652,7 +2667,7 @@ export const useConversationScroll = ({
       unregisterCapture();
       captureScrollState();
     };
-  }, [currentScrollKey, searchActive, virtuosoKey]);
+  }, [currentScrollKey, reconcileBottomViewport, searchActive, virtuosoKey]);
 
   useEffect(() => {
     const element = messageListRef.current;

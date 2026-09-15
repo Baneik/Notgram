@@ -123,6 +123,35 @@ test("late native scroll drift restores the bottom after the tracking pass has s
   expect(Math.abs(result.footerGap)).toBeLessThanOrEqual(1);
 });
 
+test("a late timeline commit keeps the bottom aligned before resize observers run", async ({ page }) => {
+  await conversationFixture(page);
+  const result = await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const moduleUrl = performance.getEntriesByType("resource").map(entry => entry.name)
+      .find(url => new URL(url).pathname.endsWith("/deps/react-dom.js"))!;
+    const { flushSync } = (await import(moduleUrl)).default as typeof import("react-dom");
+    const dispatch = (window as unknown as { __indexDispatch: (event: unknown) => void }).__indexDispatch;
+    const list = document.querySelector<HTMLElement>(".message-list")!;
+    const row = list.querySelector<HTMLElement>('[data-message-id="142"]')!;
+    const beforeHeight = row.getBoundingClientRect().height;
+    const source = telegramStore.getState().messages.get("chat-product")!.find(message => message.id === "142")!;
+    flushSync(() => dispatch({ type: "messages.upserted", messages: [{ ...source,
+      content: { kind: "text", text: Array.from({ length: 28 }, (_, index) => `Expanded tail line ${index}`).join("\n") },
+    }] }));
+    // No observer/RAF has run since the commit. Geometry must already be safe
+    // to paint, even when the previous bottom transaction has finished.
+    return {
+      growth: row.getBoundingClientRect().height - beforeHeight,
+      distance: list.scrollHeight - list.clientHeight - list.scrollTop,
+      gap: list.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom,
+    };
+  });
+  expect(result.growth).toBeGreaterThan(100);
+  expect(Math.abs(result.distance), JSON.stringify(result)).toBeLessThanOrEqual(1);
+  expect(result.gap).toBeGreaterThanOrEqual(10);
+  expect(result.gap).toBeLessThanOrEqual(13);
+});
+
 for (const id of ["138", "140", "141", "142"]) {
   test(`retained message removal keeps heterogeneous conversation geometry (${id})`, async ({ page }) => {
     await conversationFixture(page);

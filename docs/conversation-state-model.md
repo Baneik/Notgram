@@ -93,6 +93,11 @@ completion before writing memory. Switching away while restoring must preserve t
 checkpoint, and a late snapshot callback cannot overwrite a newer capture. Account/topic/view
 scopes remain independent.
 
+Before capturing a settled, following viewport, reconcile any outstanding raw bottom displacement
+through the existing coordinator. A child resize or passive virtualizer correction may precede its
+observer; that transient gap must not become a detached departure checkpoint. Reading, navigation,
+and active input retain the coordinator's existing priority and cancellation rules.
+
 Freeze the entry checkpoint before layout effects update live message counts. An anchor absent
 from the projected history first uses the existing context loader and history-window selector.
 Loading is bounded and tied to the current positioning generation; navigation or user input
@@ -137,6 +142,9 @@ Bottom following has one writer: the coordinator in `useConversationScroll`.
   actual rows for late child-content changes after a transaction has settled. Do not discard per-row
   subpixel changes: their sum may be visible. A clamped scroll assignment that makes no progress is
   not a successful write and must not start another verification pass.
+- A virtual-list layout commit after settlement must also check a following viewport for raw
+  bottom displacement and request tracking before paint. Waiting for a later resize/scroll signal
+  exposes an already positioned conversation with its newest message clipped by the composer.
 - Do not observe the virtualized content node to request bottom pins. Its size can change in response
   to a pin, creating a resize-pin-measurement feedback loop even when no application content changed.
 

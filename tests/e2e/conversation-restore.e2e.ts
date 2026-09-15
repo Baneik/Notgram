@@ -34,6 +34,80 @@ const appendMessages = (page: Page, count: number, batch: string) => page.evalua
   telegramStore.setState({ messages });
 }, { path: storePath, count, batch });
 
+for (const scale of [100, 125]) {
+  for (const count of [0, 1, 20]) {
+    test(`departure settles a late row resize before saving the bottom (${scale}%, ${count} arrivals)`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 1000 });
+      await page.goto("/");
+      await settled(page);
+      await page.evaluate(async scale => {
+        const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+        preferencesStore.setState({ interfaceScale: scale });
+      }, scale);
+      await expect.poll(() => page.locator(".message-list").evaluate(element =>
+        element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+      const departure = await page.evaluate(async () => {
+        const list = document.querySelector<HTMLElement>(".message-list")!;
+        // Read the precondition and resize in one task; a later browser task
+        // may already contain another passive virtualizer correction.
+        for (let attempt = 0; attempt < 60 && list.scrollHeight - list.clientHeight - list.scrollTop > 1; attempt++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        }
+        const before = list.scrollHeight - list.clientHeight - list.scrollTop;
+        // Child media/content can resize without a parent timeline commit.
+        // Switch in the same task, before ResizeObserver can reconcile it.
+        // Keep the new geometry on reentry instead of deleting the fixture.
+        const style = document.createElement("style");
+        style.textContent = '[data-message-id="p-video"] .message-bubble { padding-bottom: 75px; }';
+        document.head.append(style);
+        const after = list.scrollHeight - list.clientHeight - list.scrollTop;
+        document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-mia"]')!.click();
+        return { before, after };
+      });
+      expect(departure.before).toBeLessThanOrEqual(1);
+      expect(departure.after).toBeGreaterThan(50);
+      const memory = await savedPosition(page);
+      expect(memory.followLatest).toBe(true);
+      expect(memory.atBottom).toBe(true);
+      if (count) await appendMessages(page, count, "resized-away");
+      await select(page, "chat-product");
+      if (count === 20) {
+        await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+        await expect(page.getByRole("button", { name: "跳到最新消息，20 条新消息" })).toBeVisible();
+      } else {
+        await settled(page);
+        await expect.poll(() => page.locator(".message-list").evaluate(element =>
+          element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+        await expect(page.locator(`[data-message-id="${count ? "resized-away-0" : "p-video"}"]`)).toBeVisible();
+        await expect(page.locator(".jump-to-latest")).toHaveCount(0);
+      }
+    });
+  }
+}
+
+for (const alreadyReading of [false, true]) {
+  test(`departure reconciliation preserves ${alreadyReading ? "history reading" : "immediate upward intent"}`, async ({ page }) => {
+    await page.goto("/");
+    await settled(page);
+    if (alreadyReading) await scrollAwayFromBottom(page);
+    await page.evaluate(() => {
+      const list = document.querySelector<HTMLElement>(".message-list")!;
+      // Upward intent detaches before Chromium delivers its scroll event.
+      list.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true, cancelable: true }));
+      const style = document.createElement("style");
+      style.textContent = '[data-message-id="p-video"] .message-bubble { padding-bottom: 75px; }';
+      document.head.append(style);
+      document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-mia"]')!.click();
+    });
+    const memory = await savedPosition(page);
+    expect(memory.followLatest).toBe(false);
+    expect(memory.atBottom).toBe(false);
+    await select(page, "chat-product");
+    await expectAnchor(page, { messageId: memory.anchorMessageId!, offset: memory.anchorOffset! });
+    await expect(page.locator(".jump-to-latest")).toBeVisible();
+  });
+}
+
 test("away arrivals preserve the old bottom until the reader explicitly returns to latest", async ({ page }) => {
   await page.goto("/");
   await settled(page);
