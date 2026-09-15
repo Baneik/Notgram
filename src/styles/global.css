@@ -1598,7 +1598,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   color: inherit; background: color-mix(in srgb, var(--accent) 22%, var(--color-bg-elevated));
 }
 .rich-message-content .rich-custom-emoji { display: inline-block; font-family: "Segoe UI Emoji", sans-serif; }
-.rich-message-content .rich-math-inline { display: inline-block; max-width: 100%; vertical-align: middle; }
+/* Keep unbreakable KaTeX groups scrollable without widening the message bubble. */
+.rich-message-content .rich-math-inline { display: inline-block; max-width: 100%; overflow-x: auto; vertical-align: middle; }
 .rich-message-content .rich-math-block { margin: 0 0 7px; display: block; max-width: 100%; overflow-x: auto; text-align: center; }
 .rich-message-content table.is-striped tbody tr:nth-child(even) { background: color-mix(in srgb, var(--color-bg-surface-hover) 60%, transparent); }
 .rich-message-content .rich-table-cell-hidden { visibility: hidden; }
