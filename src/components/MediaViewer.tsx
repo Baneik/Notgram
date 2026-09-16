@@ -28,19 +28,16 @@ function usePhotoSource(message: PhotoMessage, thumbnail = false) {
   const content = message.content;
   const sources = useMemo(() => photoSources(content, thumbnail), [content.localPath, content.thumbnailPath, content.previewDataUrl, thumbnail]);
   const [failedSources, setFailedSources] = useState<Set<string>>(() => new Set());
-  const [previewReady, setPreviewReady] = useState(false);
   const available = sources.filter(source => !failedSources.has(source));
-  const preview = available.find(source => source !== sources[0]);
-  const source = !thumbnail && !previewReady && preview && !hasDecodedImage(sources[0]!) ? preview : available[0];
+  const source = available[0];
   return {
     source,
+    preview: available[1],
     failed: sources.length > 0 && !source,
-    onReady: () => setPreviewReady(true),
     onError: () => {
-      setPreviewReady(true);
       if (source) setFailedSources(current => new Set(current).add(source));
     },
-    retry: () => { setFailedSources(new Set()); setPreviewReady(false); },
+    retry: () => setFailedSources(new Set()),
   };
 }
 
@@ -63,21 +60,25 @@ const MediaViewerThumbnail = memo(function MediaViewerThumbnail({ message, selec
 function PhotoSurface({ message, onDownload, onDimensions }: {
   message: PhotoMessage; onDownload: MediaViewerProps["onDownload"]; onDimensions: (width: number, height: number) => void;
 }) {
-  const { source, failed, onError, onReady, retry } = usePhotoSource(message);
+  const { source, preview, failed, onError, retry } = usePhotoSource(message);
+  const [hasReadyImage, setHasReadyImage] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const startedAt = useRef(performance.now());
   const showDownloading = useStableVisibility(Boolean(message.content.isDownloading));
   const content = message.content;
   const canDownload = messageCanBeSaved(message) && content.fileId !== undefined && content.canDownload !== false && !content.isDownloading && !content.isDownloaded;
-  return source ? <StableImage ref={imageRef} retainWhileLoading className="media-viewer-image"
+  return source ? <>
+    {/* Start the original immediately; a slow preview must never gate its load. */}
+    {!hasReadyImage && preview && <StableImage className="media-viewer-placeholder" src={preview} alt="" aria-hidden="true" draggable={false} />}
+    <StableImage ref={imageRef} retainWhileLoading className="media-viewer-image" fetchPriority="high"
     src={source} alt={content.caption || content.fileName} draggable={false} onError={onError}
     onReady={() => {
-      onReady();
+      setHasReadyImage(true);
       if (imageRef.current && source === localMediaSource(content.localPath)) {
         onDimensions(imageRef.current.naturalWidth, imageRef.current.naturalHeight);
       }
       logPerformance("ui_media_viewer_image", { durationMs: performance.now() - startedAt.current });
-    }} /> : <div className="media-viewer-empty" role="status">
+    }} /></> : <div className="media-viewer-empty" role="status">
     {showDownloading ? <LoaderCircle className="spin" size={34} /> : <ImageOff size={38} strokeWidth={1.5} />}
     <span>{failed ? translate("图片加载失败") : showDownloading ? translate("图片正在下载") : translate("原图尚未下载")}</span>
     {failed && <button type="button" onClick={retry}>{translate("重试加载")}</button>}
@@ -97,7 +98,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const identity = `${active.chatId}:${active.id}`;
   const stageRef = useRef<HTMLElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose, false, stageRef);
-  const [naturalSize, setNaturalSize] = useState<{ identity: string; width: number; height: number }>();
+  const [naturalSize, setNaturalSize] = useState<{ identity: string; source?: string; width: number; height: number }>();
   const dimensions = {
     width: naturalSize?.identity === identity ? naturalSize.width : content.width || 1280,
     height: naturalSize?.identity === identity ? naturalSize.height : content.height || 800,
@@ -107,26 +108,35 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const nextId = adjacentPhotoId(messages, activeMessageId, 1);
   const previousSource = localMediaSource(messages.find(message => message.id === previousId)?.content.localPath);
   const nextSource = localMediaSource(messages.find(message => message.id === nextId)?.content.localPath);
+  const originalReady = naturalSize?.identity === identity && naturalSize.source === content.localPath;
   useEffect(() => {
+    if (!originalReady) return;
     let cancelled = false;
     const images: HTMLImageElement[] = [];
-    // Warm at most two already-local originals after navigation settles. The
-    // thumbnail strip never needs to decode the rest of the album's originals.
+    // The visible original owns the decode budget first. Warm neighbors one at
+    // a time only after it is ready, and cancel pending work on navigation.
     const timer = globalThis.setTimeout(() => {
-      for (const source of new Set([previousSource, nextSource])) {
-        if (!source || hasDecodedImage(source)) continue;
-        const image = new Image();
-        images.push(image);
-        image.decoding = "async";
-        image.onload = () => { void image.decode().then(() => { if (!cancelled) rememberDecodedImage(source); }).catch(() => undefined); };
-        image.src = source;
-      }
+      void (async () => {
+        for (const source of new Set([previousSource, nextSource])) {
+          if (cancelled) return;
+          if (!source || hasDecodedImage(source)) continue;
+          const image = new Image();
+          images.push(image);
+          image.decoding = "async";
+          image.fetchPriority = "low";
+          image.src = source;
+          try {
+            await image.decode();
+            if (!cancelled) rememberDecodedImage(source);
+          } catch { /* A failed neighbor must not prevent viewing the current photo. */ }
+        }
+      })();
     }, 140);
     return () => {
       cancelled = true; globalThis.clearTimeout(timer);
-      for (const image of images) { image.onload = null; image.removeAttribute("src"); }
+      for (const image of images) image.removeAttribute("src");
     };
-  }, [previousSource, nextSource]);
+  }, [identity, content.localPath, originalReady, previousSource, nextSource]);
   const thumbnailSlotRef = useRef<HTMLDivElement>(null);
   const [thumbnailLimit, setThumbnailLimit] = useState(1);
   const [actionError, setActionError] = useState<string>();
@@ -228,7 +238,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
                 try { await onDownload(fileId, fileName); }
                 catch { if (actionGeneration.current === generation) setActionError(translate("文件下载失败")); }
               }}
-                onDimensions={(width, height) => setNaturalSize(current => current?.identity === identity && current.width === width && current.height === height ? current : { identity, width, height })} />
+                onDimensions={(width, height) => setNaturalSize(current => current?.identity === identity && current.source === content.localPath && current.width === width && current.height === height ? current : { identity, source: content.localPath, width, height })} />
             </div>
           </div>
           {previousId && <button className="media-viewer-nav is-previous" type="button" aria-label={translate("上一张")} title={translate("上一张")} onClick={() => onActiveMessageChange(previousId)}><ChevronLeft size={28} /></button>}

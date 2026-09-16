@@ -19,6 +19,15 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
     if (surfaceRef.current) surfaceRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   }, []);
 
+  const schedulePaint = () => {
+    if (frame.current !== undefined) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = undefined;
+      paint();
+      setZoom(transform.current.zoom);
+    });
+  };
+
   useLayoutEffect(() => {
     transform.current = { zoom: 1, x: 0, y: 0 };
     setZoom(1);
@@ -66,8 +75,10 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
       ? { x: point.x - bounds.left - bounds.width / 2 - geometry.current.center.x, y: point.y - bounds.top - bounds.height / 2 - geometry.current.center.y }
       : { x: 0, y: 0 });
     if (next === 1) transform.current = { zoom: 1, x: 0, y: 0 };
-    paint();
-    setZoom(next);
+    // Keep every input delta in the model, but avoid a style write and forced
+    // layout read for each wheel event delivered within the same frame.
+    transform.current = clampImageTransform(transform.current, geometry.current.image, geometry.current.viewport, geometry.current.center);
+    schedulePaint();
   };
 
   const finishDragging = (event: PointerEvent<HTMLDivElement>) => {
@@ -93,7 +104,7 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
       const current = drag.current;
       if (!current || current.id !== event.pointerId) return;
       transform.current = { zoom: current.origin.zoom, x: current.origin.x + event.clientX - current.x, y: current.origin.y + event.clientY - current.y };
-      if (frame.current === undefined) frame.current = requestAnimationFrame(() => { frame.current = undefined; paint(); });
+      schedulePaint();
     },
     onPointerUp: finishDragging,
     onPointerCancel: finishDragging,

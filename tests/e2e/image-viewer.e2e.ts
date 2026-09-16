@@ -9,7 +9,12 @@ type FixtureWindow = Window & { viewerFixture: {
   failActions: boolean;
 } };
 
-async function openFixture(page: Page, previewOnly = false) {
+async function openFixture(page: Page, previewOnly = false, options: {
+  originalGate?: Promise<void>;
+  thumbnailGate?: Promise<void>;
+  neighborGate?: Promise<void>;
+  onRequest?: (path: string) => void;
+} = {}) {
   await page.route("**/viewer-fixture.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Viewer fixture</title>" }));
   await page.goto("/viewer-fixture.html");
   const images = await page.evaluate(() => {
@@ -26,6 +31,10 @@ async function openFixture(page: Page, previewOnly = false) {
   await page.route("**/viewer-image/**", async route => {
     const pathname = new URL(route.request().url()).pathname;
     requests.push(pathname);
+    options.onRequest?.(pathname);
+    if (pathname === "/viewer-image/original-6.jpg") await options.originalGate;
+    if (pathname === "/viewer-image/thumb-6.jpg") await options.thumbnailGate;
+    if (pathname === "/viewer-image/original-5.jpg") await options.neighborGate;
     if (pathname.includes("delayed")) await new Promise(resolve => setTimeout(resolve, 600));
     if (pathname.includes("failed")) { await route.abort(); return; }
     await route.fulfill({ contentType: "image/jpeg", body: Buffer.from(pathname.includes("thumb") ? images.thumbnail : images.original, "base64") });
@@ -57,6 +66,98 @@ async function openFixture(page: Page, previewOnly = false) {
   await expect(page.locator(".media-viewer-thumbnails button")).toHaveCount(9);
   return { requests };
 }
+
+test("a local original loads without waiting for a stalled thumbnail in a fresh viewer", async ({ page }) => {
+  let release!: () => void;
+  const thumbnailGate = new Promise<void>(resolve => { release = resolve; });
+  const requests: string[] = [];
+  const opened = openFixture(page, false, { thumbnailGate, onRequest: path => requests.push(path) });
+  // Observe the open promise immediately so a failed assertion still cleans up the fixture.
+  void opened.catch(() => undefined);
+  try {
+    await expect.poll(() => requests.includes("/viewer-image/original-6.jpg")).toBe(true);
+    const image = page.locator('.media-viewer-image[src="/viewer-image/original-6.jpg"][data-image-state="ready"]');
+    await expect(image).toHaveCount(1);
+    expect(await image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(3200);
+  } finally {
+    release();
+    await opened;
+  }
+});
+
+test("neighbor originals wait until the current original is decoded", async ({ page }) => {
+  let release!: () => void;
+  const originalGate = new Promise<void>(resolve => { release = resolve; });
+  const requests: string[] = [];
+  const opened = openFixture(page, false, { originalGate, onRequest: path => requests.push(path) });
+  void opened.catch(() => undefined);
+  try {
+    await expect.poll(() => requests.includes("/viewer-image/original-6.jpg")).toBe(true);
+    await expect(page.locator('.media-viewer-surface img[data-image-state="ready"]')).toHaveCount(1);
+    await page.waitForTimeout(350);
+    expect(requests.filter(path => path.includes("original"))).toEqual(["/viewer-image/original-6.jpg"]);
+    await page.evaluate(() => {
+      const state = { blankFrames: 0, running: true };
+      (window as unknown as { coldSampling: typeof state }).coldSampling = state;
+      const sample = () => {
+        if (![...document.querySelectorAll<HTMLImageElement>(".media-viewer-surface img")].some(image =>
+          image.complete && image.naturalWidth > 0 && Number(getComputedStyle(image).opacity) === 1)) state.blankFrames++;
+        if (state.running) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+  } finally {
+    release();
+    await opened;
+  }
+  await expect(page.locator('.media-viewer-image[src="/viewer-image/original-6.jpg"][data-image-state="ready"]')).toHaveCount(1);
+  await expect.poll(() => requests.filter(path => path.includes("original")).length).toBe(3);
+  expect(await page.evaluate(() => {
+    const state = (window as unknown as { coldSampling: { blankFrames: number; running: boolean } }).coldSampling;
+    state.running = false;
+    return state.blankFrames;
+  })).toBe(0);
+});
+
+test("neighbor warming is sequential and cancels the remaining queue when navigating", async ({ page }) => {
+  let release!: () => void;
+  const neighborGate = new Promise<void>(resolve => { release = resolve; });
+  const requests: string[] = [];
+  try {
+    await openFixture(page, false, { neighborGate, onRequest: path => requests.push(path) });
+    await expect.poll(() => requests.includes("/viewer-image/original-5.jpg")).toBe(true);
+    await page.waitForTimeout(200);
+    expect(requests).not.toContain("/viewer-image/original-7.jpg");
+    await page.getByRole("button", { name: "查看 image-10.jpg", exact: true }).click();
+    await expect(page.locator('.media-viewer-image[src="/viewer-image/original-10.jpg"][data-image-state="ready"]')).toHaveCount(1);
+    await expect.poll(() => requests.includes("/viewer-image/original-11.jpg")).toBe(true);
+    release();
+    await page.waitForTimeout(200);
+    expect(requests).not.toContain("/viewer-image/original-7.jpg");
+  } finally {
+    release();
+  }
+});
+
+test("zoom wheel bursts preserve every delta with one transform write per frame", async ({ page }) => {
+  await openFixture(page);
+  const result = await page.evaluate(async () => {
+    const viewport = document.querySelector(".media-viewer-viewport")!;
+    const surface = document.querySelector<HTMLElement>(".media-viewer-surface")!;
+    let writes = 0;
+    const observer = new MutationObserver(records => { writes += records.length; });
+    observer.observe(surface, { attributes: true, attributeFilter: ["style"] });
+    for (let index = 0; index < 100; index++) viewport.dispatchEvent(new WheelEvent("wheel", {
+      bubbles: true, ctrlKey: true, deltaY: -1, clientX: 640, clientY: 350,
+    }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    observer.disconnect();
+    return { writes, scale: new DOMMatrix(getComputedStyle(surface).transform).a };
+  });
+  expect(result.scale).toBeCloseTo(Math.exp(100 * Math.log(1.5) / 240), 4);
+  expect(result.writes).toBeGreaterThan(0);
+  expect(result.writes).toBeLessThanOrEqual(2);
+});
 
 async function replaceOriginal(page: Page, source: string) {
   await page.evaluate(source => {
@@ -256,9 +357,8 @@ test("zoomed pixels reach every screen edge while the controls stay above them",
     for (let step = 0; step < 4; step++) await page.keyboard.press("+");
     const viewport = page.locator(".media-viewer-viewport");
     expect(await viewport.boundingBox()).toEqual({ x: 0, y: 0, ...size });
-    const coverage = await page.evaluate(() => [[1, 1], [innerWidth - 2, 1], [1, innerHeight - 2], [innerWidth - 2, innerHeight - 2]].map(([x, y]) =>
-      document.elementsFromPoint(x!, y!).some(element => element.classList.contains("media-viewer-image"))));
-    expect(coverage).toEqual([true, true, true, true]);
+    await expect.poll(() => page.evaluate(() => [[1, 1], [innerWidth - 2, 1], [1, innerHeight - 2], [innerWidth - 2, innerHeight - 2]].map(([x, y]) =>
+      document.elementsFromPoint(x!, y!).some(element => element.classList.contains("media-viewer-image"))))).toEqual([true, true, true, true]);
     await expect(page.getByRole("button", { name: "下载图片", exact: true })).toBeVisible();
     for (let step = 0; step < 4; step++) await page.keyboard.press("-");
   }

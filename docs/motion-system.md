@@ -85,8 +85,13 @@ The image fits above the controls, but zoomed pixels and panning use the full sc
 dimensions override document thumbnail dimensions. Captions clamp to five lines with ellipsis and never
 scroll or expand. Captions overlay the image without reducing its fitted area; only the bottom controls
 reserve layout space. A dark media backdrop and caption/footer scrim maintain contrast in both themes.
-The thumbnail strip selects small sources and adapts its item
-count to available width; only the two adjacent local originals are warmed after navigation settles.
+The viewer requests its best local source immediately; a separate small preview may load in parallel
+but must never gate the original on preview loading or decoding. The decoded original replaces this
+preview at full opacity, without an additional image fade. Source upgrades retain the existing decoded
+node. The thumbnail strip selects small sources and adapts its item count to available width. Only the
+two adjacent local originals are warmed, sequentially and at low priority, after the current original
+has decoded and navigation settles. Zoom input retains every delta and clamps each intermediate
+transform, while both zoom and drag painting coalesce to one write per animation frame.
 Viewer session updates coalesce file progress, ignore duplicate initialization, and cancel pending
 initialization/prefetch when replaced, closed, or the main account changes. Media-window focus return
 continues to follow the shared focus contract.
