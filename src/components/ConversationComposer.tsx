@@ -25,6 +25,7 @@ import {
   type DragEvent,
   type RefObject,
 } from "react";
+import { useComposerPanelLayout } from "../hooks/useComposerPanelLayout";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import type { ComposerFocus } from "../hooks/useComposerFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
@@ -246,6 +247,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
+  const composerRef = useRef<HTMLDivElement>(null);
+  useComposerPanelLayout(composerRef);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
   const mentionEntitiesRef = useRef<MessageTextEntity[]>(chatDraft?.entities ?? []);
@@ -935,7 +938,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [closeAttachmentPreviewSession, focusComposer, persistPendingAttachments, updateAttachmentOptions]);
 
   const sendPendingAttachments = async () => {
-    if (attachmentPending || pendingAttachments.length === 0) return;
+    if (editingMessage || sending || attachmentPending || pendingAttachments.length === 0) return;
     const restoreFocus = focus.capture();
     const caption = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
     setAttachmentPending(true);
@@ -1169,12 +1172,16 @@ export const ConversationComposer = memo(function ConversationComposer({
     });
   }, [activeBotSuggestionIndex, botSuggestions.length]);
 
+  // Only the foreground chooser may consume selection keys.
+  const showInlinePanel = !emojiPickerOpen && !draggingFiles && !editingMessage && Boolean(showInlineLoading || inlineResults);
+  const showMentionPanel = !emojiPickerOpen && !draggingFiles && !editingMessage && !showInlinePanel && mentionSuggestions.length > 0;
+  const showBotPanel = !emojiPickerOpen && !draggingFiles && !editingMessage && !showInlinePanel && !showMentionPanel && botSuggestions.length > 0;
   let botSuggestionIndex = 0;
 
   return (
     <div
       inert={inert || undefined}
-      className={`composer-wrap ${draggingFiles ? "is-file-dragging" : ""}`}
+      className={`composer-wrap ${pendingAttachments.length > 0 && !editingMessage ? "has-attachments" : ""} ${draggingFiles ? "is-file-dragging" : ""}`}
       onDragEnter={handleFileDragEnter}
       onDragOver={handleFileDragOver}
       onDragLeave={handleFileDragLeave}
@@ -1213,7 +1220,52 @@ export const ConversationComposer = memo(function ConversationComposer({
           focusComposer();
         }}
       />
-      {pendingAttachments.length > 0 && (
+      {connectionStatus !== "online" && connectionStatus !== "syncing" && (
+        <ConnectionStatusIndicator
+          className="composer-connection-status"
+          status={connectionStatus}
+        />
+      )}
+      {(queuedMessageCount > 0 || failedQueuedMessageCount > 0 || queuedAttachmentCount > 0 || failedAttachmentCount > 0) && (
+        <div className="composer-outbox-status" role="status">
+          {[
+            failedQueuedMessageCount > 0 ? translate("{{value0}} 条离线消息需要手动重试", { value0: failedQueuedMessageCount }) : undefined,
+            failedAttachmentCount > 0 ? translate("{{value0}} 个离线附件需要手动重试", { value0: failedAttachmentCount }) : undefined,
+            queuedMessageCount > 0 ? translate("{{value0}} 条消息将在联网后发送", { value0: queuedMessageCount }) : undefined,
+            queuedAttachmentCount > 0 ? translate("{{value0}} 个附件将在联网后上传", { value0: queuedAttachmentCount }) : undefined,
+          ].filter(Boolean).join("；")}
+        </div>
+      )}
+      {composerContextMessage && (
+        <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
+          <span className="composer-context-icon">
+            {editingMessage
+              ? <Edit3 size={18} strokeWidth={1.9} />
+              : <Reply size={18} strokeWidth={1.9} />}
+          </span>
+          <span className="composer-context-copy">
+            <strong>
+              {contextTitle}
+              {contextSubject ? (
+                <> <span className={`composer-context-subject ${contextSubjectIsAdministrator ? "is-administrator" : ""}`.trim()}>{contextSubject}</span></>
+              ) : null}
+            </strong>
+            <small>{editingMessage
+              ? messageSummary(composerContextMessage.content)
+              : activeReplyQuote?.text ?? messageSummary(composerContextMessage.content)}</small>
+          </span>
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={editingMessage ? translate("取消编辑") : translate("取消回复")}
+            title={editingMessage ? translate("取消编辑") : translate("取消回复")}
+            onClick={editingMessage ? () => { onCancelEditing(); focusComposer(); } : cancelReply}
+          >
+            <X size={17} strokeWidth={1.9} />
+          </button>
+        </div>
+      )}
+      {pendingAttachments.length > 0 && !editingMessage && (
         <section className="composer-attachment-preview" aria-label={translate("待发送附件")}>
           <header className="composer-attachment-header">
             <strong>{translate("待发送")}</strong>
@@ -1329,53 +1381,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           </footer>
         </section>
       )}
-      {connectionStatus !== "online" && connectionStatus !== "syncing" && (
-        <ConnectionStatusIndicator
-          className="composer-connection-status"
-          status={connectionStatus}
-        />
-      )}
-      {(queuedMessageCount > 0 || failedQueuedMessageCount > 0 || queuedAttachmentCount > 0 || failedAttachmentCount > 0) && (
-        <div className="composer-outbox-status" role="status">
-          {[
-            failedQueuedMessageCount > 0 ? translate("{{value0}} 条离线消息需要手动重试", { value0: failedQueuedMessageCount }) : undefined,
-            failedAttachmentCount > 0 ? translate("{{value0}} 个离线附件需要手动重试", { value0: failedAttachmentCount }) : undefined,
-            queuedMessageCount > 0 ? translate("{{value0}} 条消息将在联网后发送", { value0: queuedMessageCount }) : undefined,
-            queuedAttachmentCount > 0 ? translate("{{value0}} 个附件将在联网后上传", { value0: queuedAttachmentCount }) : undefined,
-          ].filter(Boolean).join("；")}
-        </div>
-      )}
-      {composerContextMessage && (
-        <div className={`composer-context ${editingMessage ? "is-editing" : "is-replying"}`}>
-          <span className="composer-context-icon">
-            {editingMessage
-              ? <Edit3 size={18} strokeWidth={1.9} />
-              : <Reply size={18} strokeWidth={1.9} />}
-          </span>
-          <span className="composer-context-copy">
-            <strong>
-              {contextTitle}
-              {contextSubject ? (
-                <> <span className={`composer-context-subject ${contextSubjectIsAdministrator ? "is-administrator" : ""}`.trim()}>{contextSubject}</span></>
-              ) : null}
-            </strong>
-            <small>{editingMessage
-              ? messageSummary(composerContextMessage.content)
-              : activeReplyQuote?.text ?? messageSummary(composerContextMessage.content)}</small>
-          </span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label={editingMessage ? translate("取消编辑") : translate("取消回复")}
-            title={editingMessage ? translate("取消编辑") : translate("取消回复")}
-            onClick={editingMessage ? () => { onCancelEditing(); focusComposer(); } : cancelReply}
-          >
-            <X size={17} strokeWidth={1.9} />
-          </button>
-        </div>
-      )}
-      <MotionPresence present={mentionSuggestions.length > 0} variant="popover">
-        {mentionSuggestions.length > 0 ? (
+      <MotionPresence present={showMentionPanel} variant="popover">
+        {showMentionPanel ? (
           <section className="mention-suggestion-panel" role="listbox" aria-label={translate("提及成员")}>
             {mentionSuggestions.map((user, index) => (
               <button
@@ -1399,8 +1406,8 @@ export const ConversationComposer = memo(function ConversationComposer({
           </section>
         ) : null}
       </MotionPresence>
-      <MotionPresence present={botSuggestions.length > 0} variant="popover">
-        {botSuggestions.length > 0 ? (
+      <MotionPresence present={showBotPanel} variant="popover">
+        {showBotPanel ? (
           <section ref={botSuggestionPanelRef} className="bot-suggestion-panel" role="listbox" aria-label={translate("机器人命令建议")}>
             {botSuggestionGroups.map((group) => {
               const groupStartIndex = botSuggestionIndex;
@@ -1456,15 +1463,15 @@ export const ConversationComposer = memo(function ConversationComposer({
           </section>
         ) : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(showInlineLoading || inlineResults)} variant="popover">
-        {showInlineLoading || inlineResults ? (
+      <MotionPresence present={showInlinePanel} variant="popover">
+        {showInlinePanel ? (
           <section className="inline-query-panel" aria-label={translate("Inline 查询结果")}>
             {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={() => void submitInlineResult(result)}><span className="inline-query-result-kind">{result.kind === "photo" ? translate("图片") : result.kind === "file" ? translate("文件") : translate("结果")}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />{translate("正在查询机器人")}</div>}
             {inlineResults?.hasMore && <button type="button" className="inline-query-more" disabled={inlineLoading} onClick={() => { const inline = composerInlineQueryForDraft(draftRef.current, knownNonBotUsernames); if (inline && inlineResults.nextOffset) { setInlineLoading(true); void onGetInlineResults(inline.username, inline.query, inlineResults.nextOffset).then((page) => { if (page) setInlineResults((current) => current ? { ...page, results: [...current.results, ...page.results] } : page); setInlineLoading(false); }).catch(() => setInlineLoading(false)); } }}>{showInlineLoading && <LoaderCircle className="spin" size={15} />}{translate("加载更多结果")}</button>}
           </section>
         ) : null}
       </MotionPresence>
-      <div className={`composer ${editingMessage ? "is-editing" : ""}`}>
+      <div ref={composerRef} className={`composer ${editingMessage ? "is-editing" : ""}`}>
         <button
           className="icon-button"
           type="button"
@@ -1486,6 +1493,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           colorTheme={colorTheme}
           focus={focus}
           onChange={(value, entities) => {
+            closeEmojiPicker();
             if (value === draftRef.current) refreshFormatting(revision => revision + 1);
             mentionEntitiesRef.current = entities;
             draftRef.current = value;
@@ -1521,7 +1529,7 @@ export const ConversationComposer = memo(function ConversationComposer({
               onEditLatestVisible();
               return;
             }
-            if (!event.nativeEvent.isComposing && !composingRef.current && mentionSuggestions.length > 0) {
+            if (!event.nativeEvent.isComposing && !composingRef.current && showMentionPanel) {
               const shortcutKey = event.code.match(/^(?:Digit|Numpad)([1-9])$/)?.[1] ??
                 event.key.match(/^[1-9]$/)?.[0];
               if (event.ctrlKey && !event.shiftKey && !event.metaKey && !event.altKey && shortcutKey) {
@@ -1551,7 +1559,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 return;
               }
             }
-            if (!event.nativeEvent.isComposing && !composingRef.current && botSuggestions.length > 0) {
+            if (!event.nativeEvent.isComposing && !composingRef.current && showBotPanel) {
               if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
                 const direction = event.key === "ArrowDown" ? 1 : -1;

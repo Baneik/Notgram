@@ -243,7 +243,11 @@ test("sticker picker uses deliberate hover intent and closes promptly", async ({
   await expect(picker).toBeVisible({ timeout: 500 });
 
   const pickerBox = await picker.boundingBox();
-  expect(pickerBox?.height).toBeGreaterThanOrEqual(600);
+  const headerBox = await page.locator(".conversation-header").boundingBox();
+  const composerBox = await page.locator(".composer").boundingBox();
+  expect(pickerBox!.height).toBeGreaterThan(400);
+  expect(pickerBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height);
+  expect(pickerBox!.y + pickerBox!.height).toBeLessThanOrEqual(composerBox!.y);
   await trigger.click();
   await expect(picker).toBeVisible();
   await picker.hover();
@@ -259,6 +263,69 @@ test("sticker picker uses deliberate hover intent and closes promptly", async ({
   await page.getByRole("button", { name: "发送消息" }).click();
   await expect(picker).toBeHidden();
   await expect(page.getByText("发送时关闭贴纸面板", { exact: true })).toBeVisible();
+});
+
+test("stacked reply, attachments and choosers fit a narrow offline composer", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  const source = await revealVirtualMessage(page, "p-2");
+  await source.locator(".message-bubble-shell").click({ button: "right" });
+  await chooseMessageMenuItem(page, "回复");
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    telegramStore.setState({ connectionStatus: "waitingForNetwork", outbox: [{
+      id: "panel-layout-queued", chatId: "chat-product", text: "queued before replying",
+      status: "queued", createdAt: new Date().toISOString(),
+    }] });
+  });
+  await expect(page.locator(".composer-outbox-status")).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles(Array.from({ length: 10 }, (_, index) => ({
+    name: `staged-${index}.txt`, mimeType: "text/plain", buffer: Buffer.from(`attachment ${index}`),
+  })));
+  await composer.fill(Array.from({ length: 12 }, () => "long attachment caption").join("\n"));
+  await page.setViewportSize({ width: 390, height: 660 });
+  await expect.poll(() => page.locator(".composer-wrap").evaluate(wrap => {
+    const selectors = [".composer-connection-status", ".composer-outbox-status", ".composer-context", ".composer-attachment-preview", ".composer"];
+    const boxes = selectors.map(selector => wrap.querySelector(selector)!.getBoundingClientRect());
+    const grid = wrap.querySelector<HTMLElement>(".composer-attachment-grid")!;
+    const card = grid.querySelector(".composer-attachment-item")!.getBoundingClientRect();
+    return boxes[0].top >= 0 && boxes.at(-1)!.bottom <= innerHeight + 1 &&
+      boxes.slice(1).every((box, index) => box.top >= boxes[index].bottom - 1) &&
+      grid.scrollHeight > grid.clientHeight && card.height > 80 && wrap.scrollWidth <= wrap.clientWidth;
+  })).toBe(true);
+  await expect(page.getByRole("button", { name: "发送附件", exact: true })).toBeInViewport();
+
+  const panelFits = async (selector: string) => {
+    const panel = page.locator(selector);
+    await expect(panel).toBeVisible();
+    await expect.poll(() => panel.evaluate(element => {
+      const scope = element.closest("[data-composer-scope]")!;
+      const bounds = element.getBoundingClientRect();
+      const header = scope.querySelector(":scope > header")!.getBoundingClientRect();
+      const input = scope.querySelector(".composer")!.getBoundingClientRect();
+      const root = scope.getBoundingClientRect();
+      return bounds.top >= header.bottom && bounds.bottom <= input.top &&
+        bounds.left >= root.left && bounds.right <= root.right;
+    })).toBe(true);
+  };
+  await composer.fill("@mia");
+  await panelFits(".mention-suggestion-panel");
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  await panelFits(".emoji-picker");
+  await expect(page.locator(".mention-suggestion-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭表情面板" }).click();
+  await panelFits(".mention-suggestion-panel");
+  await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "@Mia Chen ");
+  await expect(page.locator(".composer-attachment-item")).toHaveCount(10);
+  await composer.fill("/");
+  await panelFits(".bot-suggestion-panel");
+  await composer.fill("@notgram_bot release");
+  await panelFits(".inline-query-panel");
+  await composer.fill(Array.from({ length: 10 }, () => "caption line").join("\n"));
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  await panelFits(".emoji-picker");
 });
 
 test("message copy supports text and image clipboard payloads", async ({ page }) => {

@@ -68,6 +68,14 @@ Active IME composition owns its keys. Placeholder visibility follows the live
 editor document and is suppressed from composition start, including empty preedit;
 updating that visibility must never replace the composing document.
 
+Composer surfaces follow the same order in ordinary chats and discussions:
+connection/outbox status, reply or edit context, staged attachments, then the editor.
+Editing temporarily hides staged attachments and preserves their draft; attachment
+sending cannot consume the edit text. Choosers anchor above the actual editor height
+and fit below the owning conversation header. Only the foreground chooser handles
+selection keys; opening the emoji picker suspends text suggestions until it closes.
+Constrained attachment grids scroll without shrinking cards or hiding send controls.
+
 `data-composer-scope` marks ordinary conversations and discussion panels. The
 shared pointer handler processes only the nearest scope. A discussion isolates
 the channel header, timeline, and post editor with `inert`; the covered channel

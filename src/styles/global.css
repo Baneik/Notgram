@@ -2216,11 +2216,15 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .media-progress button .media-progress-cancel { position: relative; z-index: 1; }
 .media-progress button:hover { background: color-mix(in srgb, var(--color-on-media) 16%, transparent); }
 .messages-empty { width: fit-content; margin: 42px auto; padding: 5px 10px; color: var(--color-on-media); background: var(--color-message-service); border-radius: 12px; font-size: 11px; }
-.composer-wrap { position: relative; min-width: 0; min-height: 50px; padding: 0; display: grid; align-content: end; background: var(--chat-canvas); }
-.bot-suggestion-panel, .mention-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 12px; bottom: calc(100% - 2px); width: min(460px, calc(100vw - 24px)); max-height: 300px; overflow-y: auto; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
-.bot-suggestion-panel { left: 6px; right: auto; width: max-content; min-width: min(300px, calc(100vw - 24px)); max-width: min(520px, calc(100vw - 24px)); max-height: min(360px, 48vh); border-radius: 6px; scrollbar-width: none; text-align: left; }
+.composer-wrap { position: relative; isolation: isolate; min-width: 0; min-height: 50px; padding: 0; display: flex; flex-direction: column; background: var(--chat-canvas); }
+.composer-wrap > .composer, .composer-wrap > .composer-context, .composer-wrap > .composer-outbox-status, .composer-wrap > .composer-connection-status { flex-shrink: 0; }
+/* Reserve conversation space while the attachment grid absorbs height constraints. */
+.composer-wrap.has-attachments { max-height: calc(var(--composer-available-height, 80vh) * .8); }
+.composer-wrap.has-attachments .composer-input { max-height: min(290px, calc(var(--composer-available-height, 80vh) * .22)); }
+.bot-suggestion-panel, .mention-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 6px; bottom: calc(var(--composer-input-height, 50px) + 6px); width: min(460px, calc(100% - 12px)); max-height: min(300px, var(--composer-panel-height, 48vh)); overflow-y: auto; overscroll-behavior: contain; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
+.bot-suggestion-panel { left: 6px; right: auto; width: max-content; min-width: min(300px, calc(100% - 12px)); max-width: min(520px, calc(100% - 12px)); max-height: min(360px, var(--composer-panel-height, 48vh)); border-radius: 6px; scrollbar-width: none; text-align: left; }
 .bot-suggestion-panel::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.mention-suggestion-panel { left: 6px; right: auto; width: max-content; max-width: min(360px, calc(100% - 12px), calc(100vw - 24px)); max-height: min(360px, 48vh); border-radius: 6px; }
+.mention-suggestion-panel { left: 6px; right: auto; width: max-content; max-width: min(360px, calc(100% - 12px)); max-height: min(360px, var(--composer-panel-height, 48vh)); border-radius: 6px; }
 .bot-suggestion-panel button, .mention-suggestion-panel button, .inline-query-result, .inline-query-more { min-width: 0; padding: 9px 11px; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; font: inherit; }
 .bot-suggestion-panel button { min-height: 44px; padding: 6px 10px; grid-template-columns: 22px minmax(0, 1fr); align-content: center; gap: 7px; }
 .bot-suggestion-panel button > .avatar { width: 22px; height: 22px; flex: 0 0 22px; font-size: 9px; }
@@ -2253,9 +2257,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .inline-query-loading { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .inline-query-more { display: block; color: var(--accent); text-align: center; font-size: 11px; }
 .composer-connection-status {
-  position: absolute; bottom: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%);
-  width: max-content; max-width: calc(100% - 24px); min-height: 28px; padding: 5px 12px; border-radius: 6px;
-  pointer-events: none; background: var(--color-bg-surface-hover); box-shadow: 0 1px 5px var(--color-shadow);
+  width: 100%; min-height: 28px; padding: 5px 12px;
+  background: var(--color-bg-surface-hover); box-shadow: inset 0 1px var(--line);
 }
 .composer-connection-status > span { white-space: normal; }
 .composer-outbox-status {
@@ -2263,15 +2266,14 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   color: var(--color-status-warning); background: color-mix(in srgb, var(--color-status-warning) 10%, var(--color-bg-surface)); box-shadow: inset 0 1px color-mix(in srgb, var(--color-status-warning) 24%, var(--color-bg-surface)); font-size: 12px; font-weight: 600;
 }
 .composer-attachment-preview {
-  position: relative; z-index: 4; width: 100%; margin: 0; padding: 10px clamp(10px, 2vw, 18px); display: grid; gap: 9px;
+  position: relative; min-height: 0; width: 100%; margin: 0; padding: 10px clamp(10px, 2vw, 18px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 9px;
   background: var(--color-bg-surface); border-block: 1px solid var(--line);
-  box-shadow: 0 -10px 24px color-mix(in srgb, var(--color-shadow) 72%, transparent);
   animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-enter) both;
 }
 .composer-attachment-header { min-height: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .composer-attachment-header strong { color: var(--ink); font-size: 11px; font-weight: 680; }
 .composer-attachment-grid {
-  max-height: 300px; display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; overflow-y: auto;
+  min-height: 0; max-height: 300px; display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain;
 }
 .composer-attachment-grid[data-count="1"] { grid-template-columns: minmax(0, 180px); }
 .composer-attachment-grid[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 180px)); }
@@ -2381,7 +2383,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
   grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: end; gap: 1px; background: var(--color-bg-surface);
   border-radius: 0; box-shadow: inset 0 1px var(--line);
 }
-.composer-context + .composer { border-radius: 0; box-shadow: inset 0 1px var(--color-border-subtle); }
+.composer-context ~ .composer, .composer-attachment-preview ~ .composer { box-shadow: inset 0 1px var(--color-border-subtle); }
+.composer-context + .composer-attachment-preview { border-top-color: var(--color-border-subtle); }
 .composer-input-container { min-width: 0; }
 .composer-input {
   width: 100%; min-height: 40px; max-height: 290px; padding: 9px 8px 7px; overflow-y: auto;
@@ -2415,8 +2418,8 @@ body.video-window-page #root { width: 100%; height: 100%; margin: 0; overflow: h
 .send-button:hover:not(:disabled) { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 82%, white); }
 .send-button:hover:not(:disabled)::before { opacity: 0.14; }
 .emoji-picker {
-  position: absolute; right: 6px; bottom: 56px; z-index: 92;
-  width: min(430px, calc(100vw - 84px)); height: min(610px, calc(100vh - 88px)); min-height: 360px;
+  position: absolute; right: 6px; bottom: calc(var(--composer-input-height, 50px) + 6px); z-index: 8;
+  width: min(430px, calc(100% - 12px)); height: min(610px, var(--composer-panel-height, calc(100vh - 88px))); min-height: 0;
   display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
   color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: 10px;
   box-shadow: 0 16px 44px var(--color-shadow);
@@ -3584,7 +3587,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .account-switcher-inline { position: absolute; z-index: 30; bottom: calc(100% + 4px); left: 0; width: 100%; max-height: min(360px, calc(100vh - 88px)); }
   .rail-actions { flex: 1; margin: 0; display: flex; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; }
   .rail-footer { margin: 0 0 0 4px; padding: 0; border-top: 0; border-left: 1px solid var(--line); }
-  .emoji-picker { left: 6px; right: 6px; width: auto; height: min(560px, calc(100vh - 150px)); }
+  .emoji-picker { left: 6px; right: 6px; width: auto; }
   .sticker-set-backdrop { padding: 8px; }
   .sticker-set-dialog { width: calc(100vw - 16px); height: min(520px, calc(100vh - 16px)); min-height: 340px; }
   .sticker-set-body { grid-template-columns: minmax(0, 1.08fr) minmax(132px, 0.92fr); }

@@ -155,6 +155,9 @@ test("replying can send media, files, and stickers with the reply target", async
   });
   const attachmentPreview = page.getByRole("region", { name: "待发送附件" });
   await expect(attachmentPreview.getByText("reply-photo.png", { exact: true })).toBeVisible();
+  const replyBounds = await page.locator(".composer-context.is-replying").boundingBox();
+  const attachmentBounds = await attachmentPreview.boundingBox();
+  expect(replyBounds!.y + replyBounds!.height).toBeLessThanOrEqual(attachmentBounds!.y + 1);
   await composer.press("Enter");
   const sentPhoto = page.locator(".message-row.is-outgoing", {
     has: page.locator('[data-media-type="photo"]'),
@@ -196,6 +199,35 @@ test("replying can send media, files, and stickers with the reply target", async
     ) ?? false;
   }, "/src/store/telegramStore.ts")).toBe(true);
   await expect(page.locator(".composer-context.is-replying")).toHaveCount(0);
+});
+
+test("editing suspends staged attachments and restores their original caption", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("message before staging");
+  await composer.press("Enter");
+  const sent = page.locator(".message-row.is-outgoing").filter({ hasText: "message before staging" });
+  await expect(sent).toBeVisible();
+  const messageId = await sent.getAttribute("data-message-id");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "preserved.txt", mimeType: "text/plain", buffer: Buffer.from("staged document"),
+  });
+  await composer.fill("original attachment caption");
+  for (const save of [false, true]) {
+    await page.locator(`[data-message-id="${messageId}"] .message-bubble-shell`).click({ button: "right" });
+    await chooseMessageMenuItem(page, "编辑");
+    await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+    await expect(page.locator(".composer-attachment-preview")).toHaveCount(0);
+    await composer.fill("edited message");
+    await page.getByRole("button", { name: save ? "保存编辑" : "取消编辑", exact: true }).click();
+    await expect(page.locator(".composer-attachment-preview")).toBeVisible();
+    await expect(composer).toHaveJSProperty("value", "original attachment caption");
+  }
+  await expect(page.locator(`[data-message-id="${messageId}"] .message-rich-text`)).toHaveText("edited message");
+  await composer.press("Enter");
+  await expect(page.locator(".composer-attachment-preview")).toHaveCount(0);
+  const file = page.locator(".message-row.is-outgoing").filter({ has: page.locator(".file-message", { hasText: "preserved.txt" }) });
+  await expect(file).toContainText("original attachment caption");
 });
 
 test("attachment entry points share classification, previews, spoilers, and local drafts", async ({ page }) => {
