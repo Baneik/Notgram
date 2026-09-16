@@ -290,6 +290,7 @@ export interface TelegramState {
   processChatJoinRequest: (chatId: string, userId: string, approve: boolean) => Promise<boolean>;
   processChatJoinRequests: (chatId: string, inviteLink: string | undefined, approve: boolean) => Promise<boolean>;
   getBotCommandSuggestions: (chatId: string, query?: string, botUsername?: string) => Promise<BotCommandSuggestion[]>;
+  getChatMentionSuggestions: (chatId: string, query: string, recentUserIds: readonly string[]) => Promise<User[]>;
   getCallbackQueryAnswer: (messageId: string, data: string, chatId?: string) => Promise<CallbackQueryAnswer | undefined>;
   getInlineQueryResults: (chatId: string, botUsername: string, query: string, offset?: string) => Promise<InlineQueryResultPage | undefined>;
   sendInlineQueryResultMessage: (chatId: string, botUserId: string, queryId: string, resultId: string, replyToMessageId?: string, topicId?: string) => Promise<boolean>;

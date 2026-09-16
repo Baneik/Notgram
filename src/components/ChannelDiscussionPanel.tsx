@@ -78,7 +78,6 @@ interface ChannelDiscussionPanelProps {
   channel: Chat;
   comments: Message[];
   users: ReadonlyMap<string, User>;
-  mentionUsers?: readonly User[];
   knownNonBotUsernames?: ReadonlySet<string>;
   forwardTargets: Chat[];
   forumTopics: Map<string, ForumTopic[]>;
@@ -187,7 +186,6 @@ export function ChannelDiscussionPanel({
   channel,
   comments,
   users,
-  mentionUsers = [],
   knownNonBotUsernames = new Set(),
   forwardTargets,
   forumTopics,
@@ -718,7 +716,6 @@ export function ChannelDiscussionPanel({
             textInsertion={textInsertion}
             knownNonBotUsernames={knownNonBotUsernames}
             mentionsEnabled
-            mentionUsers={mentionUsers}
             recentMentionUserIds={recentMentionUserIds}
             onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
             inputRef={inputRef}

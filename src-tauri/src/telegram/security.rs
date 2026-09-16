@@ -107,6 +107,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "resendMessages",
     "searchChatMessages",
     "searchChatMembers",
+    "getChatMember",
     "searchChatsOnServer",
     "searchMessages",
     "searchPublicChat",
@@ -2355,6 +2356,7 @@ mod tests {
             "getSupergroupFullInfo",
             "getSupergroupMembers",
             "searchChatMembers",
+            "getChatMember",
             "getContacts",
             "getSecretChat",
         ] {

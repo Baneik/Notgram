@@ -849,6 +849,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.profileService.getChatAdministratorLabels(chatId);
   }
 
+  async getChatMentionSuggestions(chatId: string, query: string, recentUserIds: readonly string[]): Promise<User[]> {
+    return this.profileService.getChatMentionSuggestions(chatId, query, recentUserIds);
+  }
+
   async getUserProfile(userId: string): Promise<ChatProfile> {
     return this.profileService.getUserProfile(userId);
   }

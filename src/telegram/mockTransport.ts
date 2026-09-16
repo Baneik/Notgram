@@ -1,4 +1,5 @@
 import { mockChatReport } from "./mockChatReport";
+import { mentionSuggestionsFor } from "../utils/mentionSuggestions";
 import { telegramInviteLink } from "./telegramLinks";
 import type { JoinChatInput, JoinChatResult } from "./types";
 import { groupOutgoingAttachments, outgoingAlbumCaptionIndex } from "../media/outgoingAttachments";
@@ -1023,6 +1024,14 @@ export class MockTelegramTransport implements TelegramTransport {
       offset: start + members.length,
       hasMore: start + members.length < profile.members.length,
     };
+  }
+
+  async getChatMentionSuggestions(chatId: string, query: string, recentUserIds: readonly string[]): Promise<User[]> {
+    const management = this.chatManagement.get(chatId);
+    const users = management
+      ? management.members.filter((member) => member.status !== "left" && member.status !== "banned").map((member) => member.user)
+      : (await this.getChatProfile(chatId)).members.map((member) => member.user);
+    return clone(mentionSuggestionsFor(users, query, recentUserIds));
   }
 
   async getContacts(): Promise<User[]> {

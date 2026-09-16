@@ -600,6 +600,108 @@ test("private chats show incoming typing state", async ({ page }) => {
   )).toBeLessThanOrEqual(0.5);
 });
 
+test("mention search excludes cached outsiders and stale recent mentions", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByLabel("消息内容")).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const mia = state.users.get("u-mia")!;
+    const outsider = { ...mia, id: "outside", displayName: "Mia Outsider", username: "mia_outside" };
+    const users = new Map(state.users).set(outsider.id, outsider);
+    const messages = new Map(state.messages);
+    const history = messages.get("chat-product")!;
+    messages.set("chat-product", [...history, {
+      ...history.at(-1)!, id: "recent-outsider", outgoing: true,
+      content: { kind: "text", text: "outside mia", entities: [
+        { kind: "mentionName", offset: 0, length: 7, userId: "outside" },
+        { kind: "mentionName", offset: 8, length: 3, userId: "u-mia" },
+      ] },
+    }]);
+    telegramStore.setState({ users, messages });
+  });
+  const composer = page.getByLabel("消息内容");
+  const mentions = page.getByRole("listbox", { name: "提及成员" });
+  await composer.fill("@mia");
+  await expect(mentions.getByRole("option")).toHaveCount(1);
+  await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+  await composer.fill("@");
+  await expect(mentions.getByRole("option")).toHaveCount(1);
+  await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+  await composer.press("Control+1");
+  await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+});
+
+test("mention search ignores late queries and clears suggestions on failure", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByLabel("消息内容")).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const users = telegramStore.getState().users;
+    telegramStore.setState({ getChatMentionSuggestions: async (_chatId, query) => {
+      document.body.dataset.mentionRequested = query;
+      if (query === "mia") {
+        delete document.body.dataset.mentionCompleted;
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        document.body.dataset.mentionCompleted = query;
+        return [users.get("u-mia")!];
+      }
+      if (query === "fail") throw new Error("Unavailable");
+      return [users.get("u-chen")!];
+    } });
+  });
+  const composer = page.getByLabel("消息内容");
+  const mentions = page.getByRole("listbox", { name: "提及成员" });
+  await composer.fill("@mia");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-requested", "mia");
+  await composer.fill("@陈");
+  await expect(mentions.locator('[data-mention-user-id="u-chen"]')).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute("data-mention-completed", "mia");
+  await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toHaveCount(0);
+  await composer.fill("@fail");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-requested", "fail");
+  await expect(mentions).toHaveCount(0);
+  await composer.fill("@mia");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-requested", "mia");
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-completed", "mia");
+  await expect(mentions).toHaveCount(0);
+});
+
+test("discussion mention search uses the linked conversation", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-release", messages.get("chat-release")!.map((message) => message.id === "release-post-1"
+      ? { ...message, discussionThread: { chatId: "chat-product", messageId: "discussion-root" } }
+      : message));
+    telegramStore.setState({ messages, loadMessageThreadHistory: async () => undefined });
+  });
+  await page.locator('[data-message-id="release-post-1"]').getByRole("button", { name: "2 条评论" }).click();
+  const panel = page.locator(".channel-discussion-panel");
+  const composer = panel.getByLabel("消息内容");
+  await expect(composer).toBeVisible();
+  const discussionChatId = await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const original = state.getChatMentionSuggestions;
+    telegramStore.setState({ getChatMentionSuggestions: async (chatId, query, recent) => {
+      document.body.dataset.mentionChatId = chatId;
+      return original(chatId, query, recent);
+    } });
+    return state.messages.get("chat-release")!.find((message) => message.id === "release-post-1")!.discussionThread!.chatId;
+  });
+  await composer.fill("@mia");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-chat-id", discussionChatId);
+  expect(discussionChatId).not.toBe("chat-release");
+  await expect(panel.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+});
+
 test("suggests group members for @ mentions without invoking inline bots", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByLabel("消息内容");
@@ -623,9 +725,11 @@ test("suggests group members for @ mentions without invoking inline bots", async
   await expect(composer).toHaveJSProperty("value", "");
 
   await composer.fill("@陈");
+  await expect(mentions.locator('[data-mention-user-id="u-chen"]')).toBeVisible();
   await composer.press("Control+1");
   await composer.press("Enter");
   await composer.fill("@mia");
+  await expect(mentions.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
   await composer.press("Control+1");
   await composer.press("Enter");
 

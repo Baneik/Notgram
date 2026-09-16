@@ -51,7 +51,6 @@ import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, Inline
 import { TELEGRAM_ALBUM_MAX_ITEMS } from "../telegram/types";
 import type { PhotoMessage } from "../utils/mediaViewerModel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
-import { mentionSuggestionsFor } from "../utils/mentionSuggestions";
 import {
   composerInlineQueryForDraft,
   composerMentionQueryForDraft,
@@ -88,7 +87,6 @@ interface ConversationComposerProps {
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
   mentionsEnabled?: boolean;
-  mentionUsers?: readonly User[];
   recentMentionUserIds?: readonly string[];
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
@@ -176,7 +174,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   textInsertion,
   knownNonBotUsernames,
   mentionsEnabled = false,
-  mentionUsers = [],
   recentMentionUserIds = [],
   onTextInsertionApplied,
   onGeometryChange,
@@ -203,6 +200,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const focusComposer = focus.request;
   useTranslation();
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
+  const getChatMentionSuggestions = useTelegramStore((state) => state.getChatMentionSuggestions);
+  const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(draftKey));
   const loadLocalAttachmentDraft = useTelegramStore((state) => state.loadLocalAttachmentDraft);
   const saveLocalAttachmentDraft = useTelegramStore((state) => state.saveLocalAttachmentDraft);
@@ -426,18 +425,22 @@ export const ConversationComposer = memo(function ConversationComposer({
         inputRef.current?.selectionStart ?? draft.length,
       )
       : undefined;
-    if (!mentionQuery) {
-      setMentionSuggestions([]);
-      setActiveMentionSuggestionIndex(0);
-      return;
-    }
-    setMentionSuggestions(mentionSuggestionsFor(
-      mentionUsers,
-      mentionQuery.query,
-      recentMentionUserIds,
-    ));
+    setMentionSuggestions([]);
     setActiveMentionSuggestionIndex(0);
-  }, [draft, editingMessage, inputRef, mentionUsers, mentionsEnabled, recentMentionUserIds]);
+    if (!mentionQuery) return;
+    let cancelled = false;
+    const timer = globalThis.setTimeout(() => {
+      void getChatMentionSuggestions(chatId, mentionQuery.query, recentMentionUserIds).then((suggestions) => {
+        if (!cancelled) setMentionSuggestions(suggestions);
+      }).catch(() => {
+        if (!cancelled) setMentionSuggestions([]);
+      });
+    }, 100);
+    return () => {
+      cancelled = true;
+      globalThis.clearTimeout(timer);
+    };
+  }, [activeAccountId, chatId, draft, editingMessage, getChatMentionSuggestions, inputRef, mentionsEnabled, recentMentionUserIds]);
 
   useEffect(() => {
     const generation = ++inlineQueryGenerationRef.current;

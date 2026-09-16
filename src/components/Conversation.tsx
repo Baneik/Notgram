@@ -546,11 +546,6 @@ export function Conversation({
     }
     return usernames;
   }, [users]);
-  const mentionableUsers = useMemo(
-    () => [...users.values()].filter((user) => user.isBot !== true),
-    [users],
-  );
-  const mentionUsers = chat?.kind === "group" ? mentionableUsers : [];
   const recentMentionUserIds = useMemo(
     () => recentMentionUserIdsFor(messages),
     [messages],
@@ -2987,7 +2982,6 @@ export function Conversation({
           channel={chat}
           comments={channelDiscussionComments}
           users={users}
-          mentionUsers={mentionableUsers}
           knownNonBotUsernames={knownNonBotUsernames}
           forwardTargets={forwardTargets}
           forumTopics={forumTopics}
@@ -3194,7 +3188,6 @@ export function Conversation({
         textInsertion={composerTextInsertion}
         knownNonBotUsernames={knownNonBotUsernames}
         mentionsEnabled={chat.kind === "group"}
-        mentionUsers={mentionUsers}
         recentMentionUserIds={recentMentionUserIds}
         onTextInsertionApplied={consumeComposerTextInsertion}
         onGeometryChange={reconcileBottomViewport}

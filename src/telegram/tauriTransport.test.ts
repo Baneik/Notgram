@@ -80,6 +80,71 @@ const rawFolderInfo = (id: number, title: string): TdObject => ({
   is_shareable: false,
 });
 
+describe("chat mention membership", () => {
+  const member = (id: number, kind = "chatMemberStatusMember", isMember = true): TdObject => ({
+    member_id: { "@type": "messageSenderUser", user_id: id },
+    status: { "@type": kind, is_member: isMember },
+  });
+  const user = (id: number, bot = false): TdObject => ({
+    "@type": "user", id, first_name: `Member ${id}`, last_name: "",
+    type: { "@type": bot ? "userTypeBot" : "userTypeRegular" },
+  });
+
+  it("queries the target chat and resolves only current human members", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.upsertUser(user(99));
+    internal.request = vi.fn(async (request) => {
+      if (request["@type"] === "searchChatMembers") return { members: [
+        member(11), member(12, "chatMemberStatusRestricted"),
+        member(13, "chatMemberStatusLeft"), member(14, "chatMemberStatusBanned"),
+        member(15, "chatMemberStatusRestricted", false), member(16, "chatMemberStatusCreator", false),
+        member(17), member(18),
+        { member_id: { "@type": "messageSenderChat", chat_id: -1 }, status: { "@type": "chatMemberStatusMember" } },
+      ] };
+      if (request["@type"] === "getUser") {
+        if (request.user_id === 18) throw new Error("User not found (400)");
+        return user(Number(request.user_id), request.user_id === 17);
+      }
+      throw new Error("Unexpected request");
+    });
+    expect((await transport.getChatMentionSuggestions("-1007", "Member", [])).map((value) => value.id)).toEqual(["11", "12"]);
+    expect(internal.request).toHaveBeenCalledWith({
+      "@type": "searchChatMembers", chat_id: -1007, query: "Member", limit: 200,
+      filter: { "@type": "chatMembersFilterMembers" },
+    });
+    expect(internal.request).not.toHaveBeenCalledWith({ "@type": "getUser", user_id: 99 });
+  });
+
+  it("revalidates recent mentions, skips departed users and preserves ranking", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.request = vi.fn(async (request) => {
+      if (request["@type"] === "getChatMember") {
+        const id = Number((request.member_id as TdObject).user_id);
+        if (id === 12) throw new Error("User not found (400)");
+        return member(id, id === 11 ? "chatMemberStatusLeft" : "chatMemberStatusMember");
+      }
+      return user(Number(request.user_id));
+    });
+    expect((await transport.getChatMentionSuggestions("-1008", "", ["11", "12", "14", "13", "14", "15", "16", "17", "18"]))
+      .map((value) => value.id)).toEqual(["14", "13", "15", "16", "17"]);
+    expect(internal.request).toHaveBeenCalledWith({
+      "@type": "getChatMember", chat_id: -1008,
+      member_id: { "@type": "messageSenderUser", user_id: 14 },
+    });
+  });
+
+  it("does not fall back to cached users when member search fails", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.upsertUser(user(99));
+    internal.request = async () => { throw new Error("Member search unavailable"); };
+    await expect(transport.getChatMentionSuggestions("-1007", "Member", [])).rejects.toThrow("Member search unavailable");
+    await expect(transport.getChatMentionSuggestions("-1007", "", ["99"])).resolves.toEqual([]);
+  });
+});
+
 const rawFolder = (title: string): TdObject => ({
   "@type": "chatFolder",
   name: rawFolderInfo(12, title).name,

@@ -1,4 +1,5 @@
 import { currentLanguage, translate } from "../i18n";
+import { MAX_MENTION_SUGGESTIONS, mentionSuggestionsFor } from "../utils/mentionSuggestions";
 import {
   asTdObject,
   asTdObjects,
@@ -244,6 +245,51 @@ export class TauriProfileService {
       offset: pageOffset + values.length,
       hasMore: values.length === pageLimit,
     };
+  }
+
+  async getChatMentionSuggestions(chatId: string, query: string, recentUserIds: readonly string[]): Promise<User[]> {
+    const loadMember = async (member: TdObject): Promise<User | undefined> => {
+      const sender = asTdObject(member.member_id);
+      const status = asTdObject(member.status);
+      const kind = status?.["@type"];
+      const isMember = kind === "chatMemberStatusMember" || kind === "chatMemberStatusAdministrator" ||
+        ((kind === "chatMemberStatusCreator" || kind === "chatMemberStatusRestricted") && status?.is_member === true);
+      if (!isMember || sender?.["@type"] !== "messageSenderUser") return undefined;
+      const userId = tdId(sender.user_id);
+      const user = userId ? await this.loadUser(userId).catch(() => undefined) : undefined;
+      return user?.isBot === true ? undefined : user;
+    };
+    const normalizedQuery = query.trim();
+    if (normalizedQuery) {
+      const result = await this.context.request({
+        "@type": "searchChatMembers",
+        chat_id: numericId(chatId),
+        query: normalizedQuery,
+        limit: 200,
+        filter: { "@type": "chatMembersFilterMembers" },
+      });
+      const users = await Promise.all(asTdObjects(result.members).map(loadMember));
+      return mentionSuggestionsFor(users.filter((user): user is User => Boolean(user)), normalizedQuery, []);
+    }
+
+    // History is only a ranking signal, never proof of current membership.
+    // Validate in small batches and stop once the panel is full.
+    const recentIds = [...new Set(recentUserIds)];
+    const users: User[] = [];
+    for (let offset = 0; offset < recentIds.length && users.length < MAX_MENTION_SUGGESTIONS; offset += MAX_MENTION_SUGGESTIONS) {
+      const batch = await Promise.all(recentIds.slice(offset, offset + MAX_MENTION_SUGGESTIONS).map(async (userId) => {
+        try {
+          const member = await this.context.request({
+            "@type": "getChatMember",
+            chat_id: numericId(chatId),
+            member_id: { "@type": "messageSenderUser", user_id: numericId(userId) },
+          });
+          return await loadMember(member);
+        } catch { return undefined; }
+      }));
+      users.push(...batch.filter((user): user is User => Boolean(user)));
+    }
+    return mentionSuggestionsFor(users, "", recentIds);
   }
 
   async getChatAdministratorLabels(chatId: string): Promise<Record<string, string>> {

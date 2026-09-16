@@ -49,6 +49,46 @@ afterEach(() => {
 });
 
 describe("telegram store", () => {
+  it("limits mention search and recent mentions to current members in the mock transport", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const chat = await transport.createChat({
+      kind: "basicGroup", title: "Mention scope", memberUserIds: ["u-mia"],
+    });
+    expect((await store.getState().getChatMentionSuggestions(chat.id, "mia", [])).map((user) => user.id)).toEqual(["u-mia"]);
+    expect(await store.getState().getChatMentionSuggestions(chat.id, "陈", [])).toEqual([]);
+    expect((await store.getState().getChatMentionSuggestions(chat.id, "", ["u-chen", "u-mia"])).map((user) => user.id)).toEqual(["u-mia"]);
+    await transport.setChatMemberStatus({ chatId: chat.id, userId: "u-mia", status: { kind: "banned" } });
+    expect(await store.getState().getChatMentionSuggestions(chat.id, "mia", [])).toEqual([]);
+    expect(await store.getState().getChatMentionSuggestions(chat.id, "", ["u-mia"])).toEqual([]);
+  });
+
+  it("discards mention suggestions from the previous account", async () => {
+    let release!: (users: User[]) => void;
+    class DeferredMentionTransport extends MockTelegramTransport {
+      override getChatMentionSuggestions() {
+        return new Promise<User[]>((resolve) => { release = resolve; });
+      }
+    }
+    const store = createTelegramStore(new DeferredMentionTransport());
+    await store.getState().initialize();
+    const suggestions = store.getState().getChatMentionSuggestions("chat-product", "mia", []);
+    await store.getState().switchAccount("account-secondary");
+    release(mockSnapshot.users);
+    await expect(suggestions).resolves.toEqual([]);
+  });
+
+  it("keeps member search failures empty without replacing operation errors", async () => {
+    class FailingMentionTransport extends MockTelegramTransport {
+      override async getChatMentionSuggestions(): Promise<User[]> { throw new Error("Unavailable"); }
+    }
+    const store = createTelegramStore(new FailingMentionTransport());
+    store.setState({ operationError: "existing error" });
+    await expect(store.getState().getChatMentionSuggestions("chat-product", "mia", [])).resolves.toEqual([]);
+    expect(store.getState().operationError).toBe("existing error");
+  });
+
   it("routes storage inventory operations through the transport boundary", async () => {
     class StorageTransport extends MockTelegramTransport {
       inventoryCalls = 0;

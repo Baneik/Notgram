@@ -3910,6 +3910,15 @@ export const createTelegramStore = (
         catch (error) { set({ operationError: errorMessage(error, translate("无法批量处理入群申请")) }); return false; }
       },
 
+      getChatMentionSuggestions: async (chatId, query, recentUserIds) => {
+        const generation = accountGeneration;
+        if (accountTransition) return [];
+        try {
+          const users = await transport.getChatMentionSuggestions(chatId, query, recentUserIds);
+          return generation === accountGeneration && !accountTransition ? users : [];
+        } catch { return []; }
+      },
+
       getBotCommandSuggestions: async (chatId, query = "", botUsername) => {
         try { return await transport.getBotCommandSuggestions(chatId, query, botUsername); }
         catch { return []; }
