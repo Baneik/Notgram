@@ -100,7 +100,7 @@ function MentionLink({
     onOpenMention(targetUsername, targetUserId);
   };
   return (
-    <a href={href} className={isAdministrator ? "is-administrator" : undefined} onClick={openMention}>
+    <a href={href} className={`message-mention${isAdministrator ? " is-administrator" : ""}`} onClick={openMention}>
       {displayName || children}
     </a>
   );

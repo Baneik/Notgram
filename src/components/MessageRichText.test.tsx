@@ -16,11 +16,11 @@ describe("MessageRichText Telegram links", () => {
     });
     const quote = retainedMessageQuote({ kind: "text", text: "什么🤔" }, "Lucy", undefined, "12345");
     const html = renderToStaticMarkup(<MessageRichText {...quote} chatId="source-chat" />);
-    expect(html).toContain('href="tg://user?id=12345" class="is-administrator">Lucy</a>\n什么🤔');
+    expect(html).toContain('href="tg://user?id=12345" class="message-mention is-administrator">Lucy</a>\n什么🤔');
     for (const chatId of ["other-chat", undefined]) {
       const otherHtml = renderToStaticMarkup(<MessageRichText {...quote} chatId={chatId} />);
       expect(otherHtml).not.toContain("is-administrator");
-      expect(otherHtml).toContain('href="tg://user?id=12345">Lucy</a>\n什么🤔');
+      expect(otherHtml).toContain('href="tg://user?id=12345" class="message-mention">Lucy</a>\n什么🤔');
     }
   });
 
@@ -29,7 +29,7 @@ describe("MessageRichText Telegram links", () => {
       { kind: "blockquote", offset: 0, length: `${author}\n什么🤔`.length },
       { kind: "mentionName", offset: 0, length: author.length, userId: "12345" },
     ]} />);
-    expect(html).toContain('href="tg://user?id=12345">lucy</a>');
+    expect(html).toContain('href="tg://user?id=12345" class="message-mention">lucy</a>');
     expect(html).toContain("什么🤔</span></span>。");
   });
 

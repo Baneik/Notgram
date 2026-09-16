@@ -1,7 +1,8 @@
 import { Editor, Extension, Mark, Node as EditorNode } from "@tiptap/core";
 import { history, redo, undo } from "@tiptap/pm/history";
 import { keymap } from "@tiptap/pm/keymap";
-import { TextSelection } from "@tiptap/pm/state";
+import { Plugin, TextSelection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { MessageTextEntity } from "../telegram/types";
 import type { ComposerFocus } from "../hooks/useComposerFocus";
@@ -32,6 +33,18 @@ const extensions = [
     parseHTML: () => [{ tag: `[data-composer-entity="${kind}"]` }],
     renderHTML: () => [tags[kind] ?? "span", { "data-composer-entity": kind }, 0],
   })),
+  Extension.create({ name: "composerMentionPresentation", addProseMirrorPlugins: () => [
+    new Plugin({ props: {
+      decorations: state => {
+        const { text, entities } = composerFormattedText(state.doc.toJSON());
+        // Hide only the presentation prefix; keep Telegram and editor offsets intact.
+        return DecorationSet.create(state.doc, entities
+          .filter(entity => (entity.kind === "mention" || entity.kind === "mentionName") &&
+            entity.length > 1 && text[entity.offset] === "@")
+          .map(entity => Decoration.inline(entity.offset + 1, entity.offset + 2, { class: "composer-mention-prefix" })));
+      },
+    } }),
+  ] }),
   Extension.create({ name: "composerHistory", addProseMirrorPlugins: () => [
     history(), keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
   ] }),

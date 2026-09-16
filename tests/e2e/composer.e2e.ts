@@ -499,6 +499,24 @@ test("nickname mentions keep their stable profile click after sending", async ({
   await expect(page.getByRole("dialog", { name: "资料" })).toBeVisible();
 });
 
+test("mentions use the same bold presentation in the composer and sent message", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("@mia_design");
+  await expect(page.getByRole("listbox", { name: "提及成员" }).locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+  await composer.press("Control+1");
+  await expect(composer).toHaveJSProperty("value", "@Mia Chen ");
+  const composerMention = composer.locator('[data-composer-entity="mentionName"]');
+  await expect(composerMention).toHaveCSS("font-weight", "700");
+  await expect(composerMention.locator(".composer-mention-prefix")).toHaveCount(1);
+  await expect(composerMention.locator(".composer-mention-prefix")).toHaveCSS("display", "none");
+
+  await page.getByRole("button", { name: "发送消息" }).click();
+  const sentMention = page.locator(".message-row.is-outgoing .message-rich-text a.message-mention").last();
+  await expect(sentMention).toHaveText("Mia Chen");
+  await expect(sentMention).toHaveCSS("font-weight", "700");
+});
+
 test("IME composition defers draft persistence and layout work until commit", async ({ page }) => {
   await page.goto("/");
   const composer = page.locator(".composer .composer-input");
