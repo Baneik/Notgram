@@ -22,6 +22,15 @@ presentation animations. They remain under their existing single-owner coordinat
 may use the bounded visual handoff above, but that layer cannot delay, select, measure, or write the
 destination.
 
+Collapsing a long quote is a local layout change. Commit the collapsed content and
+anchor its expand chevron to the pointer before the next paint (keyboard activation
+uses the former collapse button's center). Reuse the content-anchor coordinator for
+virtual-list measurements, with one owner across row resizes and layout commits.
+Do not run message navigation, center the virtual block, add jump history, or animate
+the entire list. Convert screen-space offsets to scroll coordinates at interface zoom;
+at a scroll boundary keep the closest reachable position without repeated clamped writes.
+User scrolling and newer navigation cancel the bounded anchor settlement.
+
 ## Shared tokens
 
 CSS tokens live at the top of `src/styles/global.css`; WAAPI and React fallback values live in

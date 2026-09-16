@@ -9,6 +9,7 @@ import {
   type UIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
@@ -23,7 +24,6 @@ import {
 import {
   conversationJumpMotion,
   conversationJumpAcceleration,
-  type ConversationJumpDirection,
 } from "../utils/conversationJumpMotion";
 import {
   conversationJumpTiming,
@@ -143,10 +143,7 @@ interface JumpToLatestOptions {
 }
 
 interface RevealTargetOptions {
-  direction?: ConversationJumpDirection;
-  forceTransition?: boolean;
   onSettled?: () => void;
-  prepareTarget?: () => void;
   resolveTargetOffset?: (target: HTMLElement, list: HTMLElement) => number | undefined;
 }
 
@@ -821,28 +818,6 @@ export const useConversationScroll = ({
     return true;
   }, [currentScrollKey, pinToBottom, searchActive]);
 
-  const onListLayoutCommitted = useCallback(() => {
-    conversationTraceFor(messageListRef.current)?.record(traceKind.commitAfter);
-    if (removalRef.current) { removalRef.current.refresh(); return; }
-    const request = bottomPinRequestRef.current;
-    const control = scrollControlRef.current;
-    if (!request) {
-      const element = messageListRef.current;
-      // A late virtual range commit can change the endpoint after settlement.
-      // Reconcile committed geometry before paint, without waiting for the
-      // subsequent scroll/resize notification to start another transaction.
-      if (element && (control.mode === "following" ||
-        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")) &&
-        distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) scheduleBottomPin(undefined, "track");
-      return;
-    }
-    if (request.mode === "settle" ||
-      request.identity !== control.identity || request.generation !== control.generation) return;
-    // Virtuoso can commit newly measured rows after this frame's pin. Finish
-    // that active tracking pass before paint, preserving its existing deadline.
-    scheduleBottomPin(undefined, request.mode);
-  }, [scheduleBottomPin]);
-
   const settleBottomPosition = useCallback((
     identity: string,
     expectedVirtuosoKey: string,
@@ -1206,7 +1181,12 @@ export const useConversationScroll = ({
       const correction = actualOffset - expectedOffset;
       if (Math.abs(correction) > 0.5) {
         markControlledCorrection();
-        writeConversationScrollTop(element, element.scrollTop + correction, scrollWriter.anchor);
+        // DOM rects include interface zoom; scrollTop uses unscaled CSS pixels.
+        const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+        const nextTop = Math.max(0, Math.min(bottomScrollTop(element), element.scrollTop + correction / scale));
+        if (Math.abs(nextTop - element.scrollTop) > 0.5) {
+          writeConversationScrollTop(element, nextTop, scrollWriter.anchor);
+        }
       }
       return true;
     };
@@ -1340,6 +1320,34 @@ export const useConversationScroll = ({
     };
     settle();
   }, [restoreAnchor]);
+
+  const onListLayoutCommitted = useCallback(() => {
+    const element = messageListRef.current;
+    conversationTraceFor(element)?.record(traceKind.commitAfter);
+    if (removalRef.current) { removalRef.current.refresh(); return; }
+    const request = bottomPinRequestRef.current;
+    const control = scrollControlRef.current;
+    const owner = contentAnchorOwnerRef.current;
+    if (element && owner && owner.key === element.dataset.conversationVirtuosoKey &&
+      owner.generation === control.generation) {
+      restoreAnchor(element, owner.messageId, owner.offset);
+      return;
+    }
+    if (!request) {
+      // A late virtual range commit can change the endpoint after settlement.
+      // Reconcile committed geometry before paint, without waiting for the
+      // subsequent scroll/resize notification to start another transaction.
+      if (element && (control.mode === "following" ||
+        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")) &&
+        distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) scheduleBottomPin(undefined, "track");
+      return;
+    }
+    if (request.mode === "settle" ||
+      request.identity !== control.identity || request.generation !== control.generation) return;
+    // Virtuoso can commit newly measured rows after this frame's pin. Finish
+    // that active tracking pass before paint, preserving its existing deadline.
+    scheduleBottomPin(undefined, request.mode);
+  }, [restoreAnchor, scheduleBottomPin]);
 
   const captureViewportBeforeUpdate = useCallback((structuralChange: boolean) => {
     const element = messageListRef.current;
@@ -1514,6 +1522,11 @@ export const useConversationScroll = ({
       // Media/caption layout can change after the previous bottom transaction
       // settled. Real row resizes must reconcile before paint as well.
       if (reconcileBottomViewport()) return;
+      const owner = contentAnchorOwnerRef.current;
+      if (owner?.key === virtuosoKey && owner.generation === control.generation) {
+        restoreAnchor(element, owner.messageId, owner.offset);
+        return;
+      }
       if (control.mode !== "detached" ||
         memory?.followLatest !== false || !memory.anchorMessageId || memory.anchorOffset === undefined) return;
       if (pointerActiveRef.current || middleAutoScrollRef.current ||
@@ -1534,11 +1547,6 @@ export const useConversationScroll = ({
           return row.bottom <= targetTop + 0.5 ? total + change.delta : total;
           }, 0);
         if (Math.abs(correction) > 0.5) writeConversationScrollTop(element, element.scrollTop + correction, scrollWriter.rowResize);
-      }
-      const owner = contentAnchorOwnerRef.current;
-      if (owner?.key === virtuosoKey && owner.generation === control.generation) {
-        restoreAnchor(element, owner.messageId, owner.offset);
-        return;
       }
       settleContentAnchorPosition(element, memory.anchorMessageId, memory.anchorOffset, virtuosoKey, () => {
         writeMemory(currentScrollKey, element, false,
@@ -1875,9 +1883,7 @@ export const useConversationScroll = ({
       return (targetBounds.top + targetBounds.bottom) / 2 -
         (listBounds.top + listBounds.bottom) / 2;
     };
-    const jumpDirection = options?.direction ?? (
-      visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer"
-    );
+    const jumpDirection = visibleAnchorIndex !== undefined && itemIndex < visibleAnchorIndex ? "older" : "newer";
     const scrollDirection = jumpDirection === "older" ? -1 : 1;
     const isLongNavigation = visibleAnchorIndex !== undefined
       ? Math.abs(itemIndex - visibleAnchorIndex) > 8
@@ -2087,7 +2093,7 @@ export const useConversationScroll = ({
     const mountedTargetIsFullyVisible = mounted
       ? isMessageFullyVisible(element, mounted)
       : false;
-    if (!mountedTargetIsFullyVisible || options?.forceTransition) {
+    if (!mountedTargetIsFullyVisible) {
       const current = conversationScrollMemory.get(currentScrollKey);
       writeMemory(
         currentScrollKey,
@@ -2097,15 +2103,8 @@ export const useConversationScroll = ({
         true,
       );
     }
-    let targetPrepared = false;
-    const prepareTarget = () => {
-      if (targetPrepared) return;
-      targetPrepared = true;
-      options?.prepareTarget?.();
-    };
-    if (mountedTargetIsFullyVisible && mounted && !options?.forceTransition) {
+    if (mountedTargetIsFullyVisible && mounted) {
       removeConversationJumpSnapshot(preservedSnapshot?.snapshot);
-      prepareTarget();
       // A fully visible destination does not need a viewport change. Let the
       // existing highlight lifecycle provide feedback without disturbing the
       // user's reading position.
@@ -2114,14 +2113,12 @@ export const useConversationScroll = ({
       finishVisibleTarget();
     } else if (
       mounted &&
-      !options?.forceTransition &&
       resolvedBehavior === "smooth" &&
       !isLongNavigation
     ) {
       removeConversationJumpSnapshot(preservedSnapshot?.snapshot);
       // The target is just outside the viewport but still mounted in the
       // overscan range. Keep it in the live list and animate directly to it.
-      prepareTarget();
       const offset = resolveTargetOffset(mounted);
       if (offset === undefined || Math.abs(offset) <= 0.5) {
         scheduleTargetSettlement();
@@ -2143,7 +2140,6 @@ export const useConversationScroll = ({
         ),
       });
       if (!snapshot) {
-        prepareTarget();
         traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
           index: itemIndex,
           align: "center",
@@ -2229,7 +2225,6 @@ export const useConversationScroll = ({
           };
           requestAnimationFrame(() => prepareDeceleration());
         };
-        prepareTarget();
         if (isLongNavigation) {
           // A distant virtual relocation is already hidden by the snapshot.
           // Keep that snapshot still, then reveal only the final deceleration;
@@ -2266,7 +2261,6 @@ export const useConversationScroll = ({
       }
     } else {
       removeConversationJumpSnapshot(preservedSnapshot?.snapshot);
-      prepareTarget();
       traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
         index: itemIndex,
         align: "center",
@@ -2302,19 +2296,31 @@ export const useConversationScroll = ({
     pointerClientY: number,
     getCollapsedAnchor: () => Element | null,
   ) => {
-    const started = revealTarget(messageId, "smooth", false, {
-      direction: "older",
-      forceTransition: true,
-      prepareTarget: collapse,
-      resolveTargetOffset: () => {
-        const anchor = getCollapsedAnchor();
-        if (!anchor) return undefined;
-        const anchorBounds = anchor.getBoundingClientRect();
-        return (anchorBounds.top + anchorBounds.bottom) / 2 - pointerClientY;
-      },
-    });
-    if (!started) collapse();
-  }, [revealTarget]);
+    const element = messageListRef.current;
+    if (!element || !currentScrollKey ||
+      element.dataset.conversationVirtuosoKey !== virtuosoKey) {
+      collapse();
+      return;
+    }
+    // Collapse is a local resize. Commit and anchor it in the same event,
+    // before paint, without centering the virtual block or animating the list.
+    interruptControlledPositioning("detached");
+    userIntentUntilRef.current = 0;
+    pointerActiveRef.current = false;
+    interactivePointerRef.current = false;
+    const persist = () => writeMemory(currentScrollKey, element, false,
+      conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
+    persist();
+    flushSync(collapse);
+    const anchor = getCollapsedAnchor();
+    const row = anchor?.closest<HTMLElement>("[data-message-id]") ??
+      element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!row || !anchor || !element.contains(anchor)) { persist(); return; }
+    const bounds = anchor.getBoundingClientRect();
+    const offset = row.getBoundingClientRect().top - element.getBoundingClientRect().top +
+      pointerClientY - (bounds.top + bounds.bottom) / 2;
+    settleContentAnchorPosition(element, row.dataset.messageId ?? messageId, offset, virtuosoKey, persist);
+  }, [currentScrollKey, interruptControlledPositioning, settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   const revealAttentionMessage = useCallback((messageId: string) => {
     captureJumpAnchor(messageId);

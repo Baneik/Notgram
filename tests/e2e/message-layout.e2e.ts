@@ -185,7 +185,7 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
   await expect(visibleAvatar).toHaveCSS("border-radius", "50%");
 });
 
-test("long quotes fold to three and a half lines and animate back after collapsing", async ({ page }) => {
+test("long quotes collapse under the pointer without intermediate viewport movement", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /收藏夹/ }).click();
   const row = page.locator('[data-message-id="saved-long-quote"]');
@@ -219,21 +219,12 @@ test("long quotes fold to three and a half lines and animate back after collapsi
 
   await page.evaluate(() => {
     const originalAnimate = Element.prototype.animate;
-    const records: Array<{
-      duration: number;
-      firstTransform?: string;
-      lastTransform?: string;
-    }> = [];
+    const records: number[] = [];
     (globalThis as typeof globalThis & { __notgramQuoteCollapseAnimations?: typeof records })
       .__notgramQuoteCollapseAnimations = records;
     Element.prototype.animate = function (keyframes, options) {
       if (this.classList.contains("message-list-content") && Array.isArray(keyframes)) {
-        const timing = typeof options === "number" ? { duration: options } : options;
-        records.push({
-          duration: Number(timing?.duration ?? 0),
-          firstTransform: String(keyframes[0]?.transform ?? ""),
-          lastTransform: String(keyframes.at(-1)?.transform ?? ""),
-        });
+        records.push(performance.now());
       }
       return originalAnimate.call(this, keyframes, options);
     };
@@ -246,6 +237,19 @@ test("long quotes fold to three and a half lines and animate back after collapsi
       if (!target?.closest(".rich-blockquote-collapse")) return;
       (globalThis as typeof globalThis & { __notgramQuoteCollapsePointerY?: number })
         .__notgramQuoteCollapsePointerY = event.clientY;
+      const samples: number[] = [];
+      (globalThis as typeof globalThis & { __notgramQuoteCollapseFrames?: Promise<number[]> })
+        .__notgramQuoteCollapseFrames = new Promise(resolve => {
+          const started = performance.now();
+          const sample = () => requestAnimationFrame(() => setTimeout(() => {
+            const icon = document.querySelector('.message-list [data-message-id="saved-long-quote"] .rich-blockquote-expand > svg');
+            const bounds = icon?.getBoundingClientRect();
+            samples.push(bounds ? (bounds.top + bounds.bottom) / 2 - event.clientY : Number.MAX_SAFE_INTEGER);
+            if (performance.now() - started < 900) sample();
+            else resolve(samples);
+          }, 0));
+          sample();
+        });
       document.removeEventListener("click", recordCollapsePointer, true);
     };
     document.addEventListener("click", recordCollapsePointer, true);
@@ -257,22 +261,18 @@ test("long quotes fold to three and a half lines and animate back after collapsi
   ).__notgramQuoteCollapsePointerY ?? Number.NaN);
   expect(Number.isFinite(collapsePointerY)).toBe(true);
   await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
-  await expect.poll(() => page.evaluate(() => (
-    globalThis as typeof globalThis & { __notgramQuoteCollapseAnimations?: unknown[] }
-  ).__notgramQuoteCollapseAnimations?.length ?? 0)).toBe(2);
+  const samples = await page.evaluate(() => (
+    globalThis as typeof globalThis & { __notgramQuoteCollapseFrames?: Promise<number[]> }
+  ).__notgramQuoteCollapseFrames!);
+  expect(samples.length).toBeGreaterThan(10);
+  expect(Math.max(...samples.map(Math.abs)), JSON.stringify(samples)).toBeLessThanOrEqual(8.5);
+  expect(Math.max(...samples) - Math.min(...samples), JSON.stringify(samples)).toBeLessThanOrEqual(1);
   const animations = await page.evaluate(() => (
     globalThis as typeof globalThis & {
-      __notgramQuoteCollapseAnimations?: Array<{
-        duration: number;
-        firstTransform?: string;
-        lastTransform?: string;
-      }>;
+      __notgramQuoteCollapseAnimations?: number[];
     }
   ).__notgramQuoteCollapseAnimations ?? []);
-  expect(animations).toEqual([
-    expect.objectContaining({ duration: 120, firstTransform: "translateY(0)", lastTransform: "translateY(8px)" }),
-    expect.objectContaining({ duration: 180, firstTransform: "translateY(-8px)", lastTransform: "translateY(0)" }),
-  ]);
+  expect(animations).toEqual([]);
   await expect(page.locator(".message-list")).not.toHaveClass(/is-jump-transitioning/);
   const expandIcon = quote.locator(".rich-blockquote-expand > svg");
   await expect(expandIcon).toBeVisible();
