@@ -30,6 +30,138 @@ const harness = (initial: Message[]) => {
 describe("conversation history ownership", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("admits restored deletion archives only as reader pages reach their history range", async () => {
+    const retained = [1, 20, 40, 59, 61].map(id => ({ ...message(id), isLocallyDeleted: true }));
+    const h = harness(upsertMessages([message(60), message(62)], retained));
+    h.history.focus("7");
+    expect(h.visible().map(m => m.id)).toEqual(["60", "61", "62"]);
+    h.request.mockResolvedValueOnce(page([62, 60])).mockResolvedValueOnce(page([58, 39]))
+      .mockResolvedValueOnce(page([19, 2], false));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await h.history.older("7");
+    expect(h.visible().map(m => m.id)).toEqual(["39", "40", "58", "59", "60", "61", "62"]);
+    await h.history.older("7");
+    expect(h.visible().map(m => m.id)).toEqual(["1", "2", "19", "20", "39", "40", "58", "59", "60", "61", "62"]);
+    expect(h.messages().filter(m => m.isLocallyDeleted)).toHaveLength(5);
+  });
+
+  it("walks duplicate cached pages in one older request until the visible boundary advances", async () => {
+    const h = harness(Array.from({ length: 60 }, (_, i) => message(i + 41)));
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 100;
+      return page(Array.from({ length: 10 }, (_, i) => from - i));
+    });
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await h.history.older("7");
+    expect(h.visible()[0].id).toBe("31");
+    expect(h.request).toHaveBeenCalledTimes(7);
+  });
+
+  it("does not join a distant context to latest through a restored archive", () => {
+    const archived = { ...message(11), isLocallyDeleted: true };
+    const h = harness([archived, message(99), message(100)]);
+    h.history.focus("7", undefined, "10");
+    h.history.context("7", undefined, "10", [message(10), message(11), message(12)]);
+    h.merge([message(10), message(11), message(12)]);
+    expect(h.state().view?.id).toBe("context:10");
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12"]);
+    h.history.focus("7");
+    expect(h.visible().map(m => m.id)).toEqual(["99", "100"]);
+  });
+
+  it("includes archives inside a context, and permits explicit navigation to an older retained copy", () => {
+    const retained = [1, 11, 20].map(id => ({ ...message(id), isLocallyDeleted: true }));
+    const h = harness([...retained, message(100)]);
+    h.history.focus("7", undefined, "10");
+    h.history.context("7", undefined, "10", [message(10), message(12)]);
+    h.merge([message(10), message(12)]);
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12"]);
+    h.history.focus("7", undefined, "1");
+    expect(h.visible().map(m => m.id)).toEqual(["1"]);
+    h.history.focus("7");
+    expect(h.visible().map(m => m.id)).toEqual(["100"]);
+  });
+
+  it("keeps navigation to an archive inside the already loaded context", () => {
+    const h = harness([{ ...message(11), isLocallyDeleted: true }, message(100)]);
+    h.history.focus("7", undefined, "10");
+    h.history.context("7", undefined, "10", [message(10), message(12)]);
+    h.merge([message(10), message(12)]);
+    h.history.focus("7", undefined, "11");
+    expect(h.state().view?.id).toBe("context:10");
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12"]);
+  });
+
+  it("admits a previously visited archive back into latest once pagination reaches it", async () => {
+    const h = harness([{ ...message(1), isLocallyDeleted: true }, message(100)]);
+    h.history.focus("7", undefined, "1");
+    h.history.focus("7");
+    h.request.mockResolvedValue(page([100, 2], false));
+    await h.history.older("7");
+    expect(h.visible().map(m => m.id)).toEqual(["1", "2", "100"]);
+  });
+
+  it("preserves an admitted oldest message when it is deleted or a refresh overlaps a warm cache", async () => {
+    const h = harness([message(40), message(60), message(100)]);
+    h.history.focus("7");
+    h.merge([{ ...message(40), isLocallyDeleted: true }]);
+    h.request.mockResolvedValue(page([100, 99, 98]));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    expect(h.visible()[0]).toMatchObject({ id: "40", isLocallyDeleted: true });
+  });
+
+  it("bounds duplicate-page walking and resumes from the committed cursor", async () => {
+    vi.useFakeTimers();
+    const h = harness(Array.from({ length: 100 }, (_, i) => message(i + 1)));
+    h.request.mockImplementation(async (_chat, _topic, request) => page([request.fromMessageId ? Number(request.fromMessageId) - 1 : 100]));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    await h.history.older("7");
+    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_REFRESH_PAGE_BUDGET);
+    expect(h.state()).toMatchObject({ loading: false, hasMore: true });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_REFRESH_PAGE_BUDGET);
+    await h.history.older("7");
+    expect(h.request.mock.calls[1 + HISTORY_REFRESH_PAGE_BUDGET][2].fromMessageId).toBe("91");
+  });
+
+  it("keeps a partial duplicate walk retryable after a timeout", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(40), message(60), message(100)]);
+    h.request.mockResolvedValueOnce(page([100, 99]));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    h.request.mockResolvedValueOnce(page([98, 97])).mockRejectedValueOnce(new Error("timeout"));
+    await h.history.older("7");
+    expect(h.state()).toMatchObject({ loading: false, hasMore: true });
+    h.request.mockResolvedValueOnce(page([39, 38]));
+    await h.history.older("7");
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "older", fromMessageId: "97" });
+    expect(h.visible()[0].id).toBe("38");
+    h.history.clear();
+  });
+
+  it("reveals all retained copies when an archive-only chat reaches a confirmed empty server history", async () => {
+    const h = harness([1, 2].map(id => ({ ...message(id), isLocallyDeleted: true })));
+    h.history.focus("7");
+    expect(h.visible()).toEqual([]);
+    h.request.mockResolvedValue({ messages: [], messageIds: [], loadedCount: 0, hasMore: false });
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    expect(h.visible().map(m => m.id)).toEqual(["1", "2"]);
+  });
+
+  it("does not let an old restored context expand archive coverage in latest", () => {
+    const h = harness([message(10), { ...message(20), isLocallyDeleted: true }, message(100)]);
+    h.history.restoreContexts([{ chatId: "7", targetId: "10", messageIds: ["10"] }]);
+    expect(h.visible().map(m => m.id)).toEqual(["100"]);
+    h.history.focus("7", undefined, "10");
+    expect(h.visible().map(m => m.id)).toEqual(["10"]);
+  });
+
   it("refreshes recent history without scanning toward a distant cached context", async () => {
     vi.useFakeTimers();
     const h = harness(Array.from({ length: 164 }, (_, i) => message(9837 + i)));

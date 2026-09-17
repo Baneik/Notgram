@@ -689,6 +689,14 @@ test("repeated virtual range changes do not restart detached anchor settlement",
   await expect(messageList).toHaveAttribute("aria-busy", "false");
 
   const result = await page.evaluate(async () => {
+    const { getPerformanceRecords, subscribePerformanceRecords } = await import("/src/utils/performanceMonitor.ts" as string) as
+      typeof import("../../src/utils/performanceMonitor");
+    let trace: ReturnType<typeof getPerformanceRecords>[number] | undefined;
+    // Row diagnostics can evict the completed switch from the bounded buffer.
+    const unsubscribe = subscribePerformanceRecords(() => {
+      const record = getPerformanceRecords().at(-1);
+      if (record?.event === "ui_conversation_switch") trace = record;
+    });
     const style = document.createElement("style");
     style.textContent = [
       ".message-list [data-message-id] {",
@@ -728,16 +736,7 @@ test("repeated virtual range changes do not restart detached anchor settlement",
     for (let frame = 0; frame < 30; frame += 1) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
-    const performanceModule = await import("/src/utils/performanceMonitor.ts" as string) as {
-      getPerformanceRecords: () => Array<{
-        event: string;
-        durationMs?: number;
-        details: { missingStageMask?: number; timedOut?: boolean };
-      }>;
-    };
-    const trace = performanceModule.getPerformanceRecords()
-      .filter((record) => record.event === "ui_conversation_switch")
-      .at(-1);
+    unsubscribe();
     return {
       settledFrame,
       finalBusy: document.querySelector(".message-list")?.getAttribute("aria-busy"),

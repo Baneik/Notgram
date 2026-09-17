@@ -9,7 +9,7 @@ const numericMessageId = (messageId: string) => {
   }
 };
 
-export const compareMessages = (left: Message, right: Message) => {
+export const compareMessages = (left: Pick<Message, "id" | "sentAt">, right: Pick<Message, "id" | "sentAt">) => {
   const leftTimestamp = Date.parse(left.sentAt);
   const rightTimestamp = Date.parse(right.sentAt);
   if (

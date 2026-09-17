@@ -3,9 +3,11 @@ import { MockTelegramTransport } from "../telegram/mockTransport";
 import { TauriTelegramTransport } from "../telegram/tauriTransport";
 import type { TelegramEventListener } from "../telegram/transport";
 import type { TdObject } from "../telegram/tdlibMapper";
+import type { HistoryPageRequest } from "../telegram/types";
 import { createTelegramStore } from "./telegramStore";
 import { cachedSnapshotFrom } from "./telegramStore.cache";
 import { preferencesStore } from "./preferencesStore";
+import { projectHistoryWindow } from "./conversationHistory";
 
 afterEach(() => preferencesStore.setState({ deletedMessageArchiveEnabled: false }));
 
@@ -37,8 +39,8 @@ it("keeps a continuous mixed timeline through TDLib pages, remote deletions and 
       internal.listener = listener;
       return super.connect(listener);
     }
-    override async loadChatHistory(chatId: string, limit = 30) {
-      return chatId === "7" ? tdlib.loadChatHistory(chatId, limit) : super.loadChatHistory(chatId, limit);
+    override async loadChatHistory(chatId: string, limit = 30, request?: HistoryPageRequest) {
+      return chatId === "7" ? tdlib.loadChatHistory(chatId, limit, request) : super.loadChatHistory(chatId, limit, request);
     }
   }
   const transport = new HistoryTransport();
@@ -69,4 +71,16 @@ it("keeps a continuous mixed timeline through TDLib pages, remote deletions and 
   await restarted.getState().initialize();
   expect(restarted.getState().messages.get("7")?.filter(message => message.isLocallyDeleted)).toHaveLength(30);
   expect(restarted.getState().messages.get("7")?.filter(message => !message.isLocallyDeleted)).toHaveLength(60);
+  restarted.setState({ connectionStatus: "online" });
+  restarted.getState().focusHistoryWindow("7");
+  const visible = () => projectHistoryWindow(restarted.getState().messages.get("7")!, restarted.getState().histories.get("7")?.view);
+  expect(Number(visible()[0].id)).toBeGreaterThan(Number(raw[0].id));
+  for (let page = 0; page < 10 && restarted.getState().histories.get("7")?.hasMore !== false; page++) {
+    await restarted.getState().loadMoreHistory("7");
+    const current = visible();
+    expect(current.map(message => message.id)).toEqual(raw.filter(message => Number(message.id) >= Number(current[0].id)).map(message => String(message.id)));
+  }
+  expect(restarted.getState().histories.get("7")?.hasMore).toBe(false);
+  expect(visible().map(message => message.id)).toEqual(raw.map(message => String(message.id)));
+  expect(visible().filter(message => message.isLocallyDeleted)).toHaveLength(30);
 });

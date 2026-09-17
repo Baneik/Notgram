@@ -369,6 +369,21 @@ failures/stalls have a bounded three-attempt retry path using the existing retry
 accounts clears all window and retry ownership. Reconnect retires requests but preserves reader
 windows and their cursors.
 
+Retained deletion archives have independent persistence and do not establish coverage of ordinary
+server history. A restored chat can contain only 60 recent ordinary messages alongside much older
+archives. Each window keeps its oldest covered message boundary; latest admits archives at or above
+that boundary, and contexts also apply their newest boundary. Confirmed server exhaustion admits the
+remaining older archives. Boundaries survive deletion of their original message, and retained copies
+remain cached while outside the visible window. Explicit navigation can select a retained copy in a
+separate context without treating the intervening history as loaded. A retained copy alone cannot
+join distant server windows.
+
+Reader pagination walks duplicate cached pages until it extends the displayed history, reaches a
+confirmed end, stalls, or consumes the same nine-page budget. Each accepted page commits its cursor;
+an error can retry from that cursor, while account/recovery generations still reject stale pages.
+This keeps a single upward gesture useful after restart without starting an unbounded cache scan.
+Numeric reader cursors never move toward newer messages, including when an endpoint repeats a page.
+
 Optional `historyContexts` in cache schema 4 preserves only membership present in the bounded saved
 message cache. It contains no claim that an entire old cache is contiguous. Legacy caches remain
 usable without this metadata; malformed optional metadata is ignored. Cache membership never takes
