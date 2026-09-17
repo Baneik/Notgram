@@ -438,6 +438,7 @@ const mediaContent = (
     width?: number;
     height?: number;
     duration?: number;
+    supportsStreaming?: boolean;
     hasSpoiler?: boolean;
     showCaptionAboveMedia?: boolean;
     stickerSetId?: string;
@@ -736,6 +737,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
           duration: tdNumber(video?.duration),
+          supportsStreaming: typeof video?.supports_streaming === "boolean" ? video.supports_streaming : undefined,
           hasSpoiler: block.has_spoiler === true,
           autoplay: block.need_autoplay === true,
           loop: block.is_looped === true,
@@ -1130,6 +1132,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           previewDataUrl: cover.previewDataUrl ?? minithumbnailDataUrl(video?.minithumbnail),
           width: tdNumber(video?.width),
           height: tdNumber(video?.height),
+          duration: tdNumber(video?.duration),
+          supportsStreaming: typeof video?.supports_streaming === "boolean" ? video.supports_streaming : undefined,
           hasSpoiler: content.has_spoiler === true,
           showCaptionAboveMedia: content.show_caption_above_media === true,
           includePendingUpload,
@@ -1193,6 +1197,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         previewDataUrl: minithumbnailDataUrl(videoNote?.minithumbnail),
         width: length,
         height: length,
+        duration: tdNumber(videoNote?.duration),
+        mimeType: "video/mp4",
         includePendingUpload,
       });
     }

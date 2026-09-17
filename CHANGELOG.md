@@ -7,6 +7,11 @@ with prerelease identifiers used for release candidates.
 
 ### Changed
 
+- Unify photo and video viewing, with lightweight video previews, application-owned
+  playback sessions, mixed media navigation, recoverable errors and continuous
+  playback when switching to a small window. Coordinate audio/video ownership and
+  exact cache leases; schedule TDLib ranges with bounded workers, seek cancellation
+  and full-download arbitration. Add first-frame, seek and frame-quality metrics.
 - Fade deleted messages and smoothly lower the messages above them while keeping
   the lower messages anchored, including virtualized histories and reduced motion.
 - Add an opt-in local copy of incoming messages that are permanently deleted by

@@ -1,12 +1,12 @@
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { parseTdlibRemoteFileDataCenter } from "../telegram/fileDataCenter";
 import { translate } from "../i18n";
-import { ChevronLeft, ChevronRight, Download, ImageOff, LoaderCircle } from "lucide-react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import { ChevronLeft, ChevronRight, Download, ImageOff, LoaderCircle, Play } from "lucide-react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { useImageViewport } from "../hooks/useImageViewport";
-import { adjacentPhotoId, photoThumbnailWindow, type PhotoMessage } from "../utils/mediaViewerModel";
+import { adjacentPhotoId, photoThumbnailWindow, type ViewerMessage } from "../utils/mediaViewerModel";
 import { photoSources } from "../media/photoSources";
 import { hasDecodedImage, rememberDecodedImage } from "../media/decodedImages";
 import { localMediaSource } from "../media/localMediaSource";
@@ -14,19 +14,29 @@ import { logPerformance } from "../utils/performanceMonitor";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
 
-interface MediaViewerProps {
-  messages: PhotoMessage[];
+export interface MediaViewerProps {
+  messages: ViewerMessage[];
   activeMessageId: string;
   onActiveMessageChange: (messageId: string) => void;
   onClose: () => void;
   allowSave?: boolean;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onSave: (sourcePath: string, fileName: string) => Promise<void>;
+  video?: {
+    surface: ReactNode;
+    controls: ReactNode;
+    immersive: boolean;
+    windowed: boolean;
+    idle: boolean;
+    width?: number;
+    height?: number;
+    interact: () => void;
+  };
 }
 
-function usePhotoSource(message: PhotoMessage, thumbnail = false) {
+function usePhotoSource(message: ViewerMessage, thumbnail = false) {
   const content = message.content;
-  const sources = useMemo(() => photoSources(content, thumbnail), [content.localPath, content.thumbnailPath, content.previewDataUrl, thumbnail]);
+  const sources = useMemo(() => photoSources(content.mediaType === "photo" ? content : { ...content, localPath: undefined }, thumbnail), [content.localPath, content.thumbnailPath, content.previewDataUrl, content.mediaType, thumbnail]);
   const [failedSources, setFailedSources] = useState<Set<string>>(() => new Set());
   const available = sources.filter(source => !failedSources.has(source));
   const source = available[0];
@@ -42,13 +52,14 @@ function usePhotoSource(message: PhotoMessage, thumbnail = false) {
 }
 
 const MediaViewerThumbnail = memo(function MediaViewerThumbnail({ message, selected, onSelect }: {
-  message: PhotoMessage; selected: boolean; onSelect: (id: string) => void;
+  message: ViewerMessage; selected: boolean; onSelect: (id: string) => void;
 }) {
   const { source, onError } = usePhotoSource(message, true);
   return <button className={selected ? "is-active" : undefined} type="button"
     aria-label={translate("查看 {{value0}}", { value0: message.content.fileName })}
     aria-current={selected ? "true" : undefined} onClick={() => onSelect(message.id)}>
     {source ? <StableImage src={source} alt="" loading="eager" decoding="async" onError={onError} /> : <ImageOff size={18} />}
+    {message.content.mediaType !== "photo" && <Play className="media-viewer-thumbnail-play" size={16} fill="currentColor" />}
     {message.content.isDownloading && <span className="media-progress" role="progressbar"
       aria-label={translate("下载 {{value0}}", { value0: message.content.fileName })}
       aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((message.content.progress ?? 0) * 100)}>
@@ -58,7 +69,7 @@ const MediaViewerThumbnail = memo(function MediaViewerThumbnail({ message, selec
 });
 
 function PhotoSurface({ message, onDownload, onDimensions }: {
-  message: PhotoMessage; onDownload: MediaViewerProps["onDownload"]; onDimensions: (width: number, height: number) => void;
+  message: ViewerMessage; onDownload: MediaViewerProps["onDownload"]; onDimensions: (width: number, height: number) => void;
 }) {
   const { source, preview, failed, onError, retry } = usePhotoSource(message);
   const [hasReadyImage, setHasReadyImage] = useState(false);
@@ -93,21 +104,21 @@ export function MediaViewer(props: MediaViewerProps) {
   return active ? <Viewer {...props} active={active} /> : null;
 }
 
-function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onClose, allowSave = true, onDownload, onSave }: MediaViewerProps & { active: PhotoMessage }) {
+function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onClose, allowSave = true, onDownload, onSave, video }: MediaViewerProps & { active: ViewerMessage }) {
   const content = active.content;
   const identity = `${active.chatId}:${active.id}`;
   const stageRef = useRef<HTMLElement>(null);
   const dialogRef = useModalFocus<HTMLDivElement>(onClose, false, stageRef);
   const [naturalSize, setNaturalSize] = useState<{ identity: string; source?: string; width: number; height: number }>();
   const dimensions = {
-    width: naturalSize?.identity === identity ? naturalSize.width : content.width || 1280,
-    height: naturalSize?.identity === identity ? naturalSize.height : content.height || 800,
+    width: video?.width || (naturalSize?.identity === identity ? naturalSize.width : content.width || 1280),
+    height: video?.height || (naturalSize?.identity === identity ? naturalSize.height : content.height || 800),
   };
   const viewport = useImageViewport(identity, dimensions);
   const previousId = adjacentPhotoId(messages, activeMessageId, -1);
   const nextId = adjacentPhotoId(messages, activeMessageId, 1);
-  const previousSource = localMediaSource(messages.find(message => message.id === previousId)?.content.localPath);
-  const nextSource = localMediaSource(messages.find(message => message.id === nextId)?.content.localPath);
+  const previousSource = localMediaSource(messages.find(message => message.id === previousId && message.content.mediaType === "photo")?.content.localPath);
+  const nextSource = localMediaSource(messages.find(message => message.id === nextId && message.content.mediaType === "photo")?.content.localPath);
   const originalReady = naturalSize?.identity === identity && naturalSize.source === content.localPath;
   useEffect(() => {
     if (!originalReady) return;
@@ -143,8 +154,8 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const [saving, setSaving] = useState(false);
   const actionGeneration = useRef(0);
   const navigationId = useRef(activeMessageId);
-  const keyboard = useRef({ previousId, nextId, onActiveMessageChange, viewport });
-  useLayoutEffect(() => { keyboard.current = { previousId, nextId, onActiveMessageChange, viewport }; });
+  const keyboard = useRef({ previousId, nextId, onActiveMessageChange, viewport, video });
+  useLayoutEffect(() => { keyboard.current = { previousId, nextId, onActiveMessageChange, viewport, video }; });
   useLayoutEffect(() => {
     actionGeneration.current++;
     navigationId.current = activeMessageId;
@@ -167,7 +178,10 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   useLayoutEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey || event.metaKey) return;
+      if (event.target instanceof HTMLElement && event.target.matches("input, select, textarea")) return;
       const state = keyboard.current;
+      state.video?.interact();
+      if (state.video && !event.ctrlKey) return;
       const id = event.key === "ArrowLeft" ? state.previousId : event.key === "ArrowRight" ? state.nextId : undefined;
       if (id) { event.preventDefault(); state.onActiveMessageChange(id); }
       else if (event.key === "+" || event.key === "=") { event.preventDefault(); state.viewport.zoomBy(1.5); }
@@ -178,6 +192,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   }, []);
 
   const handleWheel = (event: WheelEvent<HTMLElement>) => {
+    if (video) return;
     event.preventDefault();
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1);
     if (!Number.isFinite(delta) || delta === 0) return;
@@ -196,7 +211,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const dc = content.remoteId ? parseTdlibRemoteFileDataCenter(content.remoteId) : undefined;
   const imageDetails = [
     translate("数据中心：{{value0}}", { value0: dc ? `DC${dc}` : translate("未知") }),
-    translate("尺寸：{{value0}}", { value0: naturalSize?.identity === identity || (content.width && content.height) ? `${dimensions.width} × ${dimensions.height}` : translate("未知") }),
+    translate("尺寸：{{value0}}", { value0: (video?.width && video.height) || naturalSize?.identity === identity || (content.width && content.height) ? `${dimensions.width} × ${dimensions.height}` : translate("未知") }),
     translate("大小：{{value0}}", { value0: content.sizeLabel }),
   ];
   const save = async () => {
@@ -208,14 +223,17 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
     } catch { if (actionGeneration.current === generation) setActionError(translate("文件下载失败")); }
     finally { if (actionGeneration.current === generation) setSaving(false); }
   };
-  return <div className="media-viewer-backdrop" role="presentation">
+  return <div className={`media-viewer-backdrop ${video ? "has-video" : ""} ${video?.immersive ? "is-immersive" : ""} ${video?.windowed ? "is-windowed" : ""} ${video?.idle ? "is-idle" : ""}`} role="presentation"
+    onPointerMove={video?.interact} onKeyDown={video?.interact}>
     <div ref={dialogRef} className="media-viewer" role="dialog" aria-modal="true"
-      aria-label={translate("图片查看器：{{value0}}", { value0: content.fileName })} tabIndex={-1}>
+      aria-label={video ? translate("媒体查看器：{{value0}}", { value0: content.fileName }) : translate("图片查看器：{{value0}}", { value0: content.fileName })} tabIndex={-1}>
       <main ref={stageRef} tabIndex={-1} className="media-viewer-stage" onWheel={handleWheel}>
         <div ref={viewport.fitRef} className="media-viewer-canvas" onPointerDown={event => {
           if (event.button === 0 && event.target === event.currentTarget) onClose();
         }}>
-          <div ref={viewport.viewportRef} className={`media-viewer-viewport ${viewport.zoom > 1 ? "is-pannable" : ""}`}
+          {video ? <div className="media-viewer-video-stage" onPointerDown={event => {
+            if (event.button === 0 && event.target === event.currentTarget && !video.windowed) onClose();
+          }}>{video.surface}</div> : <div ref={viewport.viewportRef} className={`media-viewer-viewport ${viewport.zoom > 1 ? "is-pannable" : ""}`}
             onPointerDown={event => {
               if (event.button !== 0) return;
               if (event.target === event.currentTarget) { event.preventDefault(); onClose(); return; }
@@ -240,28 +258,29 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
               }}
                 onDimensions={(width, height) => setNaturalSize(current => current?.identity === identity && current.source === content.localPath && current.width === width && current.height === height ? current : { identity, source: content.localPath, width, height })} />
             </div>
-          </div>
+          </div>}
           {previousId && <button className="media-viewer-nav is-previous" type="button" aria-label={translate("上一张")} title={translate("上一张")} onClick={() => onActiveMessageChange(previousId)}><ChevronLeft size={28} /></button>}
           {nextId && <button className="media-viewer-nav is-next" type="button" aria-label={translate("下一张")} title={translate("下一张")} onClick={() => onActiveMessageChange(nextId)}><ChevronRight size={28} /></button>}
           {viewport.zoom > 1 && <output className="media-viewer-zoom" aria-label={translate("图片缩放比例")}>{viewport.percentage}%</output>}
         </div>
         <footer className="media-viewer-footer">
+          {video?.controls}
           {content.caption && <div className="media-viewer-caption-wrap">
             <p className="media-viewer-caption" aria-live="polite">{content.caption}</p>
           </div>}
           <div className="media-viewer-controls">
-            <aside className="media-viewer-details" aria-label={translate("图片详细信息")}>
+            <aside className="media-viewer-details" aria-label={video ? translate("媒体详细信息") : translate("图片详细信息")}>
               {imageDetails.map(detail => <span key={detail}>{detail}</span>)}
             </aside>
             <div className="media-viewer-thumbnail-slot" ref={thumbnailSlotRef}>
-              {messages.length > 1 && <nav className="media-viewer-thumbnails" aria-label={translate("会话图片预览")}>
+              {messages.length > 1 && <nav className="media-viewer-thumbnails" aria-label={video ? translate("会话媒体预览") : translate("会话图片预览")}>
                 {thumbnails.map(message => <MediaViewerThumbnail key={`${message.chatId}:${message.id}`} message={message} selected={message.id === activeMessageId} onSelect={onActiveMessageChange} />)}
               </nav>}
             </div>
             <div className="media-viewer-actions">
               <span className="media-viewer-counter">{messages.findIndex(message => message.id === activeMessageId) + 1} / {messages.length}</span>
-              <button className="media-viewer-download" type="button" aria-label={translate("下载图片")} aria-busy={content.isDownloading || saving || undefined}
-                title={content.isDownloading ? translate("原图下载中") : canSave ? translate("保存到下载目录") : translate("下载原图")}
+              <button className="media-viewer-download" type="button" aria-label={video ? translate("下载视频") : translate("下载图片")} aria-busy={content.isDownloading || saving || undefined}
+                title={content.isDownloading ? translate("下载中") : canSave ? translate("保存到下载目录") : video ? translate("下载视频") : translate("下载原图")}
                 disabled={saving || content.isDownloading || (!canSave && !canDownload)} onClick={() => void save()}>
                 {content.isDownloading || saving ? <LoaderCircle className="spin" size={19} /> : <Download size={19} />}
               </button>

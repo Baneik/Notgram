@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -9,7 +9,6 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    thread,
     time::{Duration, Instant},
 };
 use tauri::{
@@ -21,12 +20,7 @@ use super::TelegramRuntime;
 
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const READY_RESPONSE_BYTES: u64 = 256 * 1024;
-const INITIAL_STREAM_WINDOW_BYTES: u64 = 8 * 1024 * 1024;
-const STREAM_RANGE_SAFETY_BYTES: u64 = 2 * 1024 * 1024;
-const STREAM_METADATA_TAIL_BYTES: u64 = 2 * 1024 * 1024;
-const ACTIVE_STREAM_BUFFER_SECONDS: f64 = 30.0;
-const PAUSED_STREAM_BUFFER_SECONDS: f64 = 10.0;
-const RANGE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const RANGE_WAIT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Clone)]
 struct FileProgress {
@@ -41,7 +35,6 @@ struct FileProgress {
 #[derive(Clone)]
 struct StreamPlayback {
     current_time: f64,
-    duration: f64,
     paused: bool,
     active: bool,
 }
@@ -50,7 +43,6 @@ impl Default for StreamPlayback {
     fn default() -> Self {
         Self {
             current_time: 0.0,
-            duration: 0.0,
             paused: true,
             active: true,
         }
@@ -64,6 +56,22 @@ struct RegisteredMedia {
     progress: Option<FileProgress>,
     playback: StreamPlayback,
     request_lock: Arc<Mutex<()>>,
+    lease: u64,
+    epoch: u64,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamLease {
+    pub session: u64,
+    pub lease: u64,
+}
+
+#[derive(Clone, Copy)]
+struct RequestTicket {
+    session: u64,
+    lease: u64,
+    epoch: u64,
 }
 
 #[derive(Serialize)]
@@ -82,11 +90,15 @@ struct RegistryInner {
     file_policy: HashMap<i32, (bool, Option<std::time::SystemTime>)>,
     files: HashMap<i32, RegisteredMedia>,
     active_downloads: HashMap<i32, PathBuf>,
+    active_ranges: HashSet<i32>,
+    full_downloads: HashMap<i32, Value>,
+    pending_commands: HashMap<i32, Vec<Value>>,
 }
 
 #[derive(Default)]
 pub struct MediaStreamRegistry {
     generation: AtomicU64,
+    next_lease: AtomicU64,
     inner: Mutex<RegistryInner>,
     changed: Condvar,
 }
@@ -100,15 +112,175 @@ struct MediaChunk {
 }
 
 impl MediaStreamRegistry {
+    fn ticket(&self, file_id: i32) -> Result<RequestTicket, String> {
+        let inner = self.inner.lock().expect("media stream registry poisoned");
+        let media = inner
+            .files
+            .get(&file_id)
+            .ok_or("Media stream is not registered")?;
+        Ok(RequestTicket {
+            session: self.generation(),
+            lease: media.lease,
+            epoch: media.epoch,
+        })
+    }
+
+    fn ticket_matches(&self, media: &RegisteredMedia, ticket: RequestTicket) -> bool {
+        ticket.session == self.generation()
+            && ticket.lease == media.lease
+            && ticket.epoch == media.epoch
+            && media.playback.active
+    }
+
+    pub fn release(&self, file_id: i32, owner: Option<(u64, u64)>, runtime: &TelegramRuntime) {
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        if let Some((session, lease)) = owner
+            && (session != self.generation()
+                || inner
+                    .files
+                    .get(&file_id)
+                    .is_none_or(|media| media.lease != lease))
+        {
+            return;
+        }
+        if let Some(media) = inner.files.get_mut(&file_id) {
+            media.playback.active = false;
+            media.epoch += 1;
+        }
+        // Releasing playback never cancels the user's full download. If a range
+        // still owns the cursor, its completion path restores that download.
+        if !inner.active_ranges.contains(&file_id) && !inner.full_downloads.contains_key(&file_id) {
+            let _ = runtime.send(&serde_json::json!({ "@type": "cancelDownloadFile", "file_id": file_id, "only_if_pending": false }));
+        }
+        drop(inner);
+        self.changed.notify_all();
+    }
+
+    pub fn coordinate_download(
+        &self,
+        request: &Value,
+        send: impl Fn(&Value) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let file_id = request
+            .get("file_id")
+            .and_then(Value::as_i64)
+            .ok_or("Invalid file identifier")? as i32;
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        if inner
+            .pending_commands
+            .get(&file_id)
+            .is_some_and(|commands| commands.len() >= 32)
+        {
+            return Err("Media download command queue is full".into());
+        }
+        let full = request.get("@type").and_then(Value::as_str) == Some("downloadFile")
+            && request.get("offset").and_then(Value::as_u64) == Some(0)
+            && request.get("limit").and_then(Value::as_u64) == Some(0);
+        if full {
+            let mut intent = request.clone();
+            if let Some(object) = intent.as_object_mut() {
+                object.remove("@extra");
+            }
+            inner.full_downloads.insert(file_id, intent);
+        } else if request.get("@type").and_then(Value::as_str) == Some("cancelDownloadFile") {
+            inner.full_downloads.remove(&file_id);
+        }
+        if inner.active_ranges.contains(&file_id) {
+            inner
+                .pending_commands
+                .entry(file_id)
+                .or_default()
+                .push(request.clone());
+            return Ok(());
+        }
+        let result = send(request);
+        if result.is_err() && full {
+            inner.full_downloads.remove(&file_id);
+        }
+        result
+    }
+
+    fn begin_range(
+        &self,
+        file_id: i32,
+        start: u64,
+        length: u64,
+        ticket: RequestTicket,
+        runtime: &TelegramRuntime,
+    ) -> Result<(), String> {
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        let media = inner
+            .files
+            .get(&file_id)
+            .ok_or("Media stream is not registered")?;
+        if !self.ticket_matches(media, ticket) {
+            return Err("Media request superseded".into());
+        }
+        let ready = media_is_complete(media)
+            || media.progress.as_ref().is_some_and(|progress| {
+                start >= progress.offset
+                    && start.saturating_add(length)
+                        <= progress.offset.saturating_add(progress.prefix_size)
+            });
+        if !ready {
+            runtime.request_media_range(file_id, start, length)?;
+        }
+        inner.active_ranges.insert(file_id);
+        Ok(())
+    }
+
+    fn finish_range(
+        &self,
+        file_id: i32,
+        ticket: RequestTicket,
+        send: impl Fn(&Value) -> Result<(), String>,
+    ) {
+        let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        if ticket.session != self.generation() {
+            return;
+        }
+        inner.active_ranges.remove(&file_id);
+        if let Some(commands) = inner.pending_commands.remove(&file_id) {
+            for command in commands {
+                let _ = send(&command);
+            }
+            // The last deferred command already restores the latest intent.
+            return;
+        }
+        if let Some(download) = inner.full_downloads.get(&file_id) {
+            // TDLib has a single offset/limit per file. Restore complete-download
+            // intent after each serialized range, never concurrently with it.
+            let _ = send(download);
+        } else if inner
+            .files
+            .get(&file_id)
+            .is_none_or(|media| !media.playback.active)
+        {
+            let _ = send(
+                &serde_json::json!({ "@type": "cancelDownloadFile", "file_id": file_id, "only_if_pending": false }),
+            );
+        }
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::SeqCst)
     }
-    pub fn register(&self, file_id: i32, size: u64, mime_type: &str) -> Result<(), String> {
+    pub fn register(
+        &self,
+        file_id: i32,
+        size: u64,
+        mime_type: &str,
+        preserve_download: bool,
+    ) -> Result<StreamLease, String> {
         if file_id <= 0 || size == 0 {
             return Err("Invalid Telegram media stream descriptor".to_string());
         }
         let mime_type = normalized_media_mime_type(mime_type);
+        let lease = self.next_lease.fetch_add(1, Ordering::SeqCst) + 1;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        if !preserve_download {
+            inner.full_downloads.remove(&file_id);
+        }
         inner
             .files
             .entry(file_id)
@@ -116,6 +288,8 @@ impl MediaStreamRegistry {
                 media.size = size;
                 media.mime_type.clone_from(&mime_type);
                 media.playback.active = true;
+                media.lease = lease;
+                media.epoch += 1;
             })
             .or_insert(RegisteredMedia {
                 size,
@@ -123,10 +297,16 @@ impl MediaStreamRegistry {
                 progress: None,
                 playback: StreamPlayback::default(),
                 request_lock: Arc::new(Mutex::new(())),
+                lease,
+                epoch: 0,
             });
+        let owner = StreamLease {
+            session: self.generation(),
+            lease,
+        };
         drop(inner);
         self.changed.notify_all();
-        Ok(())
+        Ok(owner)
     }
 
     pub fn update_playback(
@@ -135,6 +315,8 @@ impl MediaStreamRegistry {
         current_time: f64,
         duration: f64,
         paused: bool,
+        seek: bool,
+        owner: Option<(u64, u64)>,
     ) -> Result<(), String> {
         if !current_time.is_finite()
             || current_time < 0.0
@@ -148,9 +330,16 @@ impl MediaStreamRegistry {
             .files
             .get_mut(&file_id)
             .ok_or_else(|| "Media stream is not registered".to_string())?;
+        if let Some((session, lease)) = owner
+            && (session != self.generation() || lease != media.lease || !media.playback.active)
+        {
+            return Err("Media session expired".into());
+        }
+        if seek || (current_time - media.playback.current_time).abs() > 2.0 {
+            media.epoch += 1;
+        }
         media.playback = StreamPlayback {
             current_time,
-            duration,
             paused,
             active: true,
         };
@@ -159,10 +348,12 @@ impl MediaStreamRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn suspend(&self, file_id: i32) {
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
         if let Some(media) = inner.files.get_mut(&file_id) {
             media.playback.active = false;
+            media.epoch += 1;
         }
         drop(inner);
         self.changed.notify_all();
@@ -183,14 +374,17 @@ impl MediaStreamRegistry {
     }
 
     pub fn clear(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
+        self.generation.fetch_add(1, Ordering::SeqCst);
         inner.focused_chat = None;
         inner.observed_files.clear();
         inner.file_chats.clear();
         inner.file_policy.clear();
         inner.files.clear();
         inner.active_downloads.clear();
+        inner.active_ranges.clear();
+        inner.full_downloads.clear();
+        inner.pending_commands.clear();
         drop(inner);
         self.changed.notify_all();
     }
@@ -204,6 +398,9 @@ impl MediaStreamRegistry {
         collect_file_policies(update, &mut inner.file_policy, None);
         for (file_id, progress, active) in files {
             inner.observed_files.insert(file_id, progress.path.clone());
+            if progress.completed {
+                inner.full_downloads.remove(&file_id);
+            }
             if active {
                 inner
                     .active_downloads
@@ -258,9 +455,15 @@ impl MediaStreamRegistry {
             .chain(
                 inner
                     .files
-                    .values()
-                    .filter(|media| media.playback.active)
-                    .filter_map(|media| media.progress.as_ref().map(|progress| &progress.path)),
+                    .iter()
+                    .filter(|(_, media)| media.playback.active)
+                    .filter_map(|(id, media)| {
+                        media
+                            .progress
+                            .as_ref()
+                            .map(|progress| &progress.path)
+                            .or_else(|| inner.observed_files.get(id))
+                    }),
             )
             .cloned()
             .collect()
@@ -317,12 +520,19 @@ impl MediaStreamRegistry {
             .map(|media| (media.size, Arc::clone(&media.request_lock)))
     }
 
-    fn wait_for_permitted_range(
+    #[cfg(test)]
+    fn read_range(&self, file_id: i32, start: u64, requested: u64) -> Result<MediaChunk, String> {
+        let ticket = self.ticket(file_id)?;
+        self.read_range_owned(file_id, start, requested, ticket)
+    }
+
+    fn read_range_owned(
         &self,
         file_id: i32,
         start: u64,
         requested: u64,
-    ) -> Result<u64, String> {
+        ticket: RequestTicket,
+    ) -> Result<MediaChunk, String> {
         let deadline = Instant::now() + RANGE_WAIT_TIMEOUT;
         let mut inner = self.inner.lock().expect("media stream registry poisoned");
         loop {
@@ -330,40 +540,9 @@ impl MediaStreamRegistry {
                 .files
                 .get(&file_id)
                 .ok_or_else(|| "Media stream is not registered".to_string())?;
-            if start >= media.size {
-                return Err("Requested media range is outside the file".to_string());
+            if !self.ticket_matches(media, ticket) {
+                return Err("Media request superseded".into());
             }
-            if !media.playback.active && !media_is_complete(media) {
-                return Err("Telegram media stream is suspended".to_string());
-            }
-            let wanted = permitted_response_bytes(
-                media,
-                start,
-                requested.min(media.size - start).min(MAX_RESPONSE_BYTES),
-            );
-            if wanted > 0 {
-                return Ok(wanted);
-            }
-            if Instant::now() >= deadline {
-                return Err("Timed out while waiting for the video buffer window".to_string());
-            }
-            let wait = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self
-                .changed
-                .wait_timeout(inner, wait)
-                .expect("media stream registry poisoned while waiting");
-            inner = next;
-        }
-    }
-
-    fn read_range(&self, file_id: i32, start: u64, requested: u64) -> Result<MediaChunk, String> {
-        let deadline = Instant::now() + RANGE_WAIT_TIMEOUT;
-        let mut inner = self.inner.lock().expect("media stream registry poisoned");
-        loop {
-            let media = inner
-                .files
-                .get(&file_id)
-                .ok_or_else(|| "Media stream is not registered".to_string())?;
             if start >= media.size {
                 return Err("Requested media range is outside the file".to_string());
             }
@@ -589,35 +768,12 @@ fn media_is_complete(media: &RegisteredMedia) -> bool {
         .is_some_and(|progress| progress.completed && progress.downloaded_size >= media.size)
 }
 
+// The demuxer supplies byte offsets. Time/size ratios are invalid for VBR and
+// tail metadata; bound the actual requested bytes instead of predicting them.
 fn permitted_response_bytes(media: &RegisteredMedia, start: u64, requested: u64) -> u64 {
-    if media_is_complete(media) || start >= media.size.saturating_sub(STREAM_METADATA_TAIL_BYTES) {
-        return requested;
-    }
-    let allowed_end = if media.playback.duration > 0.0 {
-        let buffer_seconds = if media.playback.paused {
-            PAUSED_STREAM_BUFFER_SECONDS
-        } else {
-            ACTIVE_STREAM_BUFFER_SECONDS
-        };
-        let buffered_until =
-            (media.playback.current_time + buffer_seconds).min(media.playback.duration);
-        let timed_bytes =
-            (media.size as f64 * buffered_until / media.playback.duration).ceil() as u64;
-        let safety_bytes = if media.playback.paused {
-            STREAM_RANGE_SAFETY_BYTES / 2
-        } else {
-            STREAM_RANGE_SAFETY_BYTES
-        };
-        timed_bytes.saturating_add(safety_bytes)
-    } else {
-        INITIAL_STREAM_WINDOW_BYTES
-    }
-    .min(media.size);
-    if start >= allowed_end {
-        0
-    } else {
-        requested.min(allowed_end - start)
-    }
+    requested
+        .min(MAX_RESPONSE_BYTES)
+        .min(media.size.saturating_sub(start))
 }
 
 fn parse_range(value: Option<&str>, size: u64) -> Result<(u64, u64), String> {
@@ -638,6 +794,9 @@ fn parse_range(value: Option<&str>, size: u64) -> Result<(u64, u64), String> {
             .parse::<u64>()
             .map_err(|_| "Invalid media suffix range".to_string())?
             .min(size);
+        if suffix == 0 {
+            return Err("Invalid media suffix range".into());
+        }
         return Ok((size - suffix, suffix.min(MAX_RESPONSE_BYTES)));
     }
     let start = start
@@ -668,18 +827,31 @@ fn error_response(status: StatusCode, message: &str) -> Response<Vec<u8>> {
         .expect("valid media error response")
 }
 
-fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> Response<Vec<u8>> {
+fn parse_stream_owner(query: &str) -> Option<(u64, u64)> {
+    let mut session = None;
+    let mut lease = None;
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        match key {
+            "session" if session.is_none() => session = Some(value.parse().ok()?),
+            "lease" if lease.is_none() => lease = Some(value.parse().ok()?),
+            _ => return None,
+        }
+    }
+    Some((session?, lease?))
+}
+
+fn media_response<R: Runtime>(
+    app: &AppHandle<R>,
+    request: Request<Vec<u8>>,
+    ticket: RequestTicket,
+) -> Response<Vec<u8>> {
     let file_id = match request.uri().path().trim_matches('/').parse::<i32>() {
         Ok(file_id) => file_id,
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "Invalid Telegram media file"),
     };
     let registry = app.state::<MediaStreamRegistry>();
-    let generation = request
-        .uri()
-        .query()
-        .and_then(|query| query.strip_prefix("session="))
-        .and_then(|value| value.parse::<u64>().ok());
-    if generation != Some(registry.generation()) {
+    if ticket.session != registry.generation() {
         return error_response(StatusCode::FORBIDDEN, "Media session expired");
     }
     let Some((size, request_lock)) = registry.stream_descriptor(file_id) else {
@@ -704,11 +876,6 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         }
     };
 
-    // Keep permission waits outside the per-file lock so speculative reads cannot block metadata probes.
-    let permitted_length = match registry.wait_for_permitted_range(file_id, start, length) {
-        Ok(value) => value,
-        Err(message) => return error_response(StatusCode::GATEWAY_TIMEOUT, &message),
-    };
     let _request_guard = match request_lock.lock() {
         Ok(guard) => guard,
         Err(_) => {
@@ -718,14 +885,14 @@ fn media_response<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
             );
         }
     };
-    if let Err(message) =
-        app.state::<TelegramRuntime>()
-            .request_media_range(file_id, start, permitted_length)
-    {
+    let runtime = app.state::<TelegramRuntime>();
+    if let Err(message) = registry.begin_range(file_id, start, length, ticket, &runtime) {
         return error_response(StatusCode::SERVICE_UNAVAILABLE, &message);
     }
-    match registry.read_range(file_id, start, permitted_length) {
-        Ok(_) if generation != Some(registry.generation()) => {
+    let result = registry.read_range_owned(file_id, start, length, ticket);
+    registry.finish_range(file_id, ticket, |request| runtime.send(request));
+    match result {
+        Ok(_) if ticket.session != registry.generation() => {
             error_response(StatusCode::FORBIDDEN, "Media session expired")
         }
         Ok(chunk) => Response::builder()
@@ -750,7 +917,35 @@ pub fn respond<R: Runtime>(
     request: Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    thread::spawn(move || responder.respond(media_response(&app, request)));
+    let file_id = request
+        .uri()
+        .path()
+        .trim_matches('/')
+        .parse::<i32>()
+        .unwrap_or(0);
+    let owner = request.uri().query().and_then(parse_stream_owner);
+    let ticket = app.state::<MediaStreamRegistry>().ticket(file_id);
+    let ticket = match ticket {
+        Ok(ticket) if owner == Some((ticket.session, ticket.lease)) => ticket,
+        _ => {
+            responder.respond(error_response(
+                StatusCode::FORBIDDEN,
+                "Media session expired",
+            ));
+            return;
+        }
+    };
+    super::stream_scheduler::dispatch((ticket.session, file_id), ticket.epoch, move |cancelled| {
+        let response = if cancelled {
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Media request superseded or queue full",
+            )
+        } else {
+            media_response(&app, request, ticket)
+        };
+        responder.respond(response);
+    });
 }
 
 #[tauri::command]
@@ -812,6 +1007,9 @@ mod tests {
         assert_eq!(parse_range(Some("bytes=90-"), 100).unwrap(), (90, 10));
         assert_eq!(parse_range(Some("bytes=-8"), 100).unwrap(), (92, 8));
         assert!(parse_range(Some("bytes=100-"), 100).is_err());
+        assert!(parse_range(Some("bytes=0-1,3-4"), 100).is_err());
+        assert!(parse_range(Some("bytes=40-20"), 100).is_err());
+        assert!(parse_range(Some("bytes=-0"), 100).is_err());
     }
 
     #[test]
@@ -827,7 +1025,7 @@ mod tests {
     #[test]
     fn reads_only_observed_ranges_for_registered_files() {
         let registry = MediaStreamRegistry::default();
-        registry.register(7, 12, "video/mp4").unwrap();
+        registry.register(7, 12, "video/mp4", false).unwrap();
         let path = env::temp_dir().join(format!(
             "notgram-media-{}-{}.mp4",
             std::process::id(),
@@ -858,8 +1056,8 @@ mod tests {
     #[test]
     fn serializes_range_requests_for_each_registered_file() {
         let registry = MediaStreamRegistry::default();
-        registry.register(7, 12, "video/mp4").unwrap();
-        registry.register(8, 12, "video/mp4").unwrap();
+        registry.register(7, 12, "video/mp4", false).unwrap();
+        registry.register(8, 12, "video/mp4", false).unwrap();
 
         let (_, first) = registry.stream_descriptor(7).unwrap();
         let (_, same_file) = registry.stream_descriptor(7).unwrap();
@@ -877,7 +1075,7 @@ mod tests {
         let registry = MediaStreamRegistry::default();
         let stream = PathBuf::from("stream.mp4");
         let download = PathBuf::from("download.jpg");
-        registry.register(7, 12, "video/mp4").unwrap();
+        registry.register(7, 12, "video/mp4", false).unwrap();
         registry.observe_update(&serde_json::json!({
             "@type": "updateFile",
             "file": {
@@ -931,53 +1129,176 @@ mod tests {
     }
 
     #[test]
-    fn limits_ranges_to_the_playhead_buffer_window_but_allows_metadata_tail() {
-        let mut media = RegisteredMedia {
-            size: 600 * 1024 * 1024,
-            mime_type: "video/mp4".to_string(),
-            progress: None,
-            playback: StreamPlayback {
-                current_time: 0.0,
-                duration: 3_600.0,
-                paused: true,
-                active: true,
-            },
-            request_lock: Arc::new(Mutex::new(())),
-        };
-        assert!(permitted_response_bytes(&media, 0, MAX_RESPONSE_BYTES) > 0);
+    fn serves_demuxer_offsets_without_assuming_a_constant_bitrate() {
+        let registry = MediaStreamRegistry::default();
+        registry
+            .register(7, 600 * 1024 * 1024, "video/mp4", false)
+            .unwrap();
+        let inner = registry.inner.lock().unwrap();
+        let media = inner.files.get(&7).unwrap();
         assert_eq!(
-            permitted_response_bytes(&media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
-            0
+            permitted_response_bytes(media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
+            MAX_RESPONSE_BYTES
         );
         assert_eq!(
-            permitted_response_bytes(&media, 3 * 1024 * 1024, MAX_RESPONSE_BYTES),
-            0
+            permitted_response_bytes(media, media.size - 1024, MAX_RESPONSE_BYTES),
+            1024
         );
-        media.playback.current_time = 120.0;
-        media.playback.paused = false;
-        assert!(permitted_response_bytes(&media, 18 * 1024 * 1024, MAX_RESPONSE_BYTES) > 0);
-        assert!(permitted_response_bytes(&media, 26 * 1024 * 1024, MAX_RESPONSE_BYTES) > 0);
-        media.playback.paused = true;
-        assert_eq!(
-            permitted_response_bytes(&media, 26 * 1024 * 1024, MAX_RESPONSE_BYTES),
-            0
+        assert_eq!(permitted_response_bytes(media, media.size, 100), 0);
+    }
+
+    #[test]
+    fn source_leases_and_account_generations_reject_old_owners() {
+        let registry = MediaStreamRegistry::default();
+        let first = registry.register(7, 1000, "video/mp4", false).unwrap();
+        let ticket = registry.ticket(7).unwrap();
+        let second = registry.register(7, 1000, "video/mp4", false).unwrap();
+        registry.release(
+            7,
+            Some((first.session, first.lease)),
+            &TelegramRuntime::new(),
         );
-        assert_eq!(
-            permitted_response_bytes(&media, media.size - 1024, 1024),
-            1024,
+        assert!(
+            registry
+                .inner
+                .lock()
+                .unwrap()
+                .files
+                .get(&7)
+                .unwrap()
+                .playback
+                .active
         );
-        media.progress = Some(FileProgress {
-            path: PathBuf::from("partial-video.mp4"),
-            offset: 0,
-            prefix_size: 1024,
-            downloaded_size: 1024,
-            active: false,
-            completed: true,
+        assert_ne!(first.lease, second.lease);
+        assert!(registry.read_range_owned(7, 0, 10, ticket).is_err());
+        assert!(
+            registry
+                .update_playback(
+                    7,
+                    5.0,
+                    10.0,
+                    false,
+                    false,
+                    Some((first.session, first.lease))
+                )
+                .is_err()
+        );
+        registry.clear();
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        assert!(
+            registry
+                .update_playback(
+                    7,
+                    5.0,
+                    10.0,
+                    false,
+                    false,
+                    Some((second.session, second.lease))
+                )
+                .is_err()
+        );
+        assert_eq!(parse_stream_owner("session=2&lease=5"), Some((2, 5)));
+        assert!(parse_stream_owner("session=2&lease=5&session=3").is_none());
+        assert!(parse_stream_owner("session=2").is_none());
+    }
+
+    #[test]
+    fn seek_wakes_a_waiting_read_and_revokes_obsolete_ranges() {
+        let registry = Arc::new(MediaStreamRegistry::default());
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        let ticket = registry.ticket(7).unwrap();
+        let other = Arc::clone(&registry);
+        let (send, receive) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            send.send(other.read_range_owned(7, 0, 100, ticket).is_err())
+                .unwrap();
         });
-        assert!(!media_is_complete(&media));
+        registry
+            .update_playback(7, 0.5, 10.0, false, true, None)
+            .unwrap();
+        assert!(receive.recv_timeout(Duration::from_secs(1)).unwrap());
+        reader.join().unwrap();
+        assert_ne!(registry.ticket(7).unwrap().epoch, ticket.epoch);
+    }
+
+    #[test]
+    fn defers_full_downloads_and_cancellation_until_the_range_releases_the_cursor() {
+        let registry = MediaStreamRegistry::default();
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        let ticket = registry.ticket(7).unwrap();
+        registry.inner.lock().unwrap().active_ranges.insert(7);
+        let sent = Mutex::new(Vec::new());
+        let send = |request: &Value| {
+            sent.lock().unwrap().push(request.clone());
+            Ok(())
+        };
+        let full = serde_json::json!({"@type":"downloadFile", "file_id":7, "offset":0, "limit":0, "priority":24, "@extra":"full"});
+        registry.coordinate_download(&full, send).unwrap();
+        assert!(sent.lock().unwrap().is_empty());
+        registry.finish_range(7, ticket, send);
+        assert_eq!(*sent.lock().unwrap(), vec![full.clone()]);
+        // An ensuing playback range restores the saved full-download request.
+        registry.inner.lock().unwrap().active_ranges.insert(7);
+        registry.finish_range(7, ticket, send);
         assert_eq!(
-            permitted_response_bytes(&media, 100 * 1024 * 1024, MAX_RESPONSE_BYTES),
-            0
+            sent.lock().unwrap().last().unwrap().get("limit"),
+            Some(&Value::from(0))
+        );
+        assert!(sent.lock().unwrap().last().unwrap().get("@extra").is_none());
+        registry.inner.lock().unwrap().active_ranges.insert(7);
+        let cancel =
+            serde_json::json!({"@type":"cancelDownloadFile", "file_id":7, "only_if_pending":false});
+        registry.coordinate_download(&cancel, send).unwrap();
+        registry.finish_range(7, ticket, send);
+        assert_eq!(sent.lock().unwrap().last(), Some(&cancel));
+        assert!(
+            !registry
+                .inner
+                .lock()
+                .unwrap()
+                .full_downloads
+                .contains_key(&7)
+        );
+    }
+
+    #[test]
+    fn account_reset_drops_deferred_downloads_and_old_range_completion() {
+        let registry = MediaStreamRegistry::default();
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        let ticket = registry.ticket(7).unwrap();
+        registry.inner.lock().unwrap().active_ranges.insert(7);
+        registry
+            .coordinate_download(
+                &serde_json::json!({"@type":"downloadFile", "file_id":7, "offset":0, "limit":0}),
+                |_| panic!("must defer"),
+            )
+            .unwrap();
+        registry.clear();
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        registry.finish_range(7, ticket, |_| panic!("must not send to the new account"));
+        assert!(registry.inner.lock().unwrap().pending_commands.is_empty());
+    }
+
+    #[test]
+    fn local_playback_protects_a_file_observed_before_registration() {
+        let registry = MediaStreamRegistry::default();
+        registry.observe_update(&serde_json::json!({"@type":"updateFile", "file":{"id":7,
+            "local":{"path":"cached.mp4", "is_downloading_active":false, "is_downloading_completed":true}}}));
+        let owner = registry.register(7, 1000, "video/mp4", false).unwrap();
+        assert!(
+            registry
+                .protected_paths()
+                .contains(&PathBuf::from("cached.mp4"))
+        );
+        registry.release(
+            7,
+            Some((owner.session, owner.lease)),
+            &TelegramRuntime::new(),
+        );
+        assert!(
+            !registry
+                .protected_paths()
+                .contains(&PathBuf::from("cached.mp4"))
         );
     }
 }

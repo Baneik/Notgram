@@ -222,7 +222,7 @@ export interface TelegramTransport {
   resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined>;
   recoverFile(fileId: number, priority?: number): Promise<void>;
   streamFile(input: StreamFileInput): Promise<string>;
-  suspendFileStream(fileId: number): Promise<void>;
+  suspendFileStream(fileId: number, source?: string): Promise<void>;
   downloadFile(fileId: number, fileName: string, sourcePath?: string): Promise<string | void>;
   cancelFileDownload(fileId: number): Promise<void>;
   openFile(sourcePath: string): Promise<void>;

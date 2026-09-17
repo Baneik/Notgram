@@ -2254,8 +2254,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.streamFile(input);
   }
 
-  async suspendFileStream(fileId: number) {
-    return this.messageMediaService.suspendFileStream(fileId);
+  async suspendFileStream(fileId: number, source?: string) {
+    return this.messageMediaService.suspendFileStream(fileId, source);
   }
 
   async retryMessage(chatId: string, messageId: string) {

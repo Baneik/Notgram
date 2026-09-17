@@ -1,7 +1,7 @@
 import { localMediaSource } from "./localMediaSource";
-import type { PhotoContent } from "../utils/mediaViewerModel";
+import type { ViewerMessage } from "../utils/mediaViewerModel";
 
-export const photoSources = (content: PhotoContent, thumbnail = false) => {
+export const photoSources = (content: ViewerMessage["content"], thumbnail = false) => {
   const original = localMediaSource(content.localPath);
   const preview = localMediaSource(content.thumbnailPath);
   return [...new Set((thumbnail

@@ -4725,19 +4725,22 @@ export const createTelegramStore = (
       },
 
       streamFile: async (fileId, size, mimeType) => {
+        const generation = accountGeneration;
         try {
           const source = await transport.streamFile({ fileId, size, mimeType });
+          if (generation !== accountGeneration) return undefined;
           set({ operationError: undefined });
           return source;
         } catch (error) {
+          if (generation !== accountGeneration) return undefined;
           set({ operationError: error instanceof Error ? error.message : translate("视频流加载失败") });
           return undefined;
         }
       },
 
-      suspendFileStream: async (fileId) => {
+      suspendFileStream: async (fileId, source) => {
         try {
-          await transport.suspendFileStream(fileId);
+          await transport.suspendFileStream(fileId, source);
         } catch {
           // Pausing playback is best-effort and should not surface a global
           // operation error when the stream already finished or disappeared.

@@ -686,6 +686,7 @@ export interface MessageRichMedia {
   width?: number;
   height?: number;
   duration?: number;
+  supportsStreaming?: boolean;
   hasSpoiler: boolean;
   autoplay: boolean;
   loop: boolean;
@@ -796,6 +797,7 @@ interface TransferableMessageContent {
   width?: number;
   height?: number;
   duration?: number;
+  supportsStreaming?: boolean;
   hasSpoiler?: boolean;
 }
 

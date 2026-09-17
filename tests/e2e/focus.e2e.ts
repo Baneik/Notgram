@@ -80,13 +80,13 @@ for (const media of ["photo", "video"] as const) {
   test(`closing a conversation ${media} window restores typing`, async ({ page }) => {
     await openReady(page);
     const trigger = media === "photo" ? page.locator(".message-list .photo-open").first()
-      : page.locator('[data-message-id="p-video"] .video-player');
+      : page.locator('[data-message-id="p-video"] .video-preview');
     await trigger.scrollIntoViewIfNeeded();
     const opened = page.waitForEvent("popup");
     if (media === "photo") await trigger.click();
-    else await trigger.dblclick();
+    else await trigger.click();
     const popup = await opened;
-    await expect(popup.locator(media === "photo" ? ".media-viewer" : ".video-window")).toBeVisible();
+    await expect(popup.locator(media === "photo" ? ".media-viewer" : ".media-viewer")).toBeVisible();
     const closed = popup.waitForEvent("close");
     await popup.keyboard.down("Escape");
     await closed;
@@ -134,12 +134,12 @@ for (const order of ["closed-first", "activation-first"] as const) {
 for (const navigation of ["search", "switch"] as const) {
   test(`a conversation video close preserves a newer ${navigation} operation`, async ({ page }) => {
     await openReady(page);
-    const player = page.locator('[data-message-id="p-video"] .video-player');
+    const player = page.locator('[data-message-id="p-video"] .video-preview');
     await player.scrollIntoViewIfNeeded();
     const opened = page.waitForEvent("popup");
-    await player.dblclick();
+    await player.click();
     const popup = await opened;
-    await expect(popup.locator(".video-window")).toBeVisible();
+    await expect(popup.locator(".media-viewer")).toBeVisible();
     if (navigation === "switch") {
       await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
       await expect(page.locator(".conversation-header")).toContainText("Mia Chen");
@@ -264,7 +264,7 @@ test("closing a video preview preserves a newer search operation", async ({ page
   const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "预览 mock-video.mp4" }).click();
   const popup = await popupPromise;
-  await expect(popup.locator(".video-window")).toBeVisible();
+  await expect(popup.locator(".media-viewer")).toBeVisible();
   await search(page).fill("Mia");
   const closed = popup.waitForEvent("close");
   await popup.keyboard.down("Escape");

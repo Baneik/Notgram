@@ -15,6 +15,15 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("retains video duration and streaming capability before metadata is decoded", () => {
+    expect(mapTdMessageContent({ "@type": "messageVideo", video: {
+      duration: 93, width: 1920, height: 1080, supports_streaming: false,
+      video: { id: 42, size: 1000 }, file_name: "vbr.mp4", mime_type: "video/mp4",
+    } })).toMatchObject({ mediaType: "video", duration: 93, supportsStreaming: false });
+    expect(mapTdMessageContent({ "@type": "messageVideoNote", video_note: {
+      duration: 17, length: 240, video: { id: 43, size: 1000 },
+    } })).toMatchObject({ mediaType: "videoNote", duration: 17, mimeType: "video/mp4" });
+  });
   it.each([
     [{ "@type": "chatMemberStatusCreator", is_member: true }, true],
     [{ "@type": "chatMemberStatusCreator", is_member: false }, false],

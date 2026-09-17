@@ -11,6 +11,7 @@ import {
 import type { PhotoMessage } from "../utils/mediaViewerModel";
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false), invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
 
 describe("media viewer window routing", () => {
   it("creates identifiers accepted by the native window label validator", () => {

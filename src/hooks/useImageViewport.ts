@@ -62,7 +62,7 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
     observer.observe(viewportElement); observer.observe(fitElement);
     measure();
     return () => observer.disconnect();
-  }, [dimensions.width, dimensions.height, paint]);
+  }, [identity, dimensions.width, dimensions.height, paint]);
 
   useLayoutEffect(() => () => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);

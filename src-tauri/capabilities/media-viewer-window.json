@@ -1,11 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "media-viewer-window",
-  "description": "Restricted controls for dedicated fullscreen image viewer windows",
+  "description": "Restricted controls for shared photo and video viewer windows",
   "windows": ["media-viewer-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
-    "core:window:allow-set-theme"
+    "core:window:allow-set-theme",
+    "core:window:allow-set-size",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-start-dragging"
   ]
 }

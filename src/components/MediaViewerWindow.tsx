@@ -8,7 +8,8 @@ import {
   type MediaViewerWindowDescriptor,
   type MediaViewerWindowMessage,
 } from "../media/mediaViewerWindowBridge";
-import { MediaViewer } from "./MediaViewer";
+import { VideoPlaybackView } from "./VideoPlaybackView";
+import type { VideoSource, VideoCommand } from "../media/videoPlayback";
 import { applyThemeToDocument, themeIdForColorTheme } from "../theme/theme";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 
@@ -26,6 +27,9 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   const pendingActions = useRef(new Map<number, { resolve: () => void; reject: () => void }>());
   const [descriptor, setDescriptor] = useState<MediaViewerWindowDescriptor>();
   const [activeMessageId, setActiveMessageId] = useState<string>();
+  const [videoSource, setVideoSource] = useState<VideoSource>();
+  const [videoCommand, setVideoCommand] = useState<{ command: VideoCommand; revision: number; sequence: number; value?: number }>();
+  const [modeRequest, setModeRequest] = useState<{ windowed: boolean; sequence: number }>();
   const showPreparing = useStableVisibility(!descriptor || !activeMessageId);
 
   const applyTheme = (colorTheme: MediaViewerWindowDescriptor["colorTheme"]) => {
@@ -82,6 +86,14 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
         pendingActions.current.delete(message.requestId);
         if (message.failed) pending?.reject();
         else pending?.resolve();
+      } else if (message.type === "video-source") {
+        setVideoSource(message.source);
+      } else if (message.type === "video-command") {
+        setVideoCommand(current => ({ command: message.command, revision: message.revision, value: message.value, sequence: (current?.sequence ?? 0) + 1 }));
+      } else if (message.type === "focus") {
+        setModeRequest(current => ({ windowed: message.windowed, sequence: (current?.sequence ?? 0) + 1 }));
+        if (isTauri()) void getCurrentWindow().setFocus().catch(() => undefined);
+        else globalThis.focus();
       }
     };
     const handleBeforeUnload = () => {
@@ -125,7 +137,7 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
   }
 
   return (
-    <MediaViewer
+    <VideoPlaybackView
       messages={descriptor.messages}
       activeMessageId={activeMessageId}
       onActiveMessageChange={changeActiveMessage}
@@ -133,6 +145,12 @@ export function MediaViewerWindow({ id }: MediaViewerWindowProps) {
       allowSave={descriptor.allowSave}
       onDownload={(fileId, fileName) => runAction({ type: "download", fileId, fileName })}
       onSave={(sourcePath, fileName) => runAction({ type: "save", sourcePath, fileName })}
+      source={videoSource}
+      command={videoCommand}
+      initiallyWindowed={descriptor.mode === "window"}
+      modeRequest={modeRequest}
+      onVideoState={(source, state) => channelRef.current?.postMessage({ type: "video-state", id, key: source.key, revision: source.revision, state } satisfies MediaViewerWindowMessage)}
+      onVideoAction={(source, action, value) => channelRef.current?.postMessage({ type: "video-action", id, key: source.key, revision: source.revision, action, value } satisfies MediaViewerWindowMessage)}
     />
   );
 }

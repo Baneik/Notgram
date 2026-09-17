@@ -319,7 +319,7 @@ test("attachment entry points share classification, previews, spoilers, and loca
   await preview.getByRole("button", { name: "预览 mock-video.mp4" }).click();
   const videoPopup = await videoPopupPromise;
   await videoPopup.waitForLoadState("domcontentloaded");
-  await expect(videoPopup.locator(".video-window")).toHaveClass(/is-fullscreen/);
+  await expect(videoPopup.locator(".media-viewer-backdrop")).toHaveClass(/has-video/);
   await expect(videoPopup.locator("video")).toHaveAttribute("src", /^blob:/);
   const videoPopupClosed = videoPopup.waitForEvent("close");
   await videoPopup.keyboard.down("Escape");

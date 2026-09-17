@@ -6,6 +6,15 @@ export type PhotoContent = Extract<MessageContent, { kind: "media" }> & {
 
 export type PhotoMessage = Message & { content: PhotoContent };
 
+export type ViewerMessage = Message & {
+  content: Extract<MessageContent, { kind: "media" }> & { mediaType: "photo" | "video" | "videoNote" };
+};
+
+export const viewerMessages = (messages: Message[]): ViewerMessage[] => messages.filter(
+  (message): message is ViewerMessage => message.content.kind === "media" &&
+    ["photo", "video", "videoNote"].includes(message.content.mediaType),
+);
+
 export const isPhotoMessage = (message: Message): message is PhotoMessage =>
   message.content.kind === "media" && message.content.mediaType === "photo";
 
@@ -13,8 +22,8 @@ export const photoMessages = (messages: Message[]) => messages.filter(isPhotoMes
 
 export const MAX_MEDIA_VIEWER_THUMBNAILS = 9;
 
-export const photoThumbnailWindow = (
-  messages: PhotoMessage[],
+export const photoThumbnailWindow = <T extends ViewerMessage>(
+  messages: T[],
   currentId: string,
   limit = MAX_MEDIA_VIEWER_THUMBNAILS,
 ) => {
@@ -27,7 +36,7 @@ export const photoThumbnailWindow = (
 };
 
 export const adjacentPhotoId = (
-  messages: PhotoMessage[],
+  messages: ViewerMessage[],
   currentId: string,
   direction: -1 | 1,
 ) => {

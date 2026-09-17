@@ -2,6 +2,7 @@ mod assets;
 pub(crate) mod media_stream;
 mod runtime_log;
 mod security;
+mod stream_scheduler;
 mod tdlib_runtime;
 pub(crate) mod update_delivery;
 
@@ -116,6 +117,9 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "ui_startup",
     "ui_tdlib_update_batch",
     "ui_visual_jitter",
+    "media_first_frame",
+    "media_seek_completed",
+    "media_frame_quality",
     "media_playback_started",
     "media_buffering_started",
     "media_buffering_recovered",
@@ -160,6 +164,8 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "duringConversationSwitch",
     "duringHistoryLoad",
     "droppedCount",
+    "droppedFrames",
+    "totalFrames",
     "evidenceKind",
     "expectedFrames",
     "failed",
@@ -389,7 +395,7 @@ fn performance_thresholds(event: &str) -> (f64, f64) {
         | "video_window_initialized"
         | "video_window_open_started" => (250.0, 1_000.0),
         "video_window_open_failed" => (0.0, 1.0),
-        "media_playback_started" => (500.0, 1_500.0),
+        "media_playback_started" | "media_first_frame" | "media_seek_completed" => (500.0, 1_500.0),
         "media_buffering_started" | "media_buffering_recovered" => (250.0, 1_000.0),
         "media_playback_error" => (0.0, 0.0),
         _ => (50.0, 100.0),
@@ -1561,8 +1567,15 @@ pub fn telegram_start(app: AppHandle, runtime: State<'_, TelegramRuntime>) -> Re
 pub async fn telegram_send(
     request: Value,
     runtime: State<'_, TelegramRuntime>,
+    registry: State<'_, media_stream::MediaStreamRegistry>,
 ) -> Result<(), String> {
     validate_webview_tdlib_request(&request)?;
+    if matches!(
+        request.get("@type").and_then(Value::as_str),
+        Some("downloadFile" | "cancelDownloadFile")
+    ) {
+        return registry.coordinate_download(&request, |request| runtime.send(request));
+    }
     runtime.send(&request)
 }
 
@@ -1682,10 +1695,10 @@ pub fn telegram_register_media_stream(
     file_id: i32,
     size: u64,
     mime_type: String,
+    preserve_download: Option<bool>,
     registry: State<'_, media_stream::MediaStreamRegistry>,
-) -> Result<u64, String> {
-    registry.register(file_id, size, &mime_type)?;
-    Ok(registry.generation())
+) -> Result<media_stream::StreamLease, String> {
+    registry.register(file_id, size, &mime_type, preserve_download == Some(true))
 }
 
 #[tauri::command]
@@ -1694,17 +1707,35 @@ pub fn telegram_update_media_stream(
     current_time: f64,
     duration: f64,
     paused: bool,
+    seek: Option<bool>,
+    owner: Option<media_stream::StreamLease>,
     registry: State<'_, media_stream::MediaStreamRegistry>,
 ) -> Result<(), String> {
-    registry.update_playback(file_id, current_time, duration, paused)
+    registry.update_playback(
+        file_id,
+        current_time,
+        duration,
+        paused,
+        seek.unwrap_or(false),
+        owner.map(|owner| (owner.session, owner.lease)),
+    )
 }
 
 #[tauri::command]
 pub fn telegram_suspend_media_stream(
     file_id: i32,
+    session: Option<u64>,
+    lease: Option<u64>,
     registry: State<'_, media_stream::MediaStreamRegistry>,
-) {
-    registry.suspend(file_id);
+    runtime: State<'_, TelegramRuntime>,
+) -> Result<(), String> {
+    let owner = match (session, lease) {
+        (Some(session), Some(lease)) => Some((session, lease)),
+        (None, None) => None,
+        _ => return Err("Incomplete media stream owner".into()),
+    };
+    registry.release(file_id, owner, &runtime);
+    Ok(())
 }
 
 #[tauri::command]

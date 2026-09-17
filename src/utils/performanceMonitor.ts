@@ -197,6 +197,9 @@ const eventMetadata: Record<string, EventMetadata> = {
   ui_media_viewer_initialized: { get label() { return translate("图片窗口初始化"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   ui_media_viewer_image: { get label() { return translate("图片显示"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   video_window_open_failed: { get label() { return translate("视频窗口失败"); }, category: "media", warningMs: 0, criticalMs: 1 },
+  media_first_frame: { get label() { return translate("媒体首帧提交"); }, category: "media", warningMs: 500, criticalMs: 1_500 },
+  media_seek_completed: { get label() { return translate("媒体拖动恢复"); }, category: "media", warningMs: 500, criticalMs: 1_500 },
+  media_frame_quality: { get label() { return translate("媒体帧质量"); }, category: "media", warningMs: Infinity, criticalMs: Infinity },
   media_playback_started: { get label() { return translate("媒体开始播放"); }, category: "media", warningMs: 500, criticalMs: 1_500 },
   media_buffering_started: { get label() { return translate("媒体开始缓冲"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   media_buffering_recovered: { get label() { return translate("媒体恢复播放"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
@@ -1103,7 +1106,7 @@ const regionKind = (target?: Node | null) => {
   if (target.closest(".conversation, .conversation-shell, .message-list, .message-list-content")) return 2;
   if (target.closest(".conversation-composer, .composer")) return 3;
   if (target.closest(".settings-dialog, .settings-detail")) return 4;
-  if (target.closest("video, audio, .video-player, .media-viewer")) return 5;
+  if (target.closest("video, audio, .video-preview, .media-viewer")) return 5;
   if (target.closest("nav, header, .app-chrome, .window-chrome")) return 6;
   return 7;
 };

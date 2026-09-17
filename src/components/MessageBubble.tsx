@@ -41,7 +41,7 @@ import { TgsSticker } from "./TgsSticker";
 import { StickerPlaceholder } from "./StickerPlaceholder";
 import { AutoplayVideo } from "./AutoplayVideo";
 import { StableImage } from "./StableImage";
-import { VideoPlayer } from "./VideoPlayer";
+import { VideoPreview } from "./VideoPreview";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
 import { highlightedText } from "../utils/textHighlight";
@@ -150,7 +150,7 @@ export interface MessageBubbleProps {
   senderChats: ReadonlyMap<string, Chat>;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
-  onOpenMedia?: (messageId: string, chatId?: string) => void;
+  onOpenMedia?: (messageId: string, chatId?: string, windowed?: boolean) => void;
   onOpenStickerSet?: (stickerSetId: string) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
@@ -873,7 +873,7 @@ function MessageBubbleComponent({
                   concealedOverlay={renderMediaTransferProgress()}
                 >
                 {["video", "videoNote"].includes(content.mediaType) ? (
-                  <VideoPlayer
+                  <VideoPreview
                     source={usableFullMediaSource}
                     poster={usablePreviewSource}
                     playbackId={`${message.chatId}:${message.id}`}
@@ -881,10 +881,11 @@ function MessageBubbleComponent({
                     fileId={content.fileId}
                     size={content.size}
                     mimeType={content.mimeType}
+                    duration={content.duration}
+                    onOpen={onOpenMedia ? windowed => onOpenMedia(message.id, message.chatId, windowed) : undefined}
+                    onRecoverFile={onRecoverFile}
                     mediaWidth={content.width}
                     mediaHeight={content.height}
-                    downloading={content.isDownloading === true}
-                    downloadProgress={content.progress}
                     round={content.mediaType === "videoNote"}
                     canDownload={canDownload && downloadFileId !== undefined}
                     onDownload={canDownload && downloadFileId !== undefined
@@ -892,8 +893,6 @@ function MessageBubbleComponent({
                       : undefined}
                     onRequestStream={onStream}
                     onSuspendStream={onSuspendStream}
-                    onLoadedMetadata={rememberMediaSize}
-                    onError={markMediaSourceFailed}
                   />
                 ) : usableFullMediaSource && isVideoSticker ? (
                   <AutoplayVideo

@@ -820,7 +820,8 @@ export function ChannelDiscussionPanel({
             ["video", "videoNote"].includes(actionMessage.content.mediaType)
             ? () => {
                 setActionMenu(undefined);
-                requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
+                if (messagePreviewOptions?.onOpenMedia) messagePreviewOptions.onOpenMedia(actionMessage.id, actionMessage.chatId, true);
+                else requestVideoWindowPlayback(`${actionMessage.chatId}:${actionMessage.id}`);
               }
             : undefined}
           onDownload={(actionMessage.content.kind === "media" || actionMessage.content.kind === "file") &&

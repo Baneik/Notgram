@@ -19,7 +19,7 @@ import type {
 } from "../telegram/types";
 import { AudioPlayer } from "./AudioPlayer";
 import { localMediaSource } from "../media/localMediaSource";
-import { VideoPlayer } from "./VideoPlayer";
+import { VideoPreview } from "./VideoPreview";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { highlightedText } from "../utils/textHighlight";
@@ -268,7 +268,7 @@ function RichMediaBlock({ media, context, blockKey }: {
     );
   } else if (media.mediaType === "video") {
     content = (
-      <VideoPlayer
+      <VideoPreview
         source={usableSource}
         poster={usablePoster}
         playbackId={`${context.messageId}:${blockKey}`}
@@ -276,16 +276,14 @@ function RichMediaBlock({ media, context, blockKey }: {
         fileId={media.fileId}
         size={media.size}
         mimeType={media.mimeType}
+        duration={media.duration}
+        onRecoverFile={context.onRecoverFile}
         mediaWidth={media.width}
         mediaHeight={media.height}
-        downloading={media.isDownloading}
-        downloadProgress={media.progress}
         canDownload={canDownload}
         onDownload={requestDownload}
         onRequestStream={context.onStream}
         onSuspendStream={context.onSuspendStream}
-        onLoadedMetadata={() => undefined}
-        onError={(failed) => markSourceFailed(failed, fileIdForSource(failed))}
       />
     );
   } else if (usableSource || usablePoster) {

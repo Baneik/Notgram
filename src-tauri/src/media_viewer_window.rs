@@ -1,4 +1,7 @@
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, webview::PageLoadEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    webview::PageLoadEvent,
+};
 
 fn validate_window_id(id: &str) -> Result<(), String> {
     if id.is_empty()
@@ -13,7 +16,11 @@ fn validate_window_id(id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Result<(), String> {
+pub async fn notgram_open_media_viewer_window(
+    app: AppHandle,
+    id: String,
+    windowed: Option<bool>,
+) -> Result<(), String> {
     validate_window_id(&id)?;
     let label = format!("media-viewer-{id}");
     if let Some(existing) = app.get_webview_window(&label) {
@@ -21,11 +28,18 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
     }
 
     let url = WebviewUrl::App(format!("windows/media-viewer-window.html?id={id}").into());
+    let windowed = windowed.unwrap_or(false);
+    let (width, height) = if windowed {
+        (640.0, 460.0)
+    } else {
+        (1280.0, 800.0)
+    };
     let mut builder = WebviewWindowBuilder::new(&app, label, url)
         .data_directory(crate::distribution::webview_data_directory(&app)?)
-        .title("Notgram 图片")
-        .inner_size(1280.0, 800.0)
-        .resizable(false)
+        .title("Notgram 媒体")
+        .inner_size(width, height)
+        .resizable(true)
+        .min_inner_size(320.0, 240.0)
         .maximizable(false)
         .minimizable(false)
         .decorations(false)
@@ -36,11 +50,11 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
         .visible(false)
         // Enter fullscreen during construction, before page-load callbacks can
         // show the HWND with its initial non-client caption style.
-        .fullscreen(true)
+        .fullscreen(!windowed)
         .zoom_hotkeys_enabled(false)
         .prevent_overflow();
     builder = if let Some((x, y)) =
-        crate::window_placement::centered_on_main_monitor(&app, 1280.0, 800.0)
+        crate::window_placement::centered_on_main_monitor(&app, width, height)
     {
         builder.position(x, y)
     } else {
@@ -48,7 +62,7 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
     };
     #[cfg(not(target_os = "macos"))]
     let builder = builder.transparent(true);
-    builder
+    let window = builder
         .on_page_load(|window, payload| {
             if payload.event() != PageLoadEvent::Finished {
                 return;
@@ -62,6 +76,12 @@ pub async fn notgram_open_media_viewer_window(app: AppHandle, id: String) -> Res
         })
         .build()
         .map_err(|error| error.to_string())?;
+    let app = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed) {
+            let _ = app.emit_to("main", "notgram:media-viewer-closed", &id);
+        }
+    });
     Ok(())
 }
 

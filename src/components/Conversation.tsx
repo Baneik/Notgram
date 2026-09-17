@@ -99,7 +99,7 @@ import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
 import { captureActiveComposerFocus, focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import { ReportDialog } from "./ReportDialog";
-import { photoMessages } from "../utils/mediaViewerModel";
+import { viewerMessages } from "../utils/mediaViewerModel";
 import {
   openMediaViewerWindow,
   syncMediaViewerWindow,
@@ -110,7 +110,6 @@ import {
   virtualizeMessageTimeline,
   type VirtualMessageBlock,
 } from "../utils/messageVirtualization";
-import { requestVideoWindowPlayback } from "../media/videoWindowBridge";
 import { ChatActionMenu } from "./ChatActionMenu";
 import { MotionPresence } from "./MotionPresence";
 import { ChannelDiscussionPanel } from "./ChannelDiscussionPanel";
@@ -841,9 +840,9 @@ export function Conversation({
     for (const message of source) {
       uniqueMessages.set(`${message.chatId}:${message.id}`, message);
     }
-    return photoMessages([...uniqueMessages.values()]);
+    return viewerMessages([...uniqueMessages.values()]);
   }, [allPinnedMessages, discussionViewerMessages, displayMessages, pinnedViewOpen]);
-  const openMediaViewer = useCallback((messageId: string, chatId?: string) => {
+  const openMediaViewer = useCallback((messageId: string, chatId?: string, windowed = false) => {
     const activeIndex = viewerPhotos.findIndex((message) =>
       message.id === messageId && (!chatId || message.chatId === chatId),
     );
@@ -851,15 +850,16 @@ export function Conversation({
     const activeContent = viewerPhotos[activeIndex].content;
     const restoreFocus = captureActiveComposerFocus(true);
     void openMediaViewerWindow({
-      messages: viewerPhotos,
+      messages: viewerPhotos.filter(message => message.chatId === viewerPhotos[activeIndex].chatId),
       activeMessageId: messageId,
+      mode: windowed ? "window" : "fullscreen",
       colorTheme,
-    }, onDownloadFile, onSaveFileToDownloads, restoreFocus, cacheFile);
-    if (activeContent.fileId !== undefined && activeContent.canDownload !== false &&
+    }, onDownloadFile, onSaveFileToDownloads, restoreFocus, cacheFile, { stream: onStreamFile, suspend: onSuspendFileStream, recover: onRecoverFile });
+    if (activeContent.mediaType === "photo" && activeContent.fileId !== undefined && activeContent.canDownload !== false &&
         !activeContent.isDownloading && !activeContent.isDownloaded) {
       void onDownloadFile(activeContent.fileId, activeContent.fileName).catch(() => undefined);
     }
-  }, [cacheFile, colorTheme, onDownloadFile, onSaveFileToDownloads, viewerPhotos]);
+  }, [cacheFile, colorTheme, onDownloadFile, onSaveFileToDownloads, onStreamFile, onSuspendFileStream, onRecoverFile, viewerPhotos]);
 
   useEffect(() => {
     syncMediaViewerWindow(viewerPhotos, colorTheme);
@@ -3071,7 +3071,7 @@ export function Conversation({
             ["video", "videoNote"].includes(actionMessageForMenu.content.mediaType)
             ? () => {
                 closeActionMenu(false);
-                requestVideoWindowPlayback(`${actionMessageForMenu.chatId}:${actionMessageForMenu.id}`);
+                openMediaViewer(actionMessageForMenu.id, actionMessageForMenu.chatId, true);
               }
             : undefined}
           onDownload={(actionMessageForMenu.content.kind === "media" || actionMessageForMenu.content.kind === "file") &&

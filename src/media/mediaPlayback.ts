@@ -144,6 +144,10 @@ export class MediaPlaybackCoordinator {
   clear(id: string) {
     this.resumePositions.delete(id);
   }
+
+  clearResumePositions() {
+    this.resumePositions.clear();
+  }
 }
 
 export const nextPlaybackRate = (current: number) => {

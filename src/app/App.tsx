@@ -201,7 +201,10 @@ export function App() {
   useEffect(() => telegramStore.subscribe((state, previous) => {
     // File IDs belong to one account. Stop viewer requests synchronously when
     // an account transition starts, before its delayed prefetch can run.
-    if (state.accountSwitching || state.activeAccountId !== previous.activeAccountId) closeActiveMediaViewerWindow();
+    if (state.accountSwitching || state.activeAccountId !== previous.activeAccountId) {
+      closeActiveMediaViewerWindow();
+      mediaPlaybackCoordinator.clearResumePositions();
+    }
   }), []);
   const chats = useTelegramStore((state) => state.chats);
   const chatListReady = useTelegramStore((state) => state.chatListReady);

@@ -6,24 +6,41 @@ export interface MediaStreamStatus {
   completed: boolean;
 }
 
+export interface MediaStreamOwner { session: number; lease: number }
+export const mediaStreamOwner = (source?: string): MediaStreamOwner | undefined => {
+  if (!source) return undefined;
+  try {
+    const url = new URL(source);
+    const session = url.searchParams.get("session"), lease = url.searchParams.get("lease");
+    if (session === null || lease === null) return undefined;
+    const result = { session: Number(session), lease: Number(lease) };
+    return Object.values(result).every(value => Number.isSafeInteger(value) && value >= 0) ? result : undefined;
+  } catch { return undefined; }
+};
+
 export const updateMediaStreamPlayback = async (
   fileId: number | undefined,
   currentTime: number,
   duration: number,
   paused: boolean,
+  source?: string,
+  seek = false,
 ) => {
   if (!isTauri() || fileId === undefined) return;
+  const owner = mediaStreamOwner(source);
   await invoke("telegram_update_media_stream", {
     fileId,
     currentTime,
     duration,
     paused,
+    ...(owner ? { owner } : {}),
+    ...(seek ? { seek: true } : {}),
   });
 };
 
-export const suspendMediaStream = async (fileId: number | undefined) => {
+export const suspendMediaStream = async (fileId: number | undefined, source?: string) => {
   if (!isTauri() || fileId === undefined) return;
-  await invoke("telegram_suspend_media_stream", { fileId });
+  await invoke("telegram_suspend_media_stream", { fileId, ...mediaStreamOwner(source) });
 };
 
 export const readMediaStreamStatus = async (

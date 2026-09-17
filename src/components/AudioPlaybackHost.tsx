@@ -91,6 +91,7 @@ function PersistentAudioEngine() {
       Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
       Number.isFinite(audio.duration) ? audio.duration : track.durationHint ?? 0,
       audio.paused,
+      audio.currentSrc,
     ).catch(() => undefined);
   };
 

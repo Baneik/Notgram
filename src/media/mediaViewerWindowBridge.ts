@@ -1,31 +1,39 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { PhotoMessage } from "../utils/mediaViewerModel";
+import type { ViewerMessage } from "../utils/mediaViewerModel";
 import { photoThumbnailWindow } from "../utils/mediaViewerModel";
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { logPerformance } from "../utils/performanceMonitor";
+import { videoPlaybackController, type VideoSource, type VideoState, type VideoCommand, type VideoServices, type VideoAction } from "./videoPlayback";
+import { listen } from "@tauri-apps/api/event";
 
 export interface MediaViewerWindowDescriptor {
   id: string;
-  messages: PhotoMessage[];
+  messages: ViewerMessage[];
   activeMessageId: string;
   colorTheme: "light" | "dark";
   allowSave?: boolean;
+  mode?: "window" | "fullscreen";
 }
 
 export type MediaViewerWindowMessage =
   | { type: "ready"; id: string }
   | { type: "active"; id: string; messageId: string }
+  | { type: "video-source"; id: string; source: VideoSource }
+  | { type: "video-state"; id: string; key: string; revision: number; state: VideoState }
+  | { type: "video-action"; id: string; key: string; revision: number; action: VideoAction; value?: number }
+  | { type: "video-command"; id: string; command: VideoCommand; revision: number; value?: number }
   | { type: "init"; id: string; descriptor: MediaViewerWindowDescriptor }
   | {
       type: "sync";
       id: string;
-      messages: PhotoMessage[];
+      messages: ViewerMessage[];
       colorTheme: MediaViewerWindowDescriptor["colorTheme"];
     }
   | { type: "download"; id: string; fileId: number; fileName: string; requestId?: number }
   | { type: "save"; id: string; sourcePath: string; fileName: string; requestId?: number }
   | { type: "action-result"; id: string; requestId: number; failed: boolean }
   | { type: "closed"; id: string }
+  | { type: "focus"; id: string; windowed: boolean }
   | { type: "command"; id: string; command: "close" };
 
 interface MediaViewerSession {
@@ -39,6 +47,12 @@ interface MediaViewerSession {
   prefetchTimer?: ReturnType<typeof globalThis.setTimeout>;
   onCache?: (fileId: number, priority: number) => Promise<void>;
   requestedFiles: Map<number, number>;
+  videoKey?: string;
+  videoServices?: VideoServices;
+  browser?: Window;
+  cleanup?: () => void;
+  openedAt: number;
+  initialSelection: boolean;
 }
 
 export const MEDIA_VIEWER_WINDOW_CHANNEL = "notgram-media-viewer-window-v1";
@@ -54,7 +68,7 @@ const cacheVisiblePhotos = (session: MediaViewerSession) => {
     void session.onCache!(fileId, priority).catch(() => session.requestedFiles.delete(fileId));
   };
   const active = messages.find(message => message.id === activeMessageId);
-  if (active && messageCanBeSaved(active)) {
+  if (active?.content.mediaType === "photo" && messageCanBeSaved(active)) {
     const content = active.content;
     if (content.fileId !== undefined && content.canDownload !== false && !content.isDownloaded) request(content.fileId, 32);
   }
@@ -83,16 +97,18 @@ export const mediaViewerWindowRoute = (id: string) => (
   `/windows/media-viewer-window.html?id=${encodeURIComponent(id)}`
 );
 
-export const createMediaViewerWindow = async (id: string) => {
+export const createMediaViewerWindow = async (id: string, windowed = false) => {
   if (isTauri()) {
-    await invoke("notgram_open_media_viewer_window", { id });
+    await invoke("notgram_open_media_viewer_window", { id, windowed });
     return true;
   }
-  return Boolean(globalThis.open(
+  const browser = globalThis.open(
     mediaViewerWindowRoute(id),
     `notgram-media-viewer-${id}`,
-    "popup=yes,width=1280,height=800",
-  ));
+    windowed ? "popup=yes,width=640,height=460" : "popup=yes,width=1280,height=800",
+  );
+  if (activeSession?.id === id && browser) activeSession.browser = browser;
+  return Boolean(browser);
 };
 
 export const closeMediaViewerWindow = async (id: string) => {
@@ -101,13 +117,14 @@ export const closeMediaViewerWindow = async (id: string) => {
 };
 
 export const syncMediaViewerWindow = (
-  messages: PhotoMessage[],
+  messages: ViewerMessage[],
   colorTheme: MediaViewerWindowDescriptor["colorTheme"],
 ) => {
   const session = activeSession;
   if (!session || messages.length === 0) return;
   const sessionChatId = session.descriptor.messages[0]?.chatId;
-  if (sessionChatId && messages[0]?.chatId !== sessionChatId) return;
+  if (sessionChatId) messages = messages.filter(message => message.chatId === sessionChatId);
+  if (messages.length === 0) return;
   if (session.descriptor.messages === messages && session.descriptor.colorTheme === colorTheme) return;
   session.descriptor = { ...session.descriptor, messages, colorTheme };
   scheduleSync(session);
@@ -115,7 +132,7 @@ export const syncMediaViewerWindow = (
 
 export const syncMediaViewerWindowSession = (
   id: string,
-  messages: PhotoMessage[],
+  messages: ViewerMessage[],
   colorTheme: MediaViewerWindowDescriptor["colorTheme"],
 ) => {
   const session = activeSession;
@@ -126,6 +143,9 @@ export const syncMediaViewerWindowSession = (
 };
 
 const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
+  if (activeSession !== session) return;
+  videoPlaybackController.close();
+  session.cleanup?.();
   session.cancelInitialization?.();
   if (session.syncTimer !== undefined) globalThis.clearTimeout(session.syncTimer);
   if (session.prefetchTimer !== undefined) globalThis.clearTimeout(session.prefetchTimer);
@@ -140,9 +160,11 @@ const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
       command: "close",
     } satisfies MediaViewerWindowMessage);
     void closeMediaViewerWindow(session.id).catch(() => undefined);
+    session.browser?.close?.();
   }
   session.channel.close();
   if (activeSession === session) activeSession = undefined;
+  session.onClosed?.();
 };
 
 export const closeMediaViewerWindowSession = (id: string) => {
@@ -161,15 +183,41 @@ export const openMediaViewerWindow = async (
   onSave: (sourcePath: string, fileName: string) => Promise<void>,
   onClosed?: () => void,
   onCache?: (fileId: number, priority: number) => Promise<void>,
+  videoServices?: VideoServices,
 ) => {
+  const existing = activeSession;
+  const active = input.messages.find(message => message.id === input.activeMessageId);
+  if (existing && active && existing.videoKey === `${active.chatId}:${active.id}`) {
+    existing.onClosed = onClosed;
+    existing.descriptor = { ...existing.descriptor, messages: input.messages, colorTheme: input.colorTheme };
+    scheduleSync(existing);
+    existing.channel.postMessage({ type: "focus", id: existing.id, windowed: input.mode === "window" } satisfies MediaViewerWindowMessage);
+    existing.browser?.focus?.();
+    return existing.id;
+  }
   if (activeSession) disposeSession(activeSession, true);
 
   const id = createMediaViewerWindowId();
   const descriptor: MediaViewerWindowDescriptor = { ...input, id };
   const channel = new BroadcastChannel(MEDIA_VIEWER_WINDOW_CHANNEL);
   const startedAt = performance.now();
-  const session: MediaViewerSession = { id, channel, descriptor, onClosed, onCache, requestedFiles: new Map() };
+  const session: MediaViewerSession = { id, channel, descriptor, onClosed, onCache, videoServices, requestedFiles: new Map(), openedAt: Date.now(), initialSelection: true };
   activeSession = session;
+  // Native destruction and browser handles cover exits where beforeunload or
+  // the channel notification cannot run (including a crashed child WebView).
+  if (isTauri()) {
+    void listen<string>("notgram:media-viewer-closed", event => {
+      if (event.payload === id) disposeSession(session, false);
+    }).then(unlisten => {
+      if (activeSession === session) session.cleanup = unlisten;
+      else unlisten();
+    });
+  } else {
+    const timer = globalThis.setInterval(() => {
+      if (session.browser?.closed) disposeSession(session, false);
+    }, 500);
+    session.cleanup = () => globalThis.clearInterval(timer);
+  }
   let resolveInitialized: (() => void) | undefined;
   const initialized = new Promise<void>((resolve, reject) => {
     resolveInitialized = resolve;
@@ -190,9 +238,30 @@ export const openMediaViewerWindow = async (
       resolveInitialized = undefined;
     } else if (message.type === "active") {
       if (!session.descriptor.messages.some(photo => photo.id === message.messageId)) return;
+      const openedAt = session.initialSelection ? session.openedAt : Date.now();
+      session.initialSelection = false;
       session.descriptor = { ...session.descriptor, activeMessageId: message.messageId };
+      const active = session.descriptor.messages.find(item => item.id === message.messageId)!;
+      const key = active.content.mediaType === "photo" ? undefined : `${active.chatId}:${active.id}`;
+      if (session.videoKey !== key) {
+        session.videoKey = key;
+        videoPlaybackController.close();
+        if (key) videoPlaybackController.open(
+          () => session.descriptor.messages.find(item => item.id === active.id) ?? active,
+          session.videoServices ?? {},
+          source => { if (activeSession === session) channel.postMessage({ type: "video-source", id, source } satisfies MediaViewerWindowMessage); },
+          (command, revision, value) => { if (activeSession === session) channel.postMessage({ type: "video-command", id, command, revision, value } satisfies MediaViewerWindowMessage); },
+          openedAt,
+        );
+      }
       if (session.prefetchTimer !== undefined) globalThis.clearTimeout(session.prefetchTimer);
       session.prefetchTimer = globalThis.setTimeout(() => cacheVisiblePhotos(session), 100);
+    } else if (message.type === "video-state") {
+      videoPlaybackController.state(message.key, message.revision, message.state);
+    } else if (message.type === "video-action") {
+      if (message.action === "play") videoPlaybackController.requestPlay(message.key, message.revision);
+      else if (message.action === "seek" && message.value !== undefined) void videoPlaybackController.seek(message.key, message.revision, message.value);
+      else videoPlaybackController.retry(message.key, message.revision);
     } else if (message.type === "download" || message.type === "save") {
       const reply = (failed: boolean) => {
         if (activeSession === session && message.requestId !== undefined) channel.postMessage({ type: "action-result", id, requestId: message.requestId, failed } satisfies MediaViewerWindowMessage);
@@ -202,7 +271,6 @@ export const openMediaViewerWindow = async (
       const action = Promise.resolve().then(() => message.type === "download" ? onDownload(message.fileId, message.fileName) : onSave(message.sourcePath, message.fileName));
       void action.then(() => reply(false), () => reply(true));
     } else if (message.type === "closed") {
-      session.onClosed?.();
       disposeSession(session, false);
     }
   };
@@ -216,7 +284,7 @@ export const openMediaViewerWindow = async (
   try {
     await Promise.race([
       Promise.all([
-        createMediaViewerWindow(id).then((created) => {
+        createMediaViewerWindow(id, input.mode === "window").then((created) => {
           if (!created) throw new Error("media viewer popup was blocked");
           // Native window creation can finish after an account switch or a
           // replacement viewer has already cancelled this opening request.

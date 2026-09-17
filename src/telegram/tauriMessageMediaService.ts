@@ -1,3 +1,4 @@
+import { mediaStreamOwner, type MediaStreamOwner } from "../media/mediaStream";
 import { activeNativeAccount, nativeAttachmentsAvailable, persistNativeBlob, MAX_ATTACHMENT_BATCH_BYTES } from "../store/nativeBlobs";
 import { inputTextEntityType } from "./tdlibTextEntities";
 import { translate } from "../i18n";
@@ -231,7 +232,7 @@ export interface PendingDownload {
 }
 
 export class TauriMessageMediaService {
-  private readonly activeStreams = new Set<number>();
+  private readonly activeStreams = new Map<number, MediaStreamOwner & { generation: number }>();
 
   constructor(private readonly context: TauriMessageMediaServiceContext) {}
 
@@ -821,30 +822,40 @@ export class TauriMessageMediaService {
     // the file cursor or cancel each other.
     const ownsFile = !this.context.pendingDownloads.has(fileId);
     if (ownsFile) this.context.fileDownloads.suppress(fileId);
-    let session: number;
+    const generation = this.context.sessionGeneration();
+    let owner: MediaStreamOwner;
     try {
-      session = await invoke<number>("telegram_register_media_stream", {
+      owner = await invoke<MediaStreamOwner>("telegram_register_media_stream", {
         fileId,
         size,
         mimeType: mimeType ?? "video/mp4",
+        preserveDownload: !ownsFile,
       });
     } catch (error) {
-      if (ownsFile) this.context.fileDownloads.allow(fileId);
+      if (ownsFile && generation === this.context.sessionGeneration()) this.context.fileDownloads.allow(fileId);
       throw error;
     }
-    this.activeStreams.add(fileId);
-    return `${convertFileSrc(String(fileId), "notgram-media")}?session=${session}`;
+    if (generation !== this.context.sessionGeneration()) {
+      await invoke("telegram_suspend_media_stream", { fileId, ...owner }).catch(() => undefined);
+      throw new Error("TDLib session superseded");
+    }
+    this.activeStreams.set(fileId, { ...owner, generation });
+    return `${convertFileSrc(String(fileId), "notgram-media")}?session=${owner.session}&lease=${owner.lease}`;
   }
 
-  async suspendFileStream(fileId: number) {
-    if (this.context.pendingDownloads.has(fileId)) return;
-    this.activeStreams.delete(fileId);
-    await invoke("telegram_suspend_media_stream", { fileId }).catch(() => undefined);
-    await this.context.request({
-      "@type": "cancelDownloadFile",
-      file_id: fileId,
-      only_if_pending: false,
-    });
+  async suspendFileStream(fileId: number, source?: string) {
+    const stored = this.activeStreams.get(fileId);
+    const owner = mediaStreamOwner(source) ?? stored;
+    if (stored && !source && stored.generation !== this.context.sessionGeneration()) {
+      this.activeStreams.delete(fileId);
+      return;
+    }
+    if (!stored || !owner || owner.lease === stored.lease) this.activeStreams.delete(fileId);
+    // Native arbitration releases the exact lease and keeps a full download alive.
+    await invoke("telegram_suspend_media_stream", { fileId, ...(owner ? { session: owner.session, lease: owner.lease } : {}) }).catch(() => undefined);
+    if (!owner && !this.context.pendingDownloads.has(fileId)) {
+      await this.context.request({ "@type": "cancelDownloadFile", file_id: fileId, only_if_pending: false });
+    }
   }
 
   async retryMessage(chatId: string, messageId: string) {

@@ -394,267 +394,79 @@ test("captioned albums keep descriptions in the fullscreen viewer", async ({ pag
   await closed;
 });
 
-test("video uses synchronized transparent playback windows and owns the playback spacebar", async ({ page }) => {
-  await page.context().addInitScript(() => {
-    const pausedState = new WeakMap<HTMLMediaElement, boolean>();
-    Object.defineProperty(HTMLMediaElement.prototype, "buffered", {
-      configurable: true,
-      get() {
-        return {
-          length: 1,
-          start: () => 0,
-          end: () => Number.isFinite(this.duration) ? Math.min(this.duration, 0.5) : 0.5,
-        } as TimeRanges;
-      },
-    });
-    Object.defineProperty(HTMLMediaElement.prototype, "paused", {
-      configurable: true,
-      get() {
-        return pausedState.get(this) ?? true;
-      },
-    });
-    Object.defineProperty(HTMLMediaElement.prototype, "play", {
-      configurable: true,
-      value(this: HTMLMediaElement) {
-        if (pausedState.get(this) === false) return Promise.resolve();
-        pausedState.set(this, false);
-        this.dispatchEvent(new Event("play"));
-        this.dispatchEvent(new Event("playing"));
-        return Promise.resolve();
-      },
-    });
-    Object.defineProperty(HTMLMediaElement.prototype, "pause", {
-      configurable: true,
-      value(this: HTMLMediaElement) {
-        if (pausedState.get(this) ?? true) return;
-        pausedState.set(this, true);
-        this.dispatchEvent(new Event("pause"));
-      },
-    });
-  });
-  await page.setViewportSize({ width: 1_100, height: 720 });
+
+async function openVideoViewer(page: import("@playwright/test").Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const row = page.locator('[data-message-id="p-video"]');
-  const player = row.locator(".video-player");
-  const video = player.locator("video");
+  const card = page.locator('[data-message-id="p-video"] .video-preview');
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.locator("img")).toBeVisible();
+  await expect(card.locator("video, input")).toHaveCount(0);
+  const opened = page.waitForEvent("popup"); await card.click();
+  const popup = await opened;
+  const video = popup.locator("video");
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+  await video.evaluate(element => { (element as HTMLVideoElement).loop = true; });
+  if (await video.evaluate(element => (element as HTMLVideoElement).paused)) await popup.getByRole("button", { name: "播放", exact: true }).click();
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(false);
+  return { popup, video, card };
+}
 
-  await expect(player).toBeVisible();
-  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
-  await expect(video).toHaveAttribute("poster", /mock-video-poster\.jpg/);
-  await expect(video).not.toHaveAttribute("controls", "");
-  await expect(player.getByRole("slider", { name: "播放进度" })).toBeVisible();
-  await expect(player.getByRole("button", { name: "打开声音" })).toBeVisible();
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(true);
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).volume))
-    .toBe(0.2);
-
-  await player.getByRole("button", { name: /播放 交互预览/ }).click();
-  await expect(video).toHaveAttribute("src", /mock-video\.mp4/);
-  await expect(video).toHaveAttribute("preload", "auto");
-  await video.dispatchEvent("canplay");
-  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  await video.dispatchEvent("waiting");
-  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  await video.dispatchEvent("playing");
-  await expect.poll(() => player.getByRole("slider", { name: "播放进度" }).evaluate(
-    (element) => getComputedStyle(element).backgroundSize,
-  )).toBe("100% 3px");
-
-  const settingsButton = page.getByRole("button", { name: "设置", exact: true });
-  await settingsButton.focus();
-  await page.keyboard.press("Space");
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
-    .toBe(true);
-  await expect(page.getByRole("dialog", { name: "设置" })).toHaveCount(0);
-  await expect.poll(() => settingsButton.evaluate((element) => document.activeElement !== element))
-    .toBe(true);
-
-  await page.keyboard.press("Space");
-  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  const composer = page.getByRole("textbox", { name: "消息内容" });
-  await composer.focus();
-  await page.keyboard.press("Space");
-  await expect(composer).toHaveJSProperty("value", " ");
-  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  await composer.fill("");
-
-  const messageList = page.locator(".message-list");
-  await messageList.hover();
-  await page.mouse.wheel(0, -240);
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).paused))
-    .toBe(true);
-  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
-  await player.getByRole("button", { name: /播放 交互预览/ }).click();
-  await expect.poll(() => video.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-
-  await row.click({ button: "right" });
-  const actionMenu = page.getByRole("menu", { name: "消息操作" });
-  await expect(actionMenu.getByRole("menuitem").nth(0)).toHaveText("回复");
-  await expect(actionMenu.getByRole("menuitem").nth(1)).toHaveText("转发");
-  await expect(actionMenu.getByRole("menuitem").nth(2)).toHaveText("复制");
-  await expect(actionMenu.getByRole("menuitem", { name: "以小窗播放" })).toBeVisible();
-  await expect(actionMenu.getByRole("menuitem", { name: "下载", exact: true })).toBeVisible();
-  const popupPromise = page.waitForEvent("popup");
-  await actionMenu.getByRole("menuitem", { name: "以小窗播放" }).click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded");
-  const popupPlayer = popup.locator(".video-window");
-  const popupVideo = popupPlayer.locator("video");
-  await expect(popupPlayer).toHaveClass(/is-windowed/);
-  await expect(popupVideo).toHaveAttribute("src", /mock-video\.mp4/);
-  await popupVideo.dispatchEvent("loadedmetadata");
-  await expect(player).toBeVisible();
-  await expect(player).not.toHaveClass(/is-floating/);
-  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-
-  const windowedControls = popup.locator(".video-windowed-controls");
-  await popup.mouse.move(120, 80);
-  await expect.poll(() => windowedControls.evaluate(
-    (element) => getComputedStyle(element).opacity,
-  )).toBe("1");
-  await popup.getByRole("slider", { name: "音量" }).fill("0.35");
-  await popup.waitForTimeout(1_100);
-  await expect.poll(() => windowedControls.evaluate(
-    (element) => getComputedStyle(element).opacity,
-  )).toBe("0");
-  const popupBounds = await popupPlayer.boundingBox();
-  await popup.mouse.click(40, popupBounds!.height / 2);
-  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-
-  await popup.keyboard.press("f");
-  await expect(popupPlayer).toHaveClass(/is-fullscreen/);
-  await popupVideo.evaluate((element) => {
-    element.style.width = "70%";
-    element.style.margin = "0 auto";
-  });
-  await expect.poll(() => popupVideo.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(false);
-  await expect.poll(() => popupVideo.evaluate((element) => !(element as HTMLVideoElement).paused))
-    .toBe(true);
-  await popup.mouse.move(550, 360);
-  const controls = popup.locator(".video-fullscreen-controls");
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
-    .toBe("1");
-  await expect(popup.getByRole("button", { name: "下载视频" })).toBeVisible();
-  const controlsBounds = await controls.boundingBox();
-  expect(Math.round(controlsBounds!.width)).toBe(550);
-  expect(Math.round(controlsBounds!.height)).toBe(80);
-  await expect.poll(() => popup.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgba(0, 0, 0, 0)");
-  const popupOverlayColor = await popup.locator("html").evaluate((element) =>
-    getComputedStyle(element).getPropertyValue("--color-overlay").trim());
-  await expect(popupPlayer).toHaveCSS("background-color", popupOverlayColor);
-
-  await popup.waitForTimeout(1_100);
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity))
-    .toBe("0");
-  const popupClosed = popup.waitForEvent("close");
-  await popup.keyboard.down("Escape");
-  await popupClosed;
-  await expect(player).toBeVisible();
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(true);
-  await expect.poll(() => video.evaluate((element) => (element as HTMLVideoElement).volume))
-    .toBe(0.35);
-  await page.reload();
-  await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const restoredVideo = page.locator('[data-message-id="p-video"] video');
-  await expect.poll(() => restoredVideo.evaluate((element) => (element as HTMLVideoElement).volume))
-    .toBe(0.35);
-  await expect.poll(() => restoredVideo.evaluate((element) => (element as HTMLVideoElement).muted))
-    .toBe(true);
-});
-
-test("video fullscreen has a persistent preview layer, playback layer, and mini-window escape", async ({ page }) => {
-  await page.setViewportSize({ width: 1_100, height: 720 });
-  await page.goto("/");
-  await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const row = page.locator('[data-message-id="p-video"]');
-  const player = row.locator(".video-player");
-  const inlineProgress = player.getByRole("slider", { name: "播放进度" });
-  await row.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "auto" }));
-  await expect(player).toBeVisible();
-  await expect(inlineProgress).toBeVisible();
-  const inlineProgressGeometry = await inlineProgress.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { left: style.left, bottom: style.bottom, width: style.width, backgroundPosition: style.backgroundPosition };
-  });
-  expect(inlineProgressGeometry.left).toBe("0px");
-  expect(inlineProgressGeometry.bottom).toBe("0px");
-  expect(inlineProgressGeometry.width).toBe(`${await player.evaluate((element) => element.getBoundingClientRect().width)}px`);
-  expect(inlineProgressGeometry.backgroundPosition).toContain("100%");
-
-  const popupPromise = page.waitForEvent("popup");
-  await player.dblclick();
-  const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded");
-  const window = popup.locator(".video-window");
-  const controls = popup.locator(".video-fullscreen-controls");
-  await expect(window).toHaveClass(/is-fullscreen/);
-  await expect(window).toHaveClass(/is-preview/);
-  await expect(window).toHaveAttribute("data-video-mode", "preview");
-  await expect(popup.getByRole("button", { name: "放大" })).toBeVisible();
-  await expect(popup.getByRole("button", { name: "小窗播放" })).toBeVisible();
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  await popup.waitForTimeout(1_100);
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  const previewVideoBounds = await popup.locator("video").boundingBox();
-  const previewWindowBounds = await window.boundingBox();
-  expect(previewVideoBounds?.height).toBeLessThan(previewWindowBounds?.height ?? 0);
-
-  await popup.getByRole("button", { name: "放大" }).click();
-  await expect(window).toHaveClass(/is-playback/);
-  await expect(window).toHaveAttribute("data-video-mode", "playback");
-  await expect(popup.getByRole("button", { name: "缩小" })).toBeVisible();
-  await popup.waitForTimeout(1_100);
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
-  const controlsBounds = await controls.boundingBox();
-  await popup.mouse.move((controlsBounds?.x ?? 0) + (controlsBounds?.width ?? 0) / 2, (controlsBounds?.y ?? 0) + 20);
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-  await popup.getByRole("button", { name: "缩小" }).click();
-  await expect(window).toHaveClass(/is-preview/);
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
-
-  await popup.getByRole("button", { name: "小窗播放" }).click();
-  await expect(window).toHaveClass(/is-windowed/);
-  await expect(window).toHaveAttribute("data-video-mode", "window");
-  await expect(popup.locator("video")).toHaveAttribute("data-tauri-drag-region", "");
+test("video cards open one viewer element and the playback keyboard target survives scrolling", async ({ page }) => {
+  const { popup, video, card } = await openVideoViewer(page);
+  await expect(page.locator('[data-message-id="p-video"] video')).toHaveCount(0);
+  await expect(popup.locator('.media-viewer-caption')).toHaveText('这是昨晚导出的交互录屏，麻烦确认最后一段。');
+  await popup.locator('.media-viewer-stage').focus();
+  await popup.keyboard.press('Space');
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true);
+  await popup.keyboard.press('Space');
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(false);
+  await popup.getByRole('slider', {name:'音量'}).fill('0.35');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('notgram.video.volume'))).toBe('0.35');
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+  await expect(card).toHaveCount(0);
+  await expect(video).toHaveCount(1);
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(false);
   await popup.close();
 });
 
-test("video fullscreen preview closes from its blank surface", async ({ page }) => {
-  await page.setViewportSize({ width: 1_100, height: 720 });
-  await page.goto("/");
-  await page.getByRole("button", { name: /产品讨论/ }).first().click();
-  const player = page.locator('[data-message-id="p-video"] .video-player');
-  await player.scrollIntoViewIfNeeded();
+test("video mode changes and reopening a preview retain the same paused element", async ({ page, context }) => {
+  const { popup, video, card } = await openVideoViewer(page);
+  await popup.getByRole('button', {name:'暂停',exact:true}).click();
+  await video.evaluate(element => { (window as unknown as { savedVideo: Element }).savedVideo = element; });
+  await popup.getByRole('slider',{name:'视频进度'}).fill('1');
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1);
+  await popup.getByRole('button',{name:'沉浸播放',exact:true}).click();
+  await expect(popup.locator('.media-viewer-backdrop')).toHaveClass(/is-immersive/);
+  await popup.getByRole('button',{name:'小窗播放',exact:true}).click();
+  await expect(popup.locator('.media-viewer-backdrop')).toHaveClass(/is-windowed/);
+  await card.click();
+  await expect(popup.locator('.media-viewer-backdrop')).not.toHaveClass(/is-windowed/);
+  expect(context.pages()).toHaveLength(2);
+  expect(await video.evaluate(element => element === (window as unknown as {savedVideo: Element}).savedVideo)).toBe(true);
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true);
+  await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1);
+  await popup.close();
+});
 
-  const popupPromise = page.waitForEvent("popup");
-  await player.dblclick();
-  const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded");
-  const window = popup.locator(".video-window");
-  const video = popup.locator("video");
-  await expect(window).toHaveAttribute("data-video-mode", "preview");
-  await video.evaluate((element) => {
-    element.style.width = "70%";
-    element.style.margin = "0 auto";
-  });
-  const videoBounds = await video.boundingBox();
-  expect(videoBounds?.x).toBeGreaterThan(0);
-
-  const popupClosed = popup.waitForEvent("close");
-  await popup.mouse.click(Math.max(4, (videoBounds?.x ?? 20) / 2), 120);
-  await popupClosed;
+test("video timeline text stays open and blank viewer backdrop returns typing focus", async ({ page }) => {
+  const { popup } = await openVideoViewer(page);
+  await popup.locator('.media-video-timeline span').first().click();
+  expect(popup.isClosed()).toBe(false);
+  const closed = popup.waitForEvent('close');
+  await popup.mouse.click(3, 3); await closed;
   await page.bringToFront();
-  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeFocused();
+  await expect(page.getByRole('textbox',{name:'消息内容'})).toBeFocused();
+});
+
+test("context-menu playback opens the shared viewer directly as a small window", async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button',{name:/产品讨论/}).first().click();
+  const card = page.locator('[data-message-id="p-video"] .video-preview'); await card.scrollIntoViewIfNeeded();
+  await card.click({button:'right'});
+  const opened = page.waitForEvent('popup');
+  await page.getByRole('menuitem',{name:'以小窗播放',exact:true}).click();
+  const popup = await opened;
+  await expect(popup.locator('.media-viewer-backdrop')).toHaveClass(/is-windowed/);
+  await expect(popup.locator('video')).toHaveAttribute('src', /mock-video/);
+  await popup.close();
 });
