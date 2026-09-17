@@ -193,12 +193,11 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   }, []);
 
   const handleWheel = (event: WheelEvent<HTMLElement>) => {
-    if (video) return;
     event.preventDefault();
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 240 : 1);
     if (!Number.isFinite(delta) || delta === 0) return;
     if (event.ctrlKey) {
-      viewport.zoomBy(Math.exp(-delta * Math.log(1.5) / 240), { x: event.clientX, y: event.clientY });
+      if (!video) viewport.zoomBy(Math.exp(-delta * Math.log(1.5) / 240), { x: event.clientX, y: event.clientY });
       return;
     }
     // Track every event, including a burst delivered before React commits.

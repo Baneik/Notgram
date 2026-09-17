@@ -85,6 +85,9 @@ background-close behavior. Photo zoom stays in `useImageViewport`; video control
 stay in `VideoPlaybackView`. Arrow keys seek video, Ctrl+Arrow navigates mixed
 media, Space toggles playback, and Escape closes. Clicking timeline labels or
 control-panel space never counts as clicking the background.
+Plain wheel input navigates the mixed media list in either direction, including
+while video is preparing, playing, paused or failed. Ctrl+wheel zooms photos only
+and does not navigate or apply photo zoom to video.
 
 The default layout fits media with its context visible. Immersive playback and
 the small native window keep the same element and source; mode changes preserve

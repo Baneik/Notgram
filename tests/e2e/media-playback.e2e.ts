@@ -100,6 +100,76 @@ test("mixed media navigation keeps one authoritative video element and releases 
   await expect.poll(() => page.evaluate(() => window.playbackFixture.released)).toBe(2);
 });
 
+test("wheel navigation continues through photos and consecutive videos in both directions", async ({ page }) => {
+  const viewer = await fixture(page);
+  await playable(viewer);
+  await page.evaluate(() => {
+    const state = window.playbackFixture;
+    const [photo, video] = state.messages;
+    state.messages.push(
+      { ...video!, id: "video-2", content: { ...video!.content, fileId: 43, fileName: "second.mp4" } },
+      { ...photo!, id: "photo-2", content: { ...photo!.content, fileName: "last.jpg" } },
+    );
+    state.sync();
+  });
+  await expect(viewer.locator(".media-viewer-counter")).toHaveText("2 / 4");
+  await viewer.getByRole("button", { name: "查看 photo.jpg", exact: true }).click();
+  await expect(viewer.locator(".media-viewer-image")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.playbackFixture.released)).toBe(1);
+
+  const wheel = async (delta: number, position: number) => {
+    const media = viewer.locator(".media-viewer-image, .media-viewer-video");
+    await media.hover();
+    await viewer.mouse.wheel(0, delta);
+    await expect(viewer.locator(".media-viewer-counter")).toHaveText(`${position} / 4`);
+  };
+  await wheel(120, 2);
+  await playable(viewer);
+  // The photo zoom shortcut must neither navigate nor apply image zoom to video.
+  await viewer.keyboard.down("Control");
+  await viewer.mouse.wheel(0, -240);
+  await viewer.keyboard.up("Control");
+  await expect(viewer.locator(".media-viewer-counter")).toHaveText("2 / 4");
+  await expect(viewer.locator(".media-viewer-zoom")).toHaveCount(0);
+  await wheel(120, 3);
+  await playable(viewer);
+  await wheel(120, 4);
+  await expect(viewer.locator("video")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.playbackFixture.released)).toBe(3);
+  await wheel(120, 4);
+  await wheel(-120, 3);
+  await playable(viewer);
+  await viewer.getByRole("button", { name: "暂停", exact: true }).click();
+  await expect(viewer.locator("video")).toHaveJSProperty("paused", true);
+  await wheel(-120, 2);
+  await playable(viewer);
+  await wheel(-120, 1);
+  await expect(viewer.locator("video")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.playbackFixture.released)).toBe(5);
+  await wheel(-120, 1);
+  await viewer.close();
+});
+
+for (const phase of ["preparing", "failed"] as const) {
+  test(`wheel navigation can leave a ${phase} video`, async ({ page }) => {
+    const viewer = await fixture(page, phase === "failed", phase === "preparing");
+    if (phase === "preparing") {
+      await expect.poll(() => page.evaluate(() => Boolean(window.playbackFixture.pending))).toBe(true);
+      await expect(viewer.locator(".media-video-loading")).toBeVisible();
+    } else {
+      await expect(viewer.getByRole("alert")).toContainText(/格式|解码/);
+    }
+    await viewer.locator(".media-viewer-video-stage").hover();
+    await viewer.mouse.wheel(0, -120);
+    await expect(viewer.locator(".media-viewer-image")).toBeVisible();
+    await expect(viewer.locator("video")).toHaveCount(0);
+    if (phase === "preparing") await page.evaluate(() => window.playbackFixture.pending!());
+    await expect.poll(() => page.evaluate(() => window.playbackFixture.released)).toBe(1);
+    await expect(viewer.locator(".media-viewer-counter")).toHaveText("1 / 2");
+    await viewer.close();
+  });
+}
+
 test("audio activation pauses remote video and video play pauses audio", async ({ page }) => {
   const viewer = await fixture(page);
   await playable(viewer);
