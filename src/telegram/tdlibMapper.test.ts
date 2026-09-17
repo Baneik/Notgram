@@ -12,9 +12,22 @@ import {
   mapTdMessageReactionSenders,
   mapTdSponsoredMessages,
   mapTdUser,
+  fileDetails,
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it.each([
+    [undefined, true, false, true],
+    [false, true, false, false],
+    [true, true, false, true],
+    [true, false, false, true],
+    [true, false, true, false],
+  ])("distinguishes full download intent %s from byte transfer activity %s", (intent, active, complete, expected) => {
+    const file = { "@type": "file", id: 42, size: 1000, notgram_download_requested: intent,
+      local: { is_downloading_active: active, is_downloading_completed: complete, downloaded_size: 250 } };
+    expect(fileDetails(file)).toMatchObject({ isDownloading: expected, isDownloaded: complete, downloadedSize: 250 });
+    expect(mapTdMessageContent({ "@type": "messageVideo", video: { video: file } })).toMatchObject({ isDownloading: expected });
+  });
   it("retains video duration and streaming capability before metadata is decoded", () => {
     expect(mapTdMessageContent({ "@type": "messageVideo", video: {
       duration: 93, width: 1920, height: 1080, supports_streaming: false,

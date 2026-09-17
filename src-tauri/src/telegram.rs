@@ -950,12 +950,14 @@ fn receive_loop(
             0.008
         };
         match engine.receive_value(receive_timeout) {
-            Ok(Some(update)) => {
+            Ok(Some(mut update)) => {
                 update_count += 1;
                 consecutive_errors = 0;
                 if update.get("@client_id").and_then(Value::as_i64) == Some(client_id as i64) {
                     app.state::<media_stream::MediaStreamRegistry>()
                         .observe_update(&update);
+                    app.state::<media_stream::MediaStreamRegistry>()
+                        .annotate_download_intent(&mut update);
                     allow_tdlib_assets(
                         &app,
                         &update,
@@ -1707,7 +1709,6 @@ pub fn telegram_update_media_stream(
     current_time: f64,
     duration: f64,
     paused: bool,
-    seek: Option<bool>,
     owner: Option<media_stream::StreamLease>,
     registry: State<'_, media_stream::MediaStreamRegistry>,
 ) -> Result<(), String> {
@@ -1716,7 +1717,6 @@ pub fn telegram_update_media_stream(
         current_time,
         duration,
         paused,
-        seek.unwrap_or(false),
         owner.map(|owner| (owner.session, owner.lease)),
     )
 }

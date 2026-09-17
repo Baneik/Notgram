@@ -105,7 +105,7 @@ export const createMediaViewerWindow = async (id: string, windowed = false) => {
   const browser = globalThis.open(
     mediaViewerWindowRoute(id),
     `notgram-media-viewer-${id}`,
-    windowed ? "popup=yes,width=640,height=460" : "popup=yes,width=1280,height=800",
+    windowed ? "popup=yes,width=640,height=360" : "popup=yes,width=1280,height=800",
   );
   if (activeSession?.id === id && browser) activeSession.browser = browser;
   return Boolean(browser);

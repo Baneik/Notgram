@@ -52,19 +52,29 @@ until the active range releases that cursor, and full-download intent is restore
 after a range. Releasing playback does not cancel an explicit full download.
 Opportunistic frontend caching remains suppressed while playback owns the file.
 
+Native file updates carry `notgram_download_requested` for registered streams and
+full downloads. Message mapping uses that intent for download controls and progress
+rings; TDLib's raw `is_downloading_active` also covers playback ranges and must not
+be presented as a user download. A full download waiting for the range cursor keeps
+its progress visible. Completion, cancellation and failed requests clear it.
+
 The scheduler has four workers, at most 64 pending jobs overall and eight per
 file. It schedules one range per `(account generation, file)` at a time, retaining
-the original same-file lock. Head and tail probes within a seek epoch retain
-their order. New epochs retire queued older requests; waiting reads wake when
-their lease or epoch changes. Limits reject excess requests rather than creating
+the original same-file lock. Head and tail probes within a source lifetime retain
+their order. Replaced sources retire queued older requests; waiting reads wake when
+their lease or lifetime changes. Limits reject excess requests rather than creating
 an unbounded number of threads.
 
-Seeking is a handshake: the main controller first awaits native invalidation,
-then tells the viewer to change `currentTime`. Rapid seeks only grant the latest
+Seeking validates native ownership before changing `currentTime`, but never revokes
+byte requests belonging to the same source. The demuxer may keep an in-flight range
+across a seek, including when the target is already buffered; failing that response
+would turn ordinary seeking into a media network error. Rapid seeks only grant the latest
 acknowledged position, and state from the old position cannot move the cursor
 back while that seek is pending. Responses follow the demuxer's requested byte
 offsets, capped at 1 MiB; they no longer estimate byte positions from a time/file
-size ratio. Range validation, downloaded-interval checks, content expiry,
+size ratio. `stalled` does not enter buffering while playable data remains;
+`seeked`/`canplay` clear the stall timeout after recovery, including paused seeks.
+Range validation, downloaded-interval checks, content expiry,
 account invalidation and restricted file access remain enforced.
 
 ## Viewer interaction
@@ -78,9 +88,14 @@ control-panel space never counts as clicking the background.
 
 The default layout fits media with its context visible. Immersive playback and
 the small native window keep the same element and source; mode changes preserve
-time, volume and playback state. Idle controls can hide only while playing in
-those modes. Pause, buffering, seeking, failure, keyboard focus and pointer
-interaction keep them visible. Native creation enters fullscreen before show,
+time, volume and playback state. The poster uses the video's declared dimensions
+before metadata loads; buffering displays only an accessible ring, without text
+or a background panel. The small window's entire media surface starts native
+dragging and does not toggle playback. Its controls have one translucent black
+panel, with no footer gradient, and hide after two seconds without interaction
+even when paused. Pointer movement restores them; an active timeline drag or
+keyboard focus keeps them visible. Immersive controls hide only while playing.
+Native creation enters fullscreen before show,
 uses the main monitor placement helper, and grants only the window operations
 used by the viewer. Multi-monitor/DPI behavior still needs native acceptance.
 
@@ -88,7 +103,8 @@ used by the viewer. Multi-monitor/DPI behavior still needs native acceptance.
 
 Unit regressions cover stale acquisition/revision rejection, late release,
 preparation ownership, local recovery, exact leases and seek ordering. Rust tests
-cover bounds, downloaded intervals, stale owners, account reset, wakeup on seek,
+cover bounds, downloaded intervals, stale owners, account reset, range survival
+across seeks and wakeup on source release,
 cache protection, queue bounds and full-download arbitration. Browser regressions
 in `tests/e2e/media-playback.e2e.ts` and `media-windows.e2e.ts` cover the actual
 bridge, mixed navigation, audio ownership, errors, mode continuity and closure.

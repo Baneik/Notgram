@@ -24,7 +24,6 @@ export const updateMediaStreamPlayback = async (
   duration: number,
   paused: boolean,
   source?: string,
-  seek = false,
 ) => {
   if (!isTauri() || fileId === undefined) return;
   const owner = mediaStreamOwner(source);
@@ -34,7 +33,6 @@ export const updateMediaStreamPlayback = async (
     duration,
     paused,
     ...(owner ? { owner } : {}),
-    ...(seek ? { seek: true } : {}),
   });
 };
 

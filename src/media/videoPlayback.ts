@@ -151,9 +151,9 @@ export class VideoPlaybackController {
     const sequence = ++session.seekSequence;
     session.pendingSeek = position;
     try {
-      // Revoke old native requests before the media element can issue ranges at
-      // its new position. A seeking event alone arrives too late for that order.
-      if (session.leased) await updateMediaStreamPlayback(session.fileId, position, session.snapshot.duration, session.snapshot.paused, session.leasedSource, true);
+      // Validate ownership, but keep this source's byte requests valid across
+      // timeline changes. Only the demuxer knows which ranges it still needs.
+      if (session.leased) await updateMediaStreamPlayback(session.fileId, position, session.snapshot.duration, session.snapshot.paused, session.leasedSource);
       if (session.active && session.revision === revision && session.seekSequence === sequence) session.command("seek", revision, position);
     } catch {
       if (session.active && session.seekSequence === sequence) {

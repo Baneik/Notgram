@@ -30,7 +30,7 @@ pub async fn notgram_open_media_viewer_window(
     let url = WebviewUrl::App(format!("windows/media-viewer-window.html?id={id}").into());
     let windowed = windowed.unwrap_or(false);
     let (width, height) = if windowed {
-        (640.0, 460.0)
+        (640.0, 360.0)
     } else {
         (1280.0, 800.0)
     };
@@ -39,7 +39,7 @@ pub async fn notgram_open_media_viewer_window(
         .title("Notgram 媒体")
         .inner_size(width, height)
         .resizable(true)
-        .min_inner_size(320.0, 240.0)
+        .min_inner_size(320.0, 180.0)
         .maximizable(false)
         .minimizable(false)
         .decorations(false)

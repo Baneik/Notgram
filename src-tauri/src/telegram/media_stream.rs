@@ -34,7 +34,6 @@ struct FileProgress {
 
 #[derive(Clone)]
 struct StreamPlayback {
-    current_time: f64,
     paused: bool,
     active: bool,
 }
@@ -42,7 +41,6 @@ struct StreamPlayback {
 impl Default for StreamPlayback {
     fn default() -> Self {
         Self {
-            current_time: 0.0,
             paused: true,
             active: true,
         }
@@ -112,6 +110,49 @@ struct MediaChunk {
 }
 
 impl MediaStreamRegistry {
+    pub fn annotate_download_intent(&self, value: &mut Value) {
+        fn annotate(value: &mut Value, inner: &RegistryInner) {
+            match value {
+                Value::Object(object) => {
+                    if object.get("@type").and_then(Value::as_str) == Some("file")
+                        && let Some(file_id) = object.get("id").and_then(Value::as_i64)
+                    {
+                        let file_id = file_id as i32;
+                        let completed = object
+                            .get("local")
+                            .and_then(|local| local.get("is_downloading_completed"))
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                        // TDLib uses the same active flag for byte ranges and full
+                        // downloads. Preserve its raw flag for native bookkeeping.
+                        if inner.files.contains_key(&file_id)
+                            || inner.full_downloads.contains_key(&file_id)
+                        {
+                            object.insert(
+                                "notgram_download_requested".into(),
+                                Value::Bool(
+                                    !completed && inner.full_downloads.contains_key(&file_id),
+                                ),
+                            );
+                        }
+                        return;
+                    }
+                    for child in object.values_mut() {
+                        annotate(child, inner);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        annotate(child, inner);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let inner = self.inner.lock().expect("media stream registry poisoned");
+        annotate(value, &inner);
+    }
+
     fn ticket(&self, file_id: i32) -> Result<RequestTicket, String> {
         let inner = self.inner.lock().expect("media stream registry poisoned");
         let media = inner
@@ -315,7 +356,6 @@ impl MediaStreamRegistry {
         current_time: f64,
         duration: f64,
         paused: bool,
-        seek: bool,
         owner: Option<(u64, u64)>,
     ) -> Result<(), String> {
         if !current_time.is_finite()
@@ -335,11 +375,11 @@ impl MediaStreamRegistry {
         {
             return Err("Media session expired".into());
         }
-        if seek || (current_time - media.playback.current_time).abs() > 2.0 {
-            media.epoch += 1;
-        }
+        // A timeline seek does not invalidate bytes in this source. The demuxer
+        // may retain an in-flight range (including an in-buffer seek); revoking
+        // it here turns normal playback into an HTTP error. Only source lifetime
+        // changes revoke tickets. Byte offsets continue to come from Range.
         media.playback = StreamPlayback {
-            current_time,
             paused,
             active: true,
         };
@@ -1173,28 +1213,14 @@ mod tests {
         assert!(registry.read_range_owned(7, 0, 10, ticket).is_err());
         assert!(
             registry
-                .update_playback(
-                    7,
-                    5.0,
-                    10.0,
-                    false,
-                    false,
-                    Some((first.session, first.lease))
-                )
+                .update_playback(7, 5.0, 10.0, false, Some((first.session, first.lease)))
                 .is_err()
         );
         registry.clear();
         registry.register(7, 1000, "video/mp4", false).unwrap();
         assert!(
             registry
-                .update_playback(
-                    7,
-                    5.0,
-                    10.0,
-                    false,
-                    false,
-                    Some((second.session, second.lease))
-                )
+                .update_playback(7, 5.0, 10.0, false, Some((second.session, second.lease)))
                 .is_err()
         );
         assert_eq!(parse_stream_owner("session=2&lease=5"), Some((2, 5)));
@@ -1203,7 +1229,7 @@ mod tests {
     }
 
     #[test]
-    fn seek_wakes_a_waiting_read_and_revokes_obsolete_ranges() {
+    fn seeks_preserve_pending_bytes_but_release_still_wakes_and_revokes_reads() {
         let registry = Arc::new(MediaStreamRegistry::default());
         registry.register(7, 1000, "video/mp4", false).unwrap();
         let ticket = registry.ticket(7).unwrap();
@@ -1214,11 +1240,88 @@ mod tests {
                 .unwrap();
         });
         registry
-            .update_playback(7, 0.5, 10.0, false, true, None)
+            .update_playback(7, 0.5, 100.0, false, None)
             .unwrap();
+        registry
+            .update_playback(7, 60.0, 100.0, true, None)
+            .unwrap();
+        registry
+            .update_playback(7, 4.0, 100.0, false, None)
+            .unwrap();
+        assert_eq!(registry.ticket(7).unwrap().epoch, ticket.epoch);
+        assert!(receive.recv_timeout(Duration::from_millis(30)).is_err());
+        registry.suspend(7);
         assert!(receive.recv_timeout(Duration::from_secs(1)).unwrap());
         reader.join().unwrap();
         assert_ne!(registry.ticket(7).unwrap().epoch, ticket.epoch);
+    }
+
+    #[test]
+    fn ranges_requested_before_seeking_can_still_read_their_original_bytes() {
+        let registry = MediaStreamRegistry::default();
+        registry.register(7, 12, "video/mp4", false).unwrap();
+        let ticket = registry.ticket(7).unwrap();
+        let path = env::temp_dir().join(format!("notgram-seek-{}.mp4", std::process::id()));
+        fs::write(&path, b"hello stream").unwrap();
+        registry
+            .update_playback(7, 80.0, 100.0, false, None)
+            .unwrap();
+        registry.observe_update(&serde_json::json!({"@type":"file", "id":7, "local":{
+            "path":path, "download_offset":0, "downloaded_prefix_size":12,
+            "downloaded_size":12, "is_downloading_completed":false
+        }}));
+        let result = registry.read_range_owned(7, 6, 6, ticket);
+        fs::remove_file(path).unwrap();
+        assert_eq!(result.unwrap().bytes, b"stream");
+    }
+
+    #[test]
+    fn exposes_full_download_intent_independently_of_stream_activity() {
+        let registry = MediaStreamRegistry::default();
+        registry.register(7, 1000, "video/mp4", false).unwrap();
+        let file = serde_json::json!({"@type":"file", "id":7,
+            "local":{"is_downloading_active":true,"is_downloading_completed":false}});
+        let mut message = serde_json::json!({"messages":[{"content":{"video":file.clone()}}]});
+        registry.annotate_download_intent(&mut message);
+        assert_eq!(
+            message["messages"][0]["content"]["video"]["notgram_download_requested"],
+            false
+        );
+        assert_eq!(
+            message["messages"][0]["content"]["video"]["local"]["is_downloading_active"],
+            true
+        );
+        registry.inner.lock().unwrap().active_ranges.insert(7);
+        registry
+            .coordinate_download(
+                &serde_json::json!({"@type":"downloadFile","file_id":7,"offset":0,"limit":0}),
+                |_| panic!("must defer"),
+            )
+            .unwrap();
+        let mut waiting = file.clone();
+        waiting["local"]["is_downloading_active"] = Value::Bool(false);
+        registry.annotate_download_intent(&mut waiting);
+        assert_eq!(waiting["notgram_download_requested"], true);
+        let mut completed = file.clone();
+        completed["local"]["is_downloading_completed"] = Value::Bool(true);
+        registry.annotate_download_intent(&mut completed);
+        assert_eq!(completed["notgram_download_requested"], false);
+        registry
+            .coordinate_download(
+                &serde_json::json!({"@type":"cancelDownloadFile","file_id":7}),
+                |_| panic!("must defer"),
+            )
+            .unwrap();
+        let mut cancelled = file.clone();
+        registry.annotate_download_intent(&mut cancelled);
+        assert_eq!(cancelled["notgram_download_requested"], false);
+        registry.suspend(7);
+        registry.annotate_download_intent(&mut cancelled);
+        assert_eq!(cancelled["notgram_download_requested"], false);
+        registry.clear();
+        let mut ordinary = file;
+        registry.annotate_download_intent(&mut ordinary);
+        assert!(ordinary.get("notgram_download_requested").is_none());
     }
 
     #[test]

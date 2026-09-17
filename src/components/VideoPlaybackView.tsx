@@ -1,7 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { GripHorizontal, LoaderCircle, Maximize2, Minimize2, Pause, PictureInPicture2, Play, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
+import { LoaderCircle, Maximize2, Minimize2, Pause, PictureInPicture2, Play, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { translate } from "../i18n";
 import { bufferedMediaEnd, formatPlaybackTime, nextPlaybackRate } from "../media/mediaPlayback";
@@ -55,16 +55,15 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
   const [idle, setIdle] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [controlFocus, setControlFocus] = useState(false);
-  const [hoveringControls, setHoveringControls] = useState(false);
   const [activity, setActivity] = useState(0);
   const interact = useCallback(() => { setIdle(false); setActivity(performance.now()); }, []);
 
   useEffect(() => {
     setIdle(false);
-    if (phase !== "playing" || dragging || controlFocus || hoveringControls || (!immersive && !windowed)) return;
+    if (dragging || controlFocus || (!windowed && (!immersive || phase !== "playing"))) return;
     const timer = globalThis.setTimeout(() => setIdle(true), 2_000);
     return () => globalThis.clearTimeout(timer);
-  }, [phase, dragging, controlFocus, hoveringControls, activity, immersive, windowed]);
+  }, [phase, dragging, controlFocus, activity, immersive, windowed]);
 
   const capture = (video: HTMLVideoElement, nextPhase = phaseRef.current): VideoState => ({
     currentTime: video.currentTime, duration: Number.isFinite(video.duration) ? video.duration : latest.current.source?.duration ?? 0,
@@ -115,15 +114,23 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
       phaseRef.current = nextPhase; setPhase(nextPhase); publish(true);
     };
     const clearStall = () => { clearTimeout(stallTimer); stallTimer = undefined; };
+    const armStall = () => {
+      if (stallTimer !== undefined) return;
+      stallTimer = setTimeout(() => {
+        stallTimer = undefined;
+        if (alive && (video.seeking || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)) fail("network");
+      }, 20_000);
+    };
     const wait = () => {
-      if (video.paused || phaseRef.current === "failed") return;
+      if (phaseRef.current === "failed" || video.paused && !video.seeking) return;
+      // A network stall can occur while already buffered frames keep playing.
+      if (!video.seeking && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
       if (bufferingAt === undefined) {
         bufferingAt = performance.now();
         logPerformance("media_buffering_started", { mediaKind: 1 });
       }
       settle(video.seeking ? "seeking" : "buffering");
-      clearStall();
-      stallTimer = setTimeout(() => fail("network"), 20_000);
+      armStall();
     };
     const playing = () => {
       clearStall();
@@ -146,17 +153,25 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
     const pause = () => { clearStall(); settle(video.ended ? "ended" : "paused"); };
     const seek = () => { seekAt = performance.now(); settle("seeking"); wait(); };
     const seeked = () => {
+      clearStall();
       if (video.paused && seekAt !== undefined) {
         logPerformance("media_seek_completed", { mediaKind: 1, durationMs: performance.now() - seekAt });
         seekAt = undefined;
       }
-      settle(video.paused ? "paused" : "buffering");
+      if (video.paused) settle("paused");
+      else if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) playing();
+      else wait();
+    };
+    const canplay = () => {
+      if (video.seeking) return;
+      clearStall();
+      if (video.paused) settle("paused"); else playing();
     };
     const output = () => { setVolume(video.volume); setMuted(video.muted); setRate(video.playbackRate); publish(true); };
     const error = () => fail(video.error?.code === 2 ? "network" : video.error?.code === 3 ? "decode" : video.error?.code === 4 ? "unsupported" : "source");
     const events: Record<string, EventListener> = {
       loadedmetadata: metadata, playing, pause, ended: pause, waiting: wait, stalled: wait,
-      timeupdate: time, progress, seeking: seek, seeked, volumechange: output, ratechange: output, error,
+      timeupdate: time, progress, seeking: seek, seeked, canplay, volumechange: output, ratechange: output, error,
     };
     Object.entries(events).forEach(([name, handler]) => video.addEventListener(name, handler));
     video.volume = next.volume; video.muted = next.muted; video.playbackRate = next.rate;
@@ -166,7 +181,7 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
     });
     video.src = next.source;
     video.load();
-    stallTimer = setTimeout(() => fail("network"), 20_000);
+    armStall();
     const qualityTimer = setInterval(() => {
       if (video.paused || document.hidden) return;
       const quality = video.getVideoPlaybackQuality?.();
@@ -222,10 +237,10 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
         if (next) {
           await window.setFullscreen(false);
           const target = videoWindowSize(size?.width || 640, size?.height || 360);
-          await window.setSize(new LogicalSize(target.width, target.height + 100));
+          await window.setSize(new LogicalSize(target.width, target.height));
         } else await window.setFullscreen(true);
       } else if (next) {
-        globalThis.resizeTo?.(640, 460);
+        globalThis.resizeTo?.(640, 360);
       } else globalThis.resizeTo?.(1280, 800);
       setWindowed(next); setImmersive(false);
     } catch { setModeError(true); }
@@ -243,13 +258,15 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
     else latest.current.onVideoAction(next, "retry");
   };
   const displayedFailure = failure ?? currentSource?.failure;
-  const controls = <div className="media-video-controls" onPointerEnter={() => setHoveringControls(true)} onPointerLeave={() => setHoveringControls(false)}
-    onFocus={() => setControlFocus(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setControlFocus(false); }}>
+  const controls = <div className="media-video-controls" onPointerDown={() => setControlFocus(false)}
+    onFocus={event => setControlFocus(event.target.matches(":focus-visible"))}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setControlFocus(false); }}>
     <div className="media-video-timeline">
       <span>{formatPlaybackTime(currentTime)}</span>
       <input type="range" min={0} max={duration || active?.content.duration || 1} step={0.1} value={currentTime}
         aria-label={translate("视频进度")} aria-valuetext={`${formatPlaybackTime(currentTime)} / ${formatPlaybackTime(duration)}`}
-        disabled={!currentSource?.source || !duration} onPointerDown={() => setDragging(true)} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)}
+        disabled={!currentSource?.source || !duration} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); }}
+        onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} onLostPointerCapture={() => setDragging(false)}
         onChange={event => seekTo(Number(event.target.value))}
         style={{ backgroundSize: `${duration ? buffered / duration * 100 : 0}% 3px` }} />
       <span>{formatPlaybackTime(duration || active?.content.duration || 0)}</span>
@@ -265,7 +282,6 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
         onChange={event => { if (videoRef.current) { videoRef.current.volume = Number(event.target.value); videoRef.current.muted = false; } }} />
       <button type="button" className="media-video-rate" aria-label={translate("播放速度")} onClick={() => { if (videoRef.current) videoRef.current.playbackRate = nextPlaybackRate(rate); }}>{rate}×</button>
       <span className="media-video-spacer" />
-      {windowed && isTauri() && <button type="button" aria-label={translate("拖动播放器")} onPointerDown={() => void getCurrentWindow().startDragging()}><GripHorizontal size={18} /></button>}
       {!windowed && <button type="button" aria-label={immersive ? translate("退出沉浸播放") : translate("沉浸播放")} onClick={() => { interact(); setImmersive(!immersive); }}>
         {immersive ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
       </button>}
@@ -275,16 +291,28 @@ export function VideoPlaybackView({ source, command, initiallyWindowed = false, 
     {modeError && <div role="alert">{translate("窗口模式切换失败")}</div>}
   </div>;
 
+  // Reserve the video geometry before the smaller poster or source can load.
+  const width = size?.width || active?.content.width || 640;
+  const height = size?.height || active?.content.height || 360;
+
   return <MediaViewer {...viewer} video={isVideo ? {
     controls, immersive, windowed, idle, interact, ...size,
+    startDragging: () => {
+      interact();
+      if (isTauri()) void getCurrentWindow().startDragging().catch(() => setModeError(true));
+    },
     surface: <>
       <video key={currentSource?.revision ?? "preparing"} ref={videoRef} playsInline preload="metadata" className="media-viewer-video"
+        width={width} height={height}
+        style={{ width: `min(${width}px, 100cqw, ${width / height * 100}cqh)`, height: `min(${height}px, 100cqh, ${height / width * 100}cqw)` }}
         poster={localMediaSource(active.content.thumbnailPath) ?? active.content.previewDataUrl}
-        aria-label={active.content.fileName} onClick={toggle} onDoubleClick={() => { interact(); setImmersive(value => !value); }} />
+        aria-label={active.content.fileName} onClick={() => { if (!windowed) toggle(); }}
+        onDoubleClick={() => { if (!windowed) { interact(); setImmersive(value => !value); } }} />
       {displayedFailure ? <div className="media-video-status" role="alert"><span>{failureText(displayedFailure)}</span>
         <button type="button" onClick={retry}><RotateCcw size={17} />{translate("重试加载")}</button></div> :
-        (phase === "preparing" || phase === "buffering" || phase === "seeking") && <div className="media-video-status" role="status">
-          <LoaderCircle className="spin" size={26} /><span>{phase === "preparing" ? translate("正在准备视频") : translate("视频正在缓冲")}</span>
+        (phase === "preparing" || phase === "buffering" || phase === "seeking") && <div className="media-video-loading" role="status"
+          aria-label={phase === "preparing" ? translate("正在准备视频") : translate("视频正在缓冲")}>
+          <LoaderCircle className="spin" size={36} strokeWidth={2} aria-hidden="true" />
         </div>}
     </>,
   } : undefined} />;

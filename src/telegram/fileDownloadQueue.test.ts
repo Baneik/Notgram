@@ -3,6 +3,24 @@ import { FileDownloadQueue } from "./fileDownloadQueue";
 import type { TdObject } from "./tdlibMapper";
 
 describe("FileDownloadQueue cancellation", () => {
+  it("clears native full-download intent when TDLib rejects the request", async () => {
+    const stop = vi.fn();
+    const queue = new FileDownloadQueue(async () => { throw new Error("network unavailable"); }, () => undefined, stop);
+    await expect(queue.cache(8)).rejects.toThrow("network unavailable");
+    expect(stop).toHaveBeenCalledExactlyOnceWith(8);
+    expect(queue.get(8)).toBeUndefined();
+  });
+  it("keeps a full download pending while a stream temporarily owns the TDLib cursor", async () => {
+    const queue = new FileDownloadQueue(async () => ({ "@type": "file", id: 8,
+      notgram_download_requested: true, local: { is_downloading_active: false, is_downloading_completed: false } }), () => undefined);
+    const download = queue.cache(8);
+    const result = download.catch((error: unknown) => error);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(queue.get(8)).toBe(download);
+    queue.handleFile(8, true, false, 1024);
+    await expect(result).resolves.toBeUndefined();
+  });
   it("does not publish a late download response after a completion update", async () => {
     let respond!: (file: TdObject) => void;
     const onFile = vi.fn();

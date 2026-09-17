@@ -2,8 +2,29 @@ import { afterEach, expect, it, vi } from "vitest";
 import { TauriTelegramTransport } from "./tauriTransport";
 import { TdRequestBroker } from "./tdRequestBroker";
 import type { TdObject } from "./tdlibMapper";
+import type { TelegramEvent } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("projects native transfer intent into both message and file updates", () => {
+  const transport = new TauriTelegramTransport();
+  const events: TelegramEvent[] = [];
+  const internal = transport as unknown as {
+    listener: (event: TelegramEvent) => void;
+    emitMessage: (raw: TdObject) => void;
+    handleUpdateBatch: (updates: TdObject[]) => void;
+  };
+  internal.listener = event => events.push(event);
+  const file = { ...photo(true), notgram_download_requested: false };
+  internal.emitMessage(message(file));
+  const lastMessage = () => events.filter(event => event.type === "message.upsert").at(-1);
+  expect(lastMessage()).toMatchObject({ message: { content: { isDownloading: false } } });
+  for (const requested of [true, false]) {
+    internal.handleUpdateBatch([{ "@type": "updateFile", file: { ...file, notgram_download_requested: requested } }]);
+    expect(lastMessage()).toMatchObject({ message: { content: { isDownloading: requested } } });
+    expect(events.filter(event => event.type === "file.updated").at(-1)).toMatchObject({ file: { isDownloading: requested } });
+  }
+});
 
 it.each([
   "Downloaded file is outside the active TDLib files directory",

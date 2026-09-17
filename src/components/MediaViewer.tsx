@@ -31,6 +31,7 @@ export interface MediaViewerProps {
     width?: number;
     height?: number;
     interact: () => void;
+    startDragging: () => void;
   };
 }
 
@@ -231,7 +232,10 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
         <div ref={viewport.fitRef} className="media-viewer-canvas" onPointerDown={event => {
           if (event.button === 0 && event.target === event.currentTarget) onClose();
         }}>
-          {video ? <div className="media-viewer-video-stage" onPointerDown={event => {
+          {video ? <div className="media-viewer-video-stage" aria-description={video.windowed ? translate("拖动播放器") : undefined} onPointerDown={event => {
+            if (event.button === 0 && video.windowed && !(event.target as HTMLElement).closest("button, input")) {
+              event.preventDefault(); video.startDragging(); return;
+            }
             if (event.button === 0 && event.target === event.currentTarget && !video.windowed) onClose();
           }}>{video.surface}</div> : <div ref={viewport.viewportRef} className={`media-viewer-viewport ${viewport.zoom > 1 ? "is-pannable" : ""}`}
             onPointerDown={event => {

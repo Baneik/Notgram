@@ -10,7 +10,7 @@ with prerelease identifiers used for release candidates.
 - Unify photo and video viewing, with lightweight video previews, application-owned
   playback sessions, mixed media navigation, recoverable errors and continuous
   playback when switching to a small window. Coordinate audio/video ownership and
-  exact cache leases; schedule TDLib ranges with bounded workers, seek cancellation
+  exact cache leases; schedule TDLib ranges with bounded workers, source cancellation
   and full-download arbitration. Add first-frame, seek and frame-quality metrics.
 - Fade deleted messages and smoothly lower the messages above them while keeping
   the lower messages anchored, including virtualized histories and reduced motion.
@@ -35,6 +35,10 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Separate playback buffering from download progress, preserve valid video ranges
+  when seeking, and size loading posters to the video. Make the small video window
+  draggable across its surface, with transparent surroundings and automatically
+  hidden translucent controls.
 - Confirm empty history boundaries and retry stalled pages without moving the older
   cursor forward. Keep permanent deletions, sent message ID replacements, and newer
   edits authoritative when delayed history or context responses arrive.

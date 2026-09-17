@@ -10,6 +10,7 @@ import {
   asTdObject,
   asTdObjects,
   fileDetails,
+  tdFileIsDownloading,
   chatIdFromBasicGroupId,
   chatIdFromSupergroupId,
   mapTdChat,
@@ -3207,7 +3208,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.fileDownloads.handleFile(
       fileId,
       local?.is_downloading_completed === true,
-      local?.is_downloading_active === true,
+      tdFileIsDownloading(file),
       tdNumber(local?.downloaded_size),
     );
 

@@ -31,7 +31,7 @@ const setup = (value = message()) => {
 };
 
 describe("application video ownership", () => {
-  it("grants only the latest seek after native invalidation and suppresses stale playback positions", async () => {
+  it("grants only the latest seek after ownership validation and suppresses stale playback positions", async () => {
     const current = setup(); await vi.advanceTimersByTimeAsync(0);
     const source = current.publish.mock.lastCall![0];
     const first = deferred<void>(), second = deferred<void>();

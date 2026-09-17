@@ -272,6 +272,13 @@ const readableSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
+export const tdFileIsDownloading = (value: unknown) => {
+  const file = asTdObject(value);
+  const local = asTdObject(file?.local);
+  return local?.is_downloading_completed !== true && (typeof file?.notgram_download_requested === "boolean"
+    ? file.notgram_download_requested : local?.is_downloading_active === true);
+};
+
 export const fileDetails = (value: unknown, includePendingUpload = false) => {
   const file = asTdObject(value);
   const local = asTdObject(file?.local);
@@ -294,7 +301,7 @@ export const fileDetails = (value: unknown, includePendingUpload = false) => {
     sizeLabel: readableSize(size),
     localPath: tdLocalFilePath(file, includePendingUpload),
     canDownload: local?.can_be_downloaded === true,
-    isDownloading: local?.is_downloading_active === true,
+    isDownloading: tdFileIsDownloading(file),
     isDownloaded: downloadCompleted || Boolean(tdLocalFilePath(file, includePendingUpload)),
     isUploading,
     downloadedSize,

@@ -1,4 +1,4 @@
-import { asTdObject, type TdObject } from "./tdlibMapper";
+import { asTdObject, tdFileIsDownloading, type TdObject } from "./tdlibMapper";
 
 type QueuedDownload = {
   fileId: number;
@@ -29,7 +29,7 @@ export class FileDownloadQueue {
   constructor(
     private readonly request: RequestFile,
     private readonly onFile: (file: TdObject) => void,
-    private readonly onStall?: (fileId: number) => void,
+    private readonly onFailure?: (fileId: number) => void,
   ) {}
 
   cache(fileId: number, priority = 16) {
@@ -183,7 +183,7 @@ export class FileDownloadQueue {
       const local = asTdObject(file.local);
       if (local?.is_downloading_completed === true) {
         this.finish(download.fileId);
-      } else if (local?.is_downloading_active !== true) {
+      } else if (!tdFileIsDownloading(file)) {
         this.finish(
           download.fileId,
           new Error("TDLib did not start the preview download"),
@@ -191,6 +191,9 @@ export class FileDownloadQueue {
       }
     } catch (error) {
       if (this.active.get(download.fileId) !== download) return;
+      // A later playback range must not restore a full download whose native
+      // request failed. Explicit cancellation clears the saved native intent.
+      this.onFailure?.(download.fileId);
       this.finish(
         download.fileId,
         error instanceof Error ? error : new Error(String(error)),
@@ -232,7 +235,7 @@ export class FileDownloadQueue {
     if (download.stallTimer !== undefined) globalThis.clearTimeout(download.stallTimer);
     download.stallTimer = globalThis.setTimeout(() => {
       if (this.active.get(download.fileId) !== download) return;
-      this.onStall?.(download.fileId);
+      this.onFailure?.(download.fileId);
       this.finish(download.fileId, new Error("TDLib preview download stalled without progress"));
     }, DOWNLOAD_STALL_MS);
   }

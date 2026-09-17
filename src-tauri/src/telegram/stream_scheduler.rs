@@ -110,7 +110,7 @@ pub(super) fn dispatch(key: FileKey, epoch: u64, work: impl FnOnce(bool) + Send 
             epoch,
             work: Box::new(work),
         });
-    // Responses run outside the queue lock, including obsolete seeks and overload.
+    // Responses run outside the queue lock, including replaced sources and overload.
     for job in retired {
         (job.work)(true);
     }
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(queue.next().unwrap().key.1, 1);
     }
     #[test]
-    fn a_seek_retires_only_older_requests_of_the_same_file() {
+    fn a_new_source_retires_only_older_requests_of_the_same_file() {
         let mut queue = Queue::default();
         queue.push(job(1, 0));
         queue.push(job(2, 0));
