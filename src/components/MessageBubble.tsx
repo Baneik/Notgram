@@ -302,7 +302,7 @@ function MessageBubbleComponent({
   const isVisual = content.kind === "media" &&
     ["photo", "video", "videoNote", "animation", "sticker"].includes(content.mediaType);
   const hasCaption = !albumItem && content.kind === "media" && Boolean(content.caption);
-  const showSender = !albumItem && !message.outgoing && (
+  const showSender = !albumItem && !message.outgoing && !forwardLabel && (
     channelPost || (!isSticker && isGroupFirst(groupPosition))
   );
   const fullMediaSource = content.kind === "media" ? localMediaSource(content.localPath) : undefined;
