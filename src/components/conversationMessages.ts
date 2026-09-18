@@ -173,3 +173,17 @@ export const messageSummary = (content: MessageContent) => {
   const normalized = raw.replace(/\s+/g, " ").trim();
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
 };
+
+export const serviceTargetSummary = (
+  message: Message,
+  messages: ReadonlyMap<string, Message>,
+  blocked: ReadonlyMap<string, unknown>,
+): string | undefined => {
+  if (message.content.kind !== "service") return undefined;
+  const target = message.content.event?.target;
+  if (!target || (target.chatId && target.chatId !== message.chatId)) return undefined;
+  const found = messages.get(target.messageId);
+  // A service reference must not expose content hidden by local privacy preferences.
+  return found && found.chatId === message.chatId && !blocked.has(found.senderId)
+    ? messageSummary(found.content) : undefined;
+};

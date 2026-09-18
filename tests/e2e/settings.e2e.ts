@@ -604,7 +604,7 @@ test("developer mode enables raw message copy and the browser context menu", asy
   await page.getByRole("button", { name: /产品讨论/ }).first().click();
 
   const notice = await revealVirtualMessage(page, "p-unknown");
-  await expect(notice).toContainText("收到新类型消息（messageFutureType）");
+  await expect(notice).toContainText("此消息暂不支持显示，请使用 Telegram 查看");
   await expect(notice.getByRole("button")).toHaveCount(0);
 
   const regularMessageBeforeSettings = await revealVirtualMessage(page, "p-2");

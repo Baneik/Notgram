@@ -810,7 +810,7 @@ export type MessageContent =
       isRtl: boolean;
       isFull: boolean;
     }
-  | { kind: "service"; text: string; memberUserIds?: string[] }
+  | { kind: "service"; text: string; memberUserIds?: string[]; event?: import("./serviceMessageTypes").ServiceMessageEvent }
   | MessagePollContent
   | { kind: "unsupported"; type: string; text: string }
   | ({ kind: "file" } & TransferableMessageContent)

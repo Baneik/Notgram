@@ -40,7 +40,8 @@
   --color-bg-code: rgba(48, 64, 72, 0.12);
   --color-message-incoming: #fffefd;
   --color-message-outgoing: #e5f3dc;
-  --color-message-service: rgba(90, 112, 106, 0.72);
+  /* Preblend to keep floating notices the same tone over messages and media. */
+  --color-message-service: color-mix(in srgb, #60766e 76%, var(--color-bg-canvas));
   --color-qr-background: #ffffff;
   --color-qr-foreground: #111111;
   --color-bg-media: #111719;
@@ -89,7 +90,7 @@
   --color-bg-code: rgba(0, 0, 0, 0.18);
   --color-message-incoming: #252a30;
   --color-message-outgoing: #334553;
-  --color-message-service: rgba(57, 67, 74, 0.92);
+  --color-message-service: color-mix(in srgb, #39434a 76%, var(--color-bg-canvas));
   --color-qr-background: #ffffff;
   --color-qr-foreground: #111111;
   --color-bg-media: #111719;

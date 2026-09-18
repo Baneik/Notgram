@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { presentServiceEvent, servicePartsText } from "./serviceMessages";
 import type { MessageContent } from "./types";
 
 export const isCaptionContent = (content: MessageContent): content is Extract<MessageContent, { kind: "media" | "file" }> =>
@@ -9,6 +10,7 @@ export const isEditableMessageContent = (content: MessageContent) =>
   content.kind === "text" || isCaptionContent(content);
 
 export const messageContentText = (content: MessageContent) => {
+  if (content.kind === "service" && content.event) return servicePartsText(presentServiceEvent(content.event).parts);
   if (
     content.kind === "text" ||
     content.kind === "rich" ||

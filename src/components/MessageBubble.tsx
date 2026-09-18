@@ -1,3 +1,5 @@
+import { ServiceMessageContent, type ServicePerson } from "./ServiceMessageContent";
+import { servicePersonIds } from "../telegram/serviceMessages";
 import { MessageDeliveryStatus } from "./MessageDeliveryStatus";
 import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
@@ -14,7 +16,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  Fragment,
   memo,
   useEffect,
   useCallback,
@@ -93,7 +94,8 @@ export interface MessageBubbleProps {
   showChannelMetadata?: boolean;
   channelPost?: boolean;
   channelDiscussionAction?: ReactNode;
-  serviceMembers?: Array<{ id: string; name: string; profileAvailable: boolean }>;
+  serviceMembers?: ServicePerson[];
+  serviceTargetSummary?: string;
   groupPosition: MessageGroupPosition;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
@@ -172,9 +174,10 @@ function MessageBubbleComponent({
   senderProfileAvailable,
   channelAuthor,
   showChannelMetadata = false,
-  channelPost = false,
+  channelPost: channelPostRequested = false,
   channelDiscussionAction,
   serviceMembers,
+  serviceTargetSummary,
   groupPosition,
   replyPreview,
   forwardLabel,
@@ -285,6 +288,7 @@ function MessageBubbleComponent({
   };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
   const isService = content.kind === "service" || content.kind === "unsupported";
+  const channelPost = channelPostRequested && !isService;
   const handleDeveloperCopyClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (
       !developerMode ||
@@ -738,7 +742,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget, undefined, true);
         }}
       >
-        <div className={`message-bubble ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
+        <div className={`message-bubble ${isService ? "conversation-notice" : ""} ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (
               <button
@@ -832,30 +836,13 @@ function MessageBubbleComponent({
               onSuspendStream={onSuspendStream}
               onSearchHashtag={onSearchHashtag}
             />
-          ) : content.kind === "service" ? (
-            <p className="message-service-content">
-              {serviceMembers && serviceMembers.length > 0 ? (
-                <>
-                  {serviceMembers.map((member, index) => (
-                    <Fragment key={member.id}>
-                      {index > 0 && "、"}
-                      {member.profileAvailable ? (
-                        <button
-                          type="button"
-                          aria-label={translate("查看 {{value0}} 资料", { value0: member.name })}
-                          onClick={() => onOpenSenderProfile(member.id)}
-                        >
-                          {member.name}
-                        </button>
-                      ) : member.name}
-                    </Fragment>
-                  ))}
-                  <span>{translate(" 加入了群聊")}</span>
-                </>
-              ) : highlightedText(content.text, searchQuery)}
-            </p>
-          ) : content.kind === "unsupported" ? (
-            <p>{highlightedText(content.text, searchQuery)}</p>
+          ) : content.kind === "service" || content.kind === "unsupported" ? (
+            <ServiceMessageContent message={message} people={serviceMembers ?? servicePersonIds(content).map(id => ({
+              id, name: blockedReactionSenderIds?.has(id) ? translate("Telegram 用户")
+                : users.get(id)?.displayName ?? (id.startsWith("chat:") ? senderChats.get(id.slice(5))?.title : undefined) ?? translate("Telegram 用户"),
+              profileAvailable: !blockedReactionSenderIds?.has(id) && (users.has(id) || (id.startsWith("chat:") && senderChats.has(id.slice(5)))),
+            }))} targetSummary={serviceTargetSummary}
+              searchQuery={searchQuery} onOpenPerson={onOpenSenderProfile} onOpenMessage={onOpenReply} />
           ) : isVisual && content.kind === "media" ? (
             <div className={`photo-message media-${content.mediaType}`} data-media-type={content.mediaType}>
               {content.showCaptionAboveMedia && visualCaption}
@@ -1237,6 +1224,7 @@ export interface MessageBubblePreviewProps {
   channelPost?: boolean;
   showChannelMetadata?: boolean;
   serviceMembers?: MessageBubbleProps["serviceMembers"];
+  serviceTargetSummary?: string;
   replyPreview?: ReplyPreview;
   forwardLabel?: string;
   onOpenForwardSource?: () => void;
@@ -1290,6 +1278,7 @@ export function MessageBubblePreview({
   channelPost = false,
   showChannelMetadata = false,
   serviceMembers,
+  serviceTargetSummary,
   replyPreview,
   forwardLabel,
   onOpenForwardSource,
@@ -1341,6 +1330,7 @@ export function MessageBubblePreview({
       channelPost={channelPost}
       showChannelMetadata={showChannelMetadata}
       serviceMembers={serviceMembers}
+      serviceTargetSummary={serviceTargetSummary}
       groupPosition="single"
       replyPreview={replyPreview}
       forwardLabel={forwardLabel}

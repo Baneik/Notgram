@@ -1,3 +1,4 @@
+import { servicePersonIds } from "../telegram/serviceMessages";
 import { useLocalUserBlocks } from "../store/localUserBlocks";
 import { replySenderId } from "../utils/localBlockedMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
@@ -66,6 +67,7 @@ import {
   forwardSourceFor,
   messageSummary,
   replyPreviewFor,
+  serviceTargetSummary,
 } from "./conversationMessages";
 import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
@@ -560,7 +562,7 @@ export function ChannelDiscussionPanel({
           </div>
 
           {loadError && <div className="channel-discussion-page-status channel-discussion-error" role="alert">
-            <span>{translate("留言加载失败")}</span>
+            <span className="conversation-notice">{translate("留言加载失败")}</span>
             <button className="text-button" type="button" disabled={loading} onClick={onRetry}>
               <RotateCcw size={14} />{translate("重试")}
             </button>
@@ -570,9 +572,9 @@ export function ChannelDiscussionPanel({
             {loading ? <LoaderCircle className="spin" size={14} /> : null}{translate("加载更早留言")}
           </button>}
           {loading && comments.length === 0 ? (
-            <div className="channel-discussion-empty" role="status"><LoaderCircle className="spin" size={18} />{translate("正在加载留言")}</div>
+            <div className="channel-discussion-empty" role="status"><span className="conversation-notice conversation-notice-status"><LoaderCircle className="spin" size={18} />{translate("正在加载留言")}</span></div>
           ) : comments.length === 0 && !loadError ? (
-            <div className="channel-discussion-empty">{translate("还没有留言")}</div>
+            <div className="channel-discussion-empty"><span className="conversation-notice">{translate("还没有留言")}</span></div>
           ) : comments.map((comment, index) => {
             const blocked = !comment.outgoing ? blockedById.get(comment.senderId) : undefined;
             const concealed = Boolean(blocked && !revealedMessages.has(comment.id));
@@ -592,7 +594,7 @@ export function ChannelDiscussionPanel({
                 className={`message-group channel-discussion-message-group ${comment.outgoing ? "is-outgoing" : "is-incoming"}`}
                 key={comment.renderKey ?? `${comment.chatId}:${comment.id}`}
               >
-                {!comment.outgoing && (
+                {!comment.outgoing && comment.content.kind !== "service" && comment.content.kind !== "unsupported" && (
                   <span className="message-group-avatar">
                     <button
                       className="message-sender-avatar"
@@ -618,13 +620,12 @@ export function ChannelDiscussionPanel({
                     senderProfileAvailable={profileAvailable}
                     channelAuthor={channelAuthorFor(comment)}
                     showChannelMetadata={displaysChannelMetadata(comment)}
-                    serviceMembers={comment.content.kind === "service"
-                      ? comment.content.memberUserIds?.map((userId) => ({
-                          id: userId,
-                          name: users.get(userId)?.displayName ?? translate("Telegram 用户"),
-                          profileAvailable: users.has(userId),
-                        }))
-                      : undefined}
+                    serviceMembers={servicePersonIds(comment.content).map((id) => ({
+                      id, name: blockedById.get(id)?.alias ?? users.get(id)?.displayName ??
+                        (id.startsWith("chat:") ? targetChatsById.get(id.slice(5))?.title : undefined) ?? translate("Telegram 用户"),
+                      profileAvailable: !blockedById.has(id) && (users.has(id) || (id.startsWith("chat:") && targetChatsById.has(id.slice(5)))),
+                    }))}
+                    serviceTargetSummary={serviceTargetSummary(comment, messagesById, blockedById)}
                     replyPreview={preview && blockedReply ? { ...preview, author: blockedReply.alias, concealed: true } : preview}
                     forwardLabel={forwardSource?.label}
                     onOpenForwardSource={forwardNavigation ? () => {

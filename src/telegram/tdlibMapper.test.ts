@@ -1108,19 +1108,19 @@ describe("TDLib mapper", () => {
     const cases = [
       [
         { "@type": "messageChatAddMembers", member_user_ids: [7, 8] },
-        { kind: "service", text: "2 位新成员加入了群聊", memberUserIds: ["7", "8"] },
+        { kind: "service", event: { type: "messageChatAddMembers", memberIds: ["7", "8"] }, text: "Telegram 用户、Telegram 用户 加入了群聊" },
       ],
       [
         { "@type": "messageChatJoinByLink" },
-        { kind: "service", text: "有成员通过邀请链接加入了群聊", memberUserIds: [] },
+        { kind: "service", text: "有成员通过邀请链接加入了群聊" },
       ],
       [
         { "@type": "messageChatJoinByRequest" },
-        { kind: "service", text: "入群申请已通过", memberUserIds: [] },
+        { kind: "service", text: "入群申请已通过" },
       ],
       [
         { "@type": "messageChatChangeTitle", title: "设计讨论" },
-        { kind: "service", text: "群聊名称已更改：设计讨论" },
+        { kind: "service", text: "名称已更改：设计讨论" },
       ],
       [
         { "@type": "messagePinMessage" },
@@ -1137,7 +1137,7 @@ describe("TDLib mapper", () => {
     ] as const;
 
     for (const [content, expected] of cases) {
-      expect(mapTdMessageContent(content)).toEqual(expected);
+      expect(mapTdMessageContent(content)).toMatchObject(expected);
     }
 
     expect(mapTdMessage({
@@ -1148,8 +1148,8 @@ describe("TDLib mapper", () => {
       content: { "@type": "messageChatJoinByLink" },
     })?.content).toEqual({
       kind: "service",
-      text: "有成员通过邀请链接加入了群聊",
-      memberUserIds: ["7"],
+      text: "Telegram 用户 通过邀请链接加入了群聊",
+      event: { type: "messageChatJoinByLink", actorId: "7", isChannel: undefined },
     });
 
     expect(mapTdMessage({
@@ -1160,7 +1160,8 @@ describe("TDLib mapper", () => {
       content: { "@type": "messageSupergroupChatCreate", title: "乱七八糟" },
     }, { isChannel: true })?.content).toEqual({
       kind: "service",
-      text: "频道已创建：乱七八糟",
+      text: "Telegram 用户 · 频道已创建：乱七八糟",
+      event: { type: "messageSupergroupChatCreate", title: "乱七八糟", actorId: "chat:9", isChannel: true },
     });
   });
 
@@ -1523,7 +1524,7 @@ describe("TDLib mapper", () => {
     expect(mapTdMessageContent({ "@type": "messageFutureType" })).toEqual({
       kind: "unsupported",
       type: "messageFutureType",
-      text: "收到新类型消息（messageFutureType）",
+      text: "此消息暂不支持显示，请使用 Telegram 查看",
     });
 
     const rawMessage = {

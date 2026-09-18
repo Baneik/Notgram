@@ -1,3 +1,5 @@
+import { observeConversationNoticeAlignment } from "../utils/conversationNoticeAlignment";
+import { servicePersonIds } from "../telegram/serviceMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { ChatMembershipBar, needsMembershipBar } from "./ChatMembershipBar";
 import { channelDiscussionAvailable, mediaAlbumMetadataMessage } from "../utils/messageMetadata";
@@ -90,6 +92,7 @@ import {
   replyPreviewFor,
   senderChatId,
   senderNameForMessage,
+  serviceTargetSummary,
 } from "./conversationMessages";
 import { channelDiscussionProjection } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
@@ -210,8 +213,8 @@ const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps & { conte
 );
 VirtualMessageListContent.displayName = "VirtualMessageListContent";
 
-const EmptyMessageList = () => <div className="messages-empty">{translate("没有匹配的消息")}</div>;
-const EmptyPinnedMessageList = () => <div className="messages-empty">{translate("当前没有置顶消息")}</div>;
+const EmptyMessageList = () => <div className="messages-empty conversation-notice">{translate("没有匹配的消息")}</div>;
+const EmptyPinnedMessageList = () => <div className="messages-empty conversation-notice">{translate("当前没有置顶消息")}</div>;
 const MessageListHeader = () => <div className="message-list-start-spacer" aria-hidden="true" />;
 const MessageListFooter = () => <div className="message-list-end-sentinel" aria-hidden="true" />;
 
@@ -1935,6 +1938,15 @@ export function Conversation({
   const showNavigationLoading = useStableVisibility(scrollRequest?.kind === "message" && scrollRequest.loading === true);
   const channelDiscussionComments = renderedDiscussion?.comments ?? [];
 
+  const noticeAlignmentCleanup = useRef<(() => void) | undefined>(undefined);
+  const setAlignedMessageListRef = useCallback((element: HTMLElement | Window | null) => {
+    noticeAlignmentCleanup.current?.();
+    setMessageListRef(element);
+    // Virtuoso attaches its scroller after the parent's first layout effect.
+    noticeAlignmentCleanup.current = element instanceof HTMLElement
+      ? observeConversationNoticeAlignment(element) : undefined;
+  }, [setMessageListRef]);
+
   if (!chat) {
     return (
       <section
@@ -1943,7 +1955,7 @@ export function Conversation({
         inert={mobileViewHidden ? true : undefined}
       >
         <div className="conversation-empty-mark">N</div>
-        <h2>{translate("选择一个对话")}</h2>
+        <h2 className="conversation-notice">{translate("选择一个对话")}</h2>
       </section>
     );
   }
@@ -2453,30 +2465,28 @@ export function Conversation({
         )}
         <MotionPresence present={showPinnedLoading} variant="status">
           {showPinnedLoading ? <div className="pinned-messages-loading" role="status">
-            <LoaderCircle className="spin" size={18} />
-            <span>{translate("正在读取置顶消息")}</span>
+            <span className="conversation-notice conversation-notice-status"><LoaderCircle className="spin" size={18} />{translate("正在读取置顶消息")}</span>
           </div> : null}
         </MotionPresence>
         {showPositioning ? <div
             className={`message-positioning-placeholder ${renderedMessages.length > 0 ? "is-warm" : ""}`}
             role="status"
           >
-            <LoaderCircle className="spin" size={18} />
-            <span>{translate("正在加载消息")}</span>
+            <span className="conversation-notice conversation-notice-status"><LoaderCircle className="spin" size={18} />{translate("正在加载消息")}</span>
           </div> : null}
         <MotionPresence present={showHistoryLoading} variant="status">
-          {showHistoryLoading ? <div className="history-loading" aria-label={translate("正在加载更早消息")}>
+          {showHistoryLoading ? <div className="history-loading conversation-notice" aria-label={translate("正在加载更早消息")}>
             <LoaderCircle className="spin" size={16} />
           </div> : null}
         </MotionPresence>
         <MotionPresence present={showNavigationLoading} variant="status">
-          {showNavigationLoading ? <div className="history-loading" role="status" aria-label={translate("正在加载消息")}>
+          {showNavigationLoading ? <div className="history-loading conversation-notice" role="status" aria-label={translate("正在加载消息")}>
             <LoaderCircle className="spin" size={16} />
           </div> : null}
         </MotionPresence>
         {!pinnedViewOpen && visibleMessageDay && (
           <div
-            className={`conversation-date-indicator ${dateIndicatorVisible ? "is-visible" : ""}`}
+            className={`conversation-date-indicator conversation-notice ${dateIndicatorVisible ? "is-visible" : ""}`}
             aria-hidden="true"
           >
             {visibleMessageDay}
@@ -2500,7 +2510,7 @@ export function Conversation({
           key={virtuosoKey}
           className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (visibleHistoryLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
-          scrollerRef={setMessageListRef}
+          scrollerRef={setAlignedMessageListRef}
           isScrolling={setMessageListScrolling}
           role="log"
           aria-label={pinnedViewOpen ? translate("置顶消息列表") : translate("消息列表")}
@@ -2567,7 +2577,7 @@ export function Conversation({
             return (
               <Fragment key={groupModel.id}>
               {startsNewDay && (
-                <div className="message-day" data-removal-surface={`day:${localDateKey(firstMessage.sentAt)}`}>{formatMessageDay(firstMessage.sentAt)}</div>
+                <div className="message-day conversation-notice" data-removal-surface={`day:${localDateKey(firstMessage.sentAt)}`}>{formatMessageDay(firstMessage.sentAt)}</div>
               )}
               <div
                 className={`message-group ${firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${groupModel.continuesBefore ? "continues-before" : ""} ${groupModel.continuesAfter ? "continues-after" : ""} ${groupModel.id === visibleMessageBlocks.at(-1)?.id ? "is-last-visible" : ""}`}
@@ -2710,16 +2720,16 @@ export function Conversation({
                         showChannelMetadata={displaysChannelMetadata(message)}
                         channelPost={isChannelPost}
                         channelDiscussionAction={albumItem ? undefined : renderDiscussionAction(message)}
-                        serviceMembers={message.content.kind === "service"
-                          ? message.content.memberUserIds?.map((userId) => {
-                              const blockedMember = localBlockedUsersById.get(userId);
-                              return {
-                                id: userId,
-                                name: blockedMember?.alias ?? users.get(userId)?.displayName ?? translate("Telegram 用户"),
-                                profileAvailable: !blockedMember && users.has(userId),
-                              };
-                            })
-                          : undefined}
+                        serviceMembers={servicePersonIds(message.content).map((userId) => {
+                          const blockedMember = localBlockedUsersById.get(userId);
+                          return {
+                            id: userId,
+                            name: blockedMember?.alias ?? users.get(userId)?.displayName ??
+                              (userId.startsWith("chat:") ? forwardTargetsById.get(userId.slice(5))?.title : undefined) ?? translate("Telegram 用户"),
+                            profileAvailable: !blockedMember && (users.has(userId) || (userId.startsWith("chat:") && forwardTargetsById.has(userId.slice(5)))),
+                          };
+                        })}
+                        serviceTargetSummary={serviceTargetSummary(message, messagesById, localBlockedUsersById)}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewForMessage(message)}
                         forwardLabel={displayedForwardLabel}

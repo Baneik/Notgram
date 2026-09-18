@@ -466,3 +466,29 @@ Hidden folder warmup waits for a visible document and the selected list to finis
 
 Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
 and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.
+
+## Centered conversation notices
+
+TDLib service events retain a small, whitelisted display model in `MessageContent.event`:
+actor/member identities, readable event fields, related-message targets, and optional existing
+local/minithumbnail photos. Never persist payment credentials, Passport payloads, gift redemption
+codes, or Web App data in this model. Legacy service text/member IDs remain readable.
+
+`presentServiceEvent` localizes events at render time and keeps person and message references
+structured. `ServiceMessageContent` renders names in bold without underlines, supports existing
+profile/message navigation, and folds secondary information into details. Name substitution must
+not interpret user text as markup or template slots. Local user aliases apply to every identity,
+and related-message summaries must not expose locally blocked content. Unknown message types use
+a friendly fallback without protocol identifiers. Retained deleted service records explain their
+state in a tooltip and accessible description instead of adding another visible line.
+
+Timeline dates, floating dates, service messages, loading notices, and empty states share the
+`conversation-notice` style and theme token. The token is blended with the canvas in advance so
+floating notices keep the same color over messages or media. Floating notices use the measured
+timeline center, accounting for scrollbar gutters and interface scaling; the alignment observer
+never writes scroll position. Channel/discussion service rows reserve no avatar column and cannot
+inherit channel-post bubble styles.
+
+Regression coverage includes the pinned TDLib service-type inventory, event-specific wording and
+amounts, multilingual names/details, local privacy, related-message navigation, photo fallback,
+long names, light/dark themes, narrow windows, and alignment at 100% and 125% interface scale.
