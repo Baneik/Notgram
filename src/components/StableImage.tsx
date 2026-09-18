@@ -3,16 +3,21 @@ import {
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ImgHTMLAttributes,
 } from "react";
 import { forgetDecodedImage, hasDecodedImage, rememberDecodedImage } from "../media/decodedImages";
+import { forgetMediaPreview, hasMediaPreview, mediaPreviewGeneration, rememberMediaPreview } from "../media/mediaPreviewCache";
+import { CachedMediaPreview } from "./CachedMediaPreview";
 
 type StableImageProps = ImgHTMLAttributes<HTMLImageElement> & {
   onReady?: () => void;
   /** Only use within a positioned media surface whose identity survives source upgrades. */
   retainWhileLoading?: boolean;
+  /** Small avatars/stickers can reuse bounded display pixels after virtualization. */
+  retainOnRemount?: boolean;
 };
 
 /** Keeps the fallback visible until the current image has finished decoding. */
@@ -23,6 +28,7 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
   onLoad,
   onReady,
   retainWhileLoading = false,
+  retainOnRemount = false,
   src,
   srcSet,
   sizes,
@@ -35,6 +41,9 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
   }>();
   const source = typeof src === "string" ? src : undefined;
   const request = JSON.stringify([source, srcSet, sizes]);
+  const previewSource = retainOnRemount && !srcSet ? source : undefined;
+  const previewGeneration = useMemo(() => mediaPreviewGeneration(), [request]);
+  const restoredRequest = useRef<string | undefined>(undefined);
   const ready = Boolean((source || srcSet) && readyImage?.request === request);
   const retained = retainWhileLoading && (source || srcSet) && !ready ? readyImage : undefined;
   const deliveredRequest = useRef<string | undefined>(undefined);
@@ -48,14 +57,15 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
       image.getAttribute("sizes") !== (sizes ?? null) ||
       image.currentSrc !== loadedSource || !image.complete || image.naturalWidth < 1) return;
     rememberDecodedImage(loadedSource);
+    if (previewSource) rememberMediaPreview(previewSource, image, previewGeneration);
     setReadyImage((current) => current?.request === request ? current : {
-      request, source: loadedSource, animate: animate && !(retainWhileLoading && current),
+      request, source: loadedSource, animate: animate && !(retainWhileLoading && current) && restoredRequest.current !== request,
     });
     if (deliveredRequest.current !== request) {
       deliveredRequest.current = request;
       onReady?.();
     }
-  }, [onReady, request, retainWhileLoading, sizes, source, srcSet]);
+  }, [onReady, previewGeneration, previewSource, request, retainWhileLoading, sizes, source, srcSet]);
 
   useLayoutEffect(() => {
     const image = imageRef.current;
@@ -77,6 +87,17 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
 
   return (
     <>
+      {!ready && !retained && previewSource && hasMediaPreview(previewSource) && <CachedMediaPreview
+        key={previewSource}
+        source={previewSource}
+        onReady={() => {
+          restoredRequest.current = request;
+          if (deliveredRequest.current !== request) {
+            deliveredRequest.current = request;
+            onReady?.();
+          }
+        }}
+      />}
       {retained && <img
         {...props}
         key={retained.request}
@@ -106,6 +127,7 @@ export const StableImage = forwardRef<HTMLImageElement, StableImageProps>(functi
         onLoad={handleLoad}
         onError={(event) => {
           forgetDecodedImage(event.currentTarget.currentSrc || event.currentTarget.src);
+          if (previewSource) forgetMediaPreview(previewSource);
           setFailedRequest(request);
           deliveredRequest.current = undefined;
           if (!retainWhileLoading) setReadyImage(undefined);

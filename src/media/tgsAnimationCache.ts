@@ -1,3 +1,5 @@
+import { forgetMediaPreview } from "./mediaPreviewCache";
+
 type AnimationData = Record<string, unknown>;
 
 const MAX_ENTRIES = 128;
@@ -48,6 +50,7 @@ export const loadTgsAnimationData = async (src: string): Promise<AnimationData> 
 };
 
 export const invalidateTgsAnimation = (src: string) => {
+  forgetMediaPreview(src);
   pending.get(src)?.controller.abort();
   pending.delete(src);
   const cached = animations.get(src);

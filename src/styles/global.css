@@ -185,6 +185,9 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .stable-image { opacity: 0; }
 .stable-image[data-image-transition="enter"] { transition: opacity var(--motion-duration-standard) var(--motion-ease-enter); }
 .stable-image[data-image-state="ready"] { opacity: 1; }
+.cached-media-preview { position: absolute; inset: 0; z-index: 1; display: block; pointer-events: none; }
+.cached-media-preview > canvas, .cached-media-preview > svg { display: block; width: 100%; height: 100%; object-fit: contain; }
+.avatar .cached-media-preview > canvas { object-fit: cover; }
 .icon-button, .dialog-primary, .dialog-secondary, .global-chat-result, .global-message-result,
 .message-reactions > button, .poll-option, .shared-media-open, .shared-media-selection button {
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
@@ -1842,7 +1845,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .video-preview-duration { position: absolute; left: 8px; top: 8px; display: flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 5px; background: var(--color-media-backdrop); font-size: 11px; font-variant-numeric: tabular-nums; }
 .media-bubble-video:not(.has-caption) .message-meta,
 .media-bubble-videoNote:not(.has-caption) .message-meta { bottom: 9px; }
-.tgs-sticker, .tgs-sticker svg { width: 100%; height: 100%; display: block; }
+.tgs-sticker { position: relative; }
+.tgs-sticker, .tgs-sticker-player, .tgs-sticker svg { width: 100%; height: 100%; display: block; }
 .media-videoNote { width: 100%; }
 .media-videoNote .photo-preview { border-radius: 50%; }
 .media-sticker { width: 100%; }

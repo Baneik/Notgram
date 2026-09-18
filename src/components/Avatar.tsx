@@ -53,6 +53,7 @@ export function Avatar({ avatar, size = "medium", active = true, preload = false
       {avatar.icon === "saved" ? <Bookmark className="avatar-icon" size="42%" strokeWidth={2.2} fill="currentColor" /> : <span>{avatar.label}</span>}
       {imageSource && imageSource !== failedSource && (
         <StableImage
+          retainOnRemount
           key={imageSource}
           src={imageSource}
           alt=""

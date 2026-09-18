@@ -884,6 +884,7 @@ function MessageBubbleComponent({
                   />
                 ) : usableFullMediaSource && isVideoSticker ? (
                   <AutoplayVideo
+                    retainOnRemount
                     src={usableFullMediaSource}
                     poster={usablePreviewSource}
                     autoplay={autoplayAnimations}
@@ -891,7 +892,7 @@ function MessageBubbleComponent({
                     muted
                     playsInline
                     aria-label={content.caption || content.fileName}
-                    onLoadedData={() => setReadyStickerSource(usableFullMediaSource)}
+                    onReady={() => setReadyStickerSource(usableFullMediaSource)}
                     onLoadedMetadata={(event) => rememberMediaSize(
                       usableFullMediaSource,
                       event.currentTarget.videoWidth,
@@ -967,6 +968,7 @@ function MessageBubbleComponent({
                 ) : imageMediaSource ? (
                   <StableImage
                     retainWhileLoading
+                    retainOnRemount={isSticker}
                     src={imageMediaSource}
                     alt={content.caption || content.fileName}
                     loading="lazy"

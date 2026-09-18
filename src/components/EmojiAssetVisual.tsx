@@ -93,8 +93,8 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
     {source && (usingFull && asset.mimeType === "application/x-tgsticker" ? (
       <TgsSticker src={source} label={label} autoplay={autoplay} onError={markFailed} onReady={markReady} />
     ) : usingFull && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (
-      <AutoplayVideo src={source} muted autoplay={autoplay} loop playsInline aria-label={label} onError={markFailed} onLoadedData={markReady} />
-    ) : <StableImage src={source} alt="" draggable={false} onError={markFailed} onReady={markReady} />)}
+      <AutoplayVideo retainOnRemount={asset.kind === "sticker"} src={source} muted autoplay={autoplay} loop playsInline aria-label={label} onError={markFailed} onReady={markReady} />
+    ) : <StableImage retainOnRemount={asset.kind === "sticker"} src={source} alt="" draggable={false} onError={markFailed} onReady={markReady} />)}
     {(full.failed || thumbnail.failed || failedSources.size > 0) && !ready && <span className="emoji-asset-error" title={failedSources.size > 0 ? translate("贴纸暂不可用") : translate("贴纸加载失败，正在重试")}><AlertCircle size={14} /></span>}
   </span>;
 }

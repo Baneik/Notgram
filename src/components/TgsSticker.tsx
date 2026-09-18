@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useElementVisibility } from "../hooks/useElementVisibility";
 import { loadTgsAnimationData } from "../media/tgsAnimationCache";
+import { forgetMediaPreview, hasMediaPreview, mediaPreviewGeneration, rememberMediaPreview } from "../media/mediaPreviewCache";
+import { CachedMediaPreview } from "./CachedMediaPreview";
 
 interface TgsStickerProps {
   src: string;
@@ -12,20 +14,16 @@ interface TgsStickerProps {
 
 export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsStickerProps) {
   const containerElementRef = useRef<HTMLSpanElement | null>(null);
+  const [readySource, setReadySource] = useState<string>();
+  const previewGeneration = useMemo(() => mediaPreviewGeneration(), [src]);
   const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>();
   const animationRef = useRef<import("lottie-web").AnimationItem | undefined>(undefined);
   const shouldPlayRef = useRef(false);
   const onErrorRef = useRef(onError);
   const onReadyRef = useRef(onReady);
   const shouldPlay = autoplay && visible;
-  const containerRef = useCallback((container: HTMLSpanElement | null) => {
-    containerElementRef.current = container;
-    const stopObserving = visibilityRef(container);
-    return () => {
-      if (containerElementRef.current === container) containerElementRef.current = null;
-      stopObserving?.();
-    };
-  }, [visibilityRef]);
+  // A -> pending B -> A creates a new player even though A was ready earlier.
+  useLayoutEffect(() => { setReadySource(undefined); }, [src]);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -42,7 +40,23 @@ export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsSticke
     const container = containerElementRef.current;
     if (!container) return;
     let active = true;
+    let frameReady = false;
     let animation: import("lottie-web").AnimationItem | undefined;
+    const ready = () => {
+      if (!active) return;
+      frameReady = true;
+      const svg = container.querySelector("svg");
+      if (svg) rememberMediaPreview(src, svg, previewGeneration);
+      setReadySource(src);
+      onReadyRef.current?.();
+    };
+    const failed = () => {
+      if (!active) return;
+      frameReady = false;
+      forgetMediaPreview(src);
+      setReadySource(undefined);
+      onErrorRef.current();
+    };
 
     void Promise.all([
       loadTgsAnimationData(src),
@@ -59,32 +73,39 @@ export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsSticke
           rendererSettings: { preserveAspectRatio: "xMidYMid meet", progressiveLoad: true },
         });
         animationRef.current = animation;
-        animation.addEventListener("DOMLoaded", () => { if (active) onReadyRef.current?.(); });
-        animation.addEventListener("data_failed", () => { if (active) onErrorRef.current(); });
-        animation.addEventListener("error", () => { if (active) onErrorRef.current(); });
-        if (animation.isLoaded) onReadyRef.current?.();
+        animation.addEventListener("DOMLoaded", ready);
+        animation.addEventListener("data_failed", failed);
+        animation.addEventListener("error", failed);
+        if (animation.isLoaded) ready();
         if (!shouldPlayRef.current) animation.pause();
       })
       .catch((error: unknown) => {
         if (!active || (error instanceof DOMException && error.name === "AbortError")) {
           return;
         }
-        onErrorRef.current();
+        failed();
       });
 
     return () => {
       active = false;
+      // The first frame of an animation can be empty; preserve the frame the
+      // reader actually left before Lottie removes its rendered SVG.
+      const svg = frameReady ? container.querySelector("svg") : undefined;
+      if (svg) rememberMediaPreview(src, svg, previewGeneration, { replace: true });
       animation?.destroy();
       if (animationRef.current === animation) animationRef.current = undefined;
       container.replaceChildren();
     };
-  }, [src]);
+  }, [previewGeneration, src]);
 
   return <span
-    ref={containerRef}
+    ref={visibilityRef}
     className="tgs-sticker"
     role="img"
     aria-label={label}
     data-motion-autoplay={shouldPlay ? "true" : "false"}
-  />;
+  >
+    {readySource !== src && hasMediaPreview(src) && <CachedMediaPreview key={`preview:${src}`} source={src} onReady={onReady} />}
+    <span key={src} ref={containerElementRef} className="tgs-sticker-player" />
+  </span>;
 }

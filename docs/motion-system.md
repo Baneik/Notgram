@@ -91,6 +91,18 @@ its replacement loads and decodes in an absolute layer. Only the ready replaceme
 it does not fade through an empty surface. Errors and superseded decodes retain the usable image.
 This is scoped to one media identity, not to unrelated items in a viewer or an account switch.
 
+Virtual rows may release their image and sticker players during reply/latest navigation.
+Avatars and stickers opt into a shared, account-local still-frame cache so a remounted
+surface restores actual pixels before paint while its new image decodes or player initializes.
+The live source still validates readiness; a URL or a previous ready flag alone cannot reveal it.
+Warm replacement images take over without another fade. TGS and WebM players retain their last
+usable frame before destruction; background and reduced-motion playback rules still apply.
+The cache holds at most 256 entries and a 24 MiB pixel/estimated-SVG budget, with raster edges
+capped at 384px and individual SVG previews capped at 2 MiB. It retains no running players,
+does not encode frames, and is cleared by account reset or media cleanup. Generation checks
+reject late writes after cleanup, and source errors invalidate their preview. SVG copies
+receive independent clip/gradient IDs. These previews never own navigation or row geometry.
+
 The image viewer keeps its transform on a positioned surface outside the decoded-image lifecycle.
 Upgrading one photo must retain both its painted preview and its zoom/pan; selecting another photo
 resets the viewport before paint. Pointer moves coalesce into one transform write per animation frame,

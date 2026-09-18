@@ -1,6 +1,7 @@
 import { translate } from "../i18n";
 import { clearTgsAnimationCache } from "../media/tgsAnimationCache";
 import { clearLocalAssetCache } from "../media/localAssetCache";
+import { clearMediaPreviewCache } from "../media/mediaPreviewCache";
 import { stickerOutlinePath } from "../media/stickerOutline";
 import type { TelegramTransport } from "../telegram/transport";
 import type { EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, TelegramEvent } from "../telegram/types";
@@ -169,6 +170,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError }: Em
     reset: () => {
       clearTgsAnimationCache();
       clearLocalAssetCache();
+      clearMediaPreviewCache();
       generation += 1;
       catalog = undefined;
       catalogRequest = undefined;
