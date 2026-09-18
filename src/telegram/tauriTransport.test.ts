@@ -111,9 +111,34 @@ describe("chat mention membership", () => {
     expect((await transport.getChatMentionSuggestions("-1007", "Member", [])).map((value) => value.id)).toEqual(["11", "12"]);
     expect(internal.request).toHaveBeenCalledWith({
       "@type": "searchChatMembers", chat_id: -1007, query: "Member", limit: 200,
-      filter: { "@type": "chatMembersFilterMembers" },
+      filter: { "@type": "chatMembersFilterMention", topic_id: null },
     });
     expect(internal.request).not.toHaveBeenCalledWith({ "@type": "getUser", user_id: 99 });
+  });
+
+  it.each(["Olivia", "olivia_member"])("finds hidden non-admin members by %s without loading the member list", async (query) => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.request = vi.fn(async (request) => {
+      if (request["@type"] === "searchChatMembers") {
+        const filter = (request.filter as TdObject)["@type"];
+        // Hidden-member groups omit ordinary users from member-list searches.
+        return { members: filter === "chatMembersFilterMention" ? [member(11)] : [] };
+      }
+      if (request["@type"] === "getUser" && request.user_id === 11) {
+        return { ...user(11), first_name: "Olivia", usernames: { active_usernames: ["olivia_member"] } };
+      }
+      throw new Error("Member list is inaccessible");
+    });
+
+    await expect(transport.getChatMentionSuggestions("-1007", query, [])).resolves.toMatchObject([
+      { id: "11", displayName: "Olivia", username: "olivia_member" },
+    ]);
+    expect(internal.request).toHaveBeenCalledWith({
+      "@type": "searchChatMembers", chat_id: -1007, query, limit: 200,
+      filter: { "@type": "chatMembersFilterMention", topic_id: null },
+    });
+    expect(internal.request).toHaveBeenCalledTimes(2);
   });
 
   it("revalidates recent mentions, skips departed users and preserves ranking", async () => {

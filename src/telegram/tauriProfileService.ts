@@ -266,7 +266,8 @@ export class TauriProfileService {
         chat_id: numericId(chatId),
         query: normalizedQuery,
         limit: 200,
-        filter: { "@type": "chatMembersFilterMembers" },
+        // Mention eligibility is separate from visibility in a hidden member list.
+        filter: { "@type": "chatMembersFilterMention", topic_id: null },
       });
       const users = await Promise.all(asTdObjects(result.members).map(loadMember));
       return mentionSuggestionsFor(users.filter((user): user is User => Boolean(user)), normalizedQuery, []);
