@@ -131,9 +131,9 @@ export const matchesVirtualMessageLayout = (
 };
 
 export const conversationGeometryKey = (preferences: Pick<AppPreferences,
-  "chatFontSize" | "interfaceScale" | "messageGroupSpacing" | "messageRowSpacing" | "messageBubblePadding"
+  "chatFontSize" | "interfaceScale" | "messageGroupSpacing" | "messageRowSpacing" | "messageBubblePadding" | "quoteCollapseLines"
 >) => [preferences.chatFontSize, preferences.interfaceScale, preferences.messageGroupSpacing,
-  preferences.messageRowSpacing, preferences.messageBubblePadding].join(":");
+  preferences.messageRowSpacing, preferences.messageBubblePadding, preferences.quoteCollapseLines].join(":");
 
 const VIRTUAL_ITEM_INDEX_BASE = 1_000_000;
 

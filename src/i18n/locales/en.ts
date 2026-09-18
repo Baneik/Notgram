@@ -1,4 +1,6 @@
 export const en = {
+  "引用自动折叠阈值": "Quote auto-collapse threshold",
+  "行": "lines",
   "媒体详细信息": "Media details",
   "会话媒体预览": "Conversation media previews",
   "视频进度": "Video position",

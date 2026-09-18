@@ -51,6 +51,30 @@ describe("MessageRichText Telegram links", () => {
     expect(html).toContain('>first\nsecond</span></span>\n<strong>reply</strong>');
   });
 
+  it.each(["", "\n", "\r\n", "\n\n"])("folds adjacent quote entities together without losing separators (%j)", (separator) => {
+    const text = "first" + separator + "second";
+    const entities = [
+      { kind: "blockquote" as const, offset: 0, length: 5 },
+      { kind: "blockquote" as const, offset: 5 + separator.length, length: 6 },
+      { kind: "bold" as const, offset: 5 + separator.length, length: 6 },
+    ];
+    const snapshot = JSON.stringify(entities);
+    const html = renderToStaticMarkup(<MessageRichText text={text} entities={entities} />);
+    expect(html.match(/data-quote-state/g)).toHaveLength(1);
+    expect(html).toContain(`>first${separator}<strong>second</strong>`);
+    expect(JSON.stringify(entities)).toBe(snapshot);
+  });
+
+  it("keeps quotes separated by ordinary text independent", () => {
+    const text = "first\nplain\nsecond";
+    const html = renderToStaticMarkup(<MessageRichText text={text} entities={[
+      { kind: "blockquote", offset: 0, length: 5 },
+      { kind: "blockquote", offset: 12, length: 6 },
+    ]} />);
+    expect(html.match(/data-quote-state/g)).toHaveLength(2);
+    expect(html).toContain("</span></span>plain<span");
+  });
+
   it("renders a schemeless public link as a URL instead of a mention", () => {
     const link = "t.me/sylphiette_grayrat_bot";
     const html = renderToStaticMarkup(

@@ -1,13 +1,7 @@
-import { translate } from "../i18n";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   Fragment,
   lazy,
   Suspense,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -15,13 +9,11 @@ import { useTelegramStore } from "../store/telegramStore";
 import { telegramUrlDisplayText } from "../telegram/telegramLinks";
 import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
-import { observeLayout } from "../utils/layoutObservation";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
 import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
+import { CollapsibleBlockQuote, type CollapseQuoteHandler } from "./CollapsibleBlockQuote";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
-const COLLAPSIBLE_QUOTE_LINE_THRESHOLD = 5;
-const COLLAPSED_QUOTE_LINES = 3.5;
 
 interface MessageRichTextProps {
   text: string;
@@ -31,11 +23,7 @@ interface MessageRichTextProps {
   highlightQuery?: string;
   onOpenMention?: (username?: string, userId?: string) => void;
   onSearchHashtag?: (hashtag: string) => void;
-  onCollapseQuote?: (
-    collapse: () => void,
-    pointerClientY: number,
-    getCollapsedAnchor: () => Element | null,
-  ) => void;
+  onCollapseQuote?: CollapseQuoteHandler;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -263,138 +251,33 @@ const renderInlineRange = (
   });
 };
 
-function CollapsibleBlockQuote({
-  quoteText,
-  resetKey,
-  onCollapse,
-  children,
-}: {
-  quoteText: string;
-  resetKey: string;
-  onCollapse?: (
-    collapse: () => void,
-    pointerClientY: number,
-    getCollapsedAnchor: () => Element | null,
-  ) => void;
-  children: ReactNode;
-}) {
-  const contentRef = useRef<HTMLSpanElement>(null);
-  const expandButtonRef = useRef<HTMLButtonElement>(null);
-  const [lineCount, setLineCount] = useState(0);
-  const [collapsedHeight, setCollapsedHeight] = useState(0);
-  const [expanded, setExpanded] = useState(false);
-  const collapsible = lineCount > COLLAPSIBLE_QUOTE_LINE_THRESHOLD;
-  const collapsed = collapsible && !expanded;
-
-  useLayoutEffect(() => {
-    setExpanded(false);
-  }, [resetKey]);
-
-  useLayoutEffect(() => {
-    const content = contentRef.current;
-    if (!content) return;
-    const measure = () => {
-      const computed = getComputedStyle(content);
-      const parsedLineHeight = Number.parseFloat(computed.lineHeight);
-      const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
-        ? parsedLineHeight
-        : Number.parseFloat(computed.fontSize) * 1.48;
-      const range = document.createRange();
-      range.selectNodeContents(content);
-      const lineTops: number[] = [];
-      for (const rect of range.getClientRects()) {
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        if (!lineTops.some((top) => Math.abs(top - rect.top) < 1.5)) lineTops.push(rect.top);
-      }
-      const nextLineCount = Math.max(
-        lineTops.length,
-        Math.round(content.scrollHeight / lineHeight),
-      );
-      setLineCount((current) => current === nextLineCount ? current : nextLineCount);
-      const nextCollapsedHeight = lineHeight * COLLAPSED_QUOTE_LINES;
-      setCollapsedHeight((current) => Math.abs(current - nextCollapsedHeight) < 0.25
-        ? current
-        : nextCollapsedHeight);
-    };
-    measure();
-    return observeLayout(content, measure);
-  }, [resetKey]);
-
-  const preview = quoteText.replace(/\s+/g, " ").trim().slice(0, 120);
-  return (
-    <span
-      className={`rich-blockquote ${collapsed ? "is-collapsed" : ""} ${collapsible && expanded ? "is-expanded" : ""}`}
-      data-quote-line-count={lineCount || undefined}
-      data-quote-state={collapsible ? (expanded ? "expanded" : "collapsed") : "static"}
-      style={{
-        "--collapsed-quote-height": `${collapsedHeight}px`,
-      } as CSSProperties}
-    >
-      <span
-        ref={contentRef}
-        className="rich-blockquote-content"
-        inert={collapsed ? true : undefined}
-      >
-        {children}
-      </span>
-      {collapsed && (
-        <button
-          ref={expandButtonRef}
-          className="rich-blockquote-expand"
-          type="button"
-          aria-label={preview ? translate("展开引用：{{value0}}", { value0: preview }) : translate("展开引用")}
-          title={translate("展开引用")}
-          onClick={() => setExpanded(true)}
-        >
-          <span className="rich-blockquote-fade" aria-hidden="true" />
-          <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />
-        </button>
-      )}
-      {collapsible && expanded && (
-        <button
-          className="rich-blockquote-collapse"
-          type="button"
-          aria-label={translate("收起引用")}
-          title={translate("收起引用")}
-          onClick={(event) => {
-            const buttonBounds = event.currentTarget.getBoundingClientRect();
-            const pointerClientY = event.detail > 0
-              ? event.clientY
-              : (buttonBounds.top + buttonBounds.bottom) / 2;
-            const collapse = () => setExpanded(false);
-            const getCollapsedAnchor = () =>
-              expandButtonRef.current?.querySelector("svg") ?? expandButtonRef.current;
-            if (onCollapse) onCollapse(collapse, pointerClientY, getCollapsedAnchor);
-            else collapse();
-          }}
-        >
-          <ChevronUp size={17} strokeWidth={2.2} aria-hidden="true" />
-        </button>
-      )}
-    </span>
-  );
-}
-
 const renderEntities = (
   text: string,
   entities: MessageTextEntity[],
   highlightQuery?: string,
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
-  onCollapseQuote?: (
-    collapse: () => void,
-    pointerClientY: number,
-    getCollapsedAnchor: () => Element | null,
-  ) => void,
+  onCollapseQuote?: CollapseQuoteHandler,
   chatId?: string,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
   const valid = entities.filter((entity) =>
     entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= text.length,
   );
-  const blockquotes = valid
+  const sortedQuotes = valid
     .filter((entity) => entity.kind === "blockquote")
     .sort((left, right) => left.offset - right.offset || right.length - left.length);
+  const blockquotes: Array<{ offset: number; length: number }> = [];
+  for (const quote of sortedQuotes) {
+    const previous = blockquotes.at(-1);
+    const previousEnd = previous ? previous.offset + previous.length : 0;
+    if (previous && (quote.offset <= previousEnd || /^[\t \r\n]*$/.test(text.slice(previousEnd, quote.offset)))) {
+      // Adjacent server entities form one local folding surface. Keep source offsets intact.
+      previous.length = Math.max(previousEnd, quote.offset + quote.length) - previous.offset;
+    } else {
+      blockquotes.push({ offset: quote.offset, length: quote.length });
+    }
+  }
   const inlineEntities = valid.filter((entity) => entity.kind !== "blockquote");
   if (blockquotes.length === 0) {
     return renderInlineRange(
@@ -509,7 +392,7 @@ export function MessageRichText({
         {highlightedText(text, highlightQuery)}
       </div>
     )}>
-      <MarkdownText text={text} className={className} highlightQuery={highlightQuery} />
+      <MarkdownText text={text} className={className} highlightQuery={highlightQuery} onCollapseQuote={onCollapseQuote} />
     </Suspense>
   );
 }

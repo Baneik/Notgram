@@ -54,6 +54,7 @@ export interface AppPreferences {
   cacheRetentionDays: number;
   reduceMotion: boolean;
   chatFontSize: number;
+  quoteCollapseLines: number;
   interfaceScale: number;
   chatListRowHeight: number;
   messageGroupSpacing: number;
@@ -99,6 +100,7 @@ const defaults: AppPreferences = {
   cacheRetentionDays: 7,
   reduceMotion: false,
   chatFontSize: 14,
+  quoteCollapseLines: 10,
   interfaceScale: 100,
   chatListRowHeight: 68,
   messageGroupSpacing: 4,
@@ -174,6 +176,7 @@ const readPreferences = (): AppPreferences => {
       ),
       reduceMotion: stored.reduceMotion ?? defaults.reduceMotion,
       chatFontSize: boundedInteger(stored.chatFontSize, defaults.chatFontSize, 12, 20),
+      quoteCollapseLines: boundedInteger(stored.quoteCollapseLines, defaults.quoteCollapseLines, 1, 100),
       interfaceScale: boundedInteger(stored.interfaceScale, defaults.interfaceScale, 80, 150),
       chatListRowHeight: boundedInteger(
         stored.chatListRowHeight,
@@ -233,6 +236,9 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
     systemReduceMotion: initialSystemReduceMotion,
   }),
   setPreference: (key, value) => {
+    if (key === "quoteCollapseLines") {
+      value = boundedInteger(value, defaults.quoteCollapseLines, 1, 100) as typeof value;
+    }
     set((state) => ({
       [key]: value,
       ...(key === "reduceMotion"
@@ -326,6 +332,7 @@ preferencesStore.subscribe((state) => {
     cacheRetentionDays: state.cacheRetentionDays,
     reduceMotion: state.reduceMotion,
     chatFontSize: state.chatFontSize,
+    quoteCollapseLines: state.quoteCollapseLines,
     interfaceScale: state.interfaceScale,
     chatListRowHeight: state.chatListRowHeight,
     messageGroupSpacing: state.messageGroupSpacing,

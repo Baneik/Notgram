@@ -31,6 +31,12 @@ the entire list. Convert screen-space offsets to scroll coordinates at interface
 at a scroll boundary keep the closest reachable position without repeated clamped writes.
 User scrolling and newer navigation cancel the bounded anchor settlement.
 
+Quote folding is a local display preference, shared by entity, Markdown, and rich-block
+quotes. Adjacent entity quotes separated only by whitespace form one folding surface;
+their original text and entity offsets remain unchanged. Count rendered lines, including
+soft wrapping, and fold only above the configured threshold (default 10). Keep the existing
+3.5-line preview, capped by lower thresholds, and invalidate saved geometry when the preference changes.
+
 ## Shared tokens
 
 CSS tokens live at the top of `src/styles/global.css`; WAAPI and React fallback values live in

@@ -822,6 +822,7 @@ function MessageBubbleComponent({
               blocks={content.blocks}
               isRtl={content.isRtl}
               isFull={content.isFull}
+              onCollapseQuote={collapseQuote}
               messageId={message.id}
               highlightQuery={searchQuery}
               onDownload={onDownload}

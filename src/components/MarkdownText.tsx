@@ -2,18 +2,20 @@ import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memo, useMemo, type ReactNode } from "react";
+import { Children, memo, useMemo, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightTextNodes } from "../utils/textHighlight";
+import { CollapsibleBlockQuote, type CollapseQuoteHandler } from "./CollapsibleBlockQuote";
 
 interface MarkdownTextProps {
   text: string;
   className: string;
   highlightQuery?: string;
+  onCollapseQuote?: CollapseQuoteHandler;
 }
 
-function MarkdownText({ text, className, highlightQuery }: MarkdownTextProps) {
+function MarkdownText({ text, className, highlightQuery, onCollapseQuote }: MarkdownTextProps) {
   useTranslation();
   const highlight = (children: ReactNode) => highlightTextNodes(children, highlightQuery);
   const components = useMemo<Components>(() => ({
@@ -32,11 +34,16 @@ function MarkdownText({ text, className, highlightQuery }: MarkdownTextProps) {
     h5: ({ children }) => <h5>{highlight(children)}</h5>,
     h6: ({ children }) => <h6>{highlight(children)}</h6>,
     li: ({ children }) => <li>{highlight(children)}</li>,
-    blockquote: ({ children }) => <blockquote>{highlight(children)}</blockquote>,
+    // Ignore parser separators between blocks; pre-wrap would turn them into empty preview lines.
+    blockquote: ({ children }) => (
+      <CollapsibleBlockQuote as="blockquote" resetKey={text} onCollapse={onCollapseQuote}>
+        {highlight(Children.toArray(children).filter((child) => typeof child !== "string" || child.trim()))}
+      </CollapsibleBlockQuote>
+    ),
     td: ({ children }) => <td>{highlight(children)}</td>,
     th: ({ children }) => <th>{highlight(children)}</th>,
     pre: ({ children }) => <pre>{highlight(children)}</pre>,
-  }), [highlightQuery]);
+  }), [text, highlightQuery, onCollapseQuote]);
   return (
     <div className={`message-rich-text ${className}`} data-rich-text="markdown">
       <Markdown

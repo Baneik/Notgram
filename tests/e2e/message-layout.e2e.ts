@@ -186,6 +186,7 @@ test("incoming virtual blocks preserve the sender avatar column", async ({ page 
 });
 
 test("long quotes collapse under the pointer without intermediate viewport movement", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("notgram:preferences:v1", JSON.stringify({ quoteCollapseLines: 5 })));
   await page.goto("/");
   await page.getByRole("button", { name: /收藏夹/ }).click();
   const row = page.locator('[data-message-id="saved-long-quote"]');

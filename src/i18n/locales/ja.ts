@@ -1,6 +1,8 @@
 import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
+  "引用自动折叠阈值": "引用の自動折りたたみ行数",
+  "行": "行",
   "媒体详细信息": "メディアの詳細",
   "会话媒体预览": "会話のメディアプレビュー",
   "媒体查看器：{{value0}}": "メディアビューアー：{{value0}}",
