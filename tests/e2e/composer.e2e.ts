@@ -633,6 +633,100 @@ test("mention search excludes cached outsiders and stale recent mentions", async
   await expect(composer).toHaveJSProperty("value", "");
 });
 
+test("mention search keeps matching candidates mounted while refining the query", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByLabel("消息内容");
+  await expect(composer).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const mia = telegramStore.getState().users.get("u-mia")!;
+    telegramStore.setState({ getChatMentionSuggestions: async (_chatId, query) => {
+      document.body.dataset.mentionRequested = query;
+      if (query === "mia") await new Promise<void>((resolve) => Reflect.set(window, "finishMentionQuery", resolve));
+      return [mia];
+    } });
+  });
+  await composer.fill("@mi");
+  const option = page.locator('[data-mention-user-id="u-mia"]');
+  await expect(option).toBeVisible();
+  const original = await option.elementHandle();
+  await composer.fill("@mia");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-requested", "mia");
+  const uninterrupted = await original!.evaluate(async (element) => {
+    for (let frame = 0; frame < 18; frame += 1) {
+      await new Promise(requestAnimationFrame);
+      const presence = element.closest(".motion-presence");
+      if (!element.isConnected || presence?.hasAttribute("inert") || presence?.getAttribute("data-motion-state") === "exiting") return false;
+    }
+    return true;
+  });
+  await page.evaluate(() => Reflect.get(window, "finishMentionQuery")());
+  expect(uninterrupted).toBe(true);
+  await expect(option).toBeVisible();
+  expect(await original!.evaluate((element) => element === document.querySelector('[data-mention-user-id="u-mia"]'))).toBe(true);
+  await composer.press("Control+1");
+  await expect(composer.locator('[data-composer-entity="mentionName"]')).toHaveCount(1);
+});
+
+test("mention search does not restart when the conversation receives messages", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByLabel("消息内容");
+  await expect(composer).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const mia = telegramStore.getState().users.get("u-mia")!;
+    let calls = 0;
+    telegramStore.setState({ getChatMentionSuggestions: async () => {
+      document.body.dataset.mentionCalls = String(++calls);
+      return [mia];
+    } });
+  });
+  await composer.fill("@mia");
+  await expect(page.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute("data-mention-calls", "1");
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    for (let index = 0; index < 4; index += 1) {
+      const state = telegramStore.getState();
+      const messages = new Map(state.messages);
+      const history = messages.get("chat-product")!;
+      messages.set("chat-product", [...history, {
+        ...history.at(-1)!, id: `mention-refresh-${index}`, outgoing: false,
+        content: { kind: "text", text: "Incoming message during member search" },
+      }]);
+      telegramStore.setState({ messages });
+      await new Promise((resolve) => setTimeout(resolve, 180));
+    }
+  });
+  await expect(page.locator("body")).toHaveAttribute("data-mention-calls", "1");
+  await expect(page.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+});
+
+test("mention search reuses completed queries only within the current completion session", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByLabel("消息内容");
+  await expect(composer).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const mia = telegramStore.getState().users.get("u-mia")!;
+    let calls = 0;
+    telegramStore.setState({ getChatMentionSuggestions: async () => {
+      document.body.dataset.mentionCalls = String(++calls);
+      return [mia];
+    } });
+  });
+  for (const query of ["@mi", "@mia", "@mi"]) {
+    await composer.fill(query);
+    await expect(page.locator('[data-mention-user-id="u-mia"]')).toBeVisible();
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 180)));
+  }
+  await expect(page.locator("body")).toHaveAttribute("data-mention-calls", "2");
+  await composer.fill("");
+  await expect(page.getByRole("listbox", { name: "提及成员" })).toHaveCount(0);
+  await composer.fill("@mi");
+  await expect(page.locator("body")).toHaveAttribute("data-mention-calls", "3");
+});
+
 test("mention search ignores late queries and clears suggestions on failure", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByLabel("消息内容")).toBeVisible();

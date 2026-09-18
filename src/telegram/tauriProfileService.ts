@@ -28,6 +28,7 @@ export const PROFILE_ADMIN_PAGE_SIZE = 200;
 export const PROFILE_COMMON_GROUP_LIMIT = 100;
 export const PROFILE_PHOTO_LIMIT = 100;
 export const PROFILE_AUDIO_LIMIT = 100;
+export const MENTION_SEARCH_LIMIT = 20;
 
 export const profileField = (
   value: string,
@@ -265,11 +266,13 @@ export class TauriProfileService {
         "@type": "searchChatMembers",
         chat_id: numericId(chatId),
         query: normalizedQuery,
-        limit: 200,
+        limit: MENTION_SEARCH_LIMIT,
         // Mention eligibility is separate from visibility in a hidden member list.
         filter: { "@type": "chatMembersFilterMention", topic_id: null },
       });
-      const users = await Promise.all(asTdObjects(result.members).map(loadMember));
+      // The panel can show only five entries. Avoid resolving hundreds of user
+      // objects on every keystroke; TDLib already ranks this result set.
+      const users = await Promise.all(asTdObjects(result.members).slice(0, MENTION_SEARCH_LIMIT).map(loadMember));
       return mentionSuggestionsFor(users.filter((user): user is User => Boolean(user)), normalizedQuery, []);
     }
 

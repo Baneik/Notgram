@@ -59,6 +59,7 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
+import { mentionSuggestionsFor } from "../utils/mentionSuggestions";
 import {
   prependComposerFormattedText,
   reconcileComposerMentionEntities,
@@ -243,6 +244,10 @@ export const ConversationComposer = memo(function ConversationComposer({
   const botCommandGenerationRef = useRef(0);
   const inlineQueryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inlineQueryGenerationRef = useRef(0);
+  const mentionSearchCacheRef = useRef<{ context: string; results: Map<string, User[]> }>({
+    context: "",
+    results: new Map(),
+  });
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
@@ -425,22 +430,44 @@ export const ConversationComposer = memo(function ConversationComposer({
         inputRef.current?.selectionStart ?? draft.length,
       )
       : undefined;
-    setMentionSuggestions([]);
     setActiveMentionSuggestionIndex(0);
-    if (!mentionQuery) return;
+    if (!mentionQuery) {
+      mentionSearchCacheRef.current = { context: "", results: new Map() };
+      setMentionSuggestions([]);
+      return;
+    }
+    const context = `${activeAccountId ?? ""}:${chatId}:${mentionQuery.start}`;
+    const contextChanged = mentionSearchCacheRef.current.context !== context;
+    if (contextChanged) {
+      mentionSearchCacheRef.current = { context, results: new Map() };
+      // Never show a candidate from the previous chat or account while this query loads.
+      setMentionSuggestions([]);
+    }
+    const query = mentionQuery.query.trim();
+    if (query && !contextChanged) {
+      // Keep already confirmed matches visible while the next server query is in flight.
+      setMentionSuggestions((current) => mentionSuggestionsFor(current, query, []));
+    }
+    const cached = mentionSearchCacheRef.current.results.get(query);
+    if (cached) {
+      setMentionSuggestions(cached);
+      return;
+    }
     let cancelled = false;
     const timer = globalThis.setTimeout(() => {
       void getChatMentionSuggestions(chatId, mentionQuery.query, recentMentionUserIds).then((suggestions) => {
-        if (!cancelled) setMentionSuggestions(suggestions);
+        if (cancelled) return;
+        mentionSearchCacheRef.current.results.set(query, suggestions);
+        setMentionSuggestions(suggestions);
       }).catch(() => {
         if (!cancelled) setMentionSuggestions([]);
       });
-    }, 100);
+    }, 40);
     return () => {
       cancelled = true;
       globalThis.clearTimeout(timer);
     };
-  }, [activeAccountId, chatId, draft, editingMessage, getChatMentionSuggestions, inputRef, mentionsEnabled, recentMentionUserIds]);
+  }, [activeAccountId, chatId, draft, editingMessage, getChatMentionSuggestions, inputRef, mentionsEnabled]);
 
   useEffect(() => {
     const generation = ++inlineQueryGenerationRef.current;

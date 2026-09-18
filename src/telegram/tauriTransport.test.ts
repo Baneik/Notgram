@@ -110,7 +110,7 @@ describe("chat mention membership", () => {
     });
     expect((await transport.getChatMentionSuggestions("-1007", "Member", [])).map((value) => value.id)).toEqual(["11", "12"]);
     expect(internal.request).toHaveBeenCalledWith({
-      "@type": "searchChatMembers", chat_id: -1007, query: "Member", limit: 200,
+      "@type": "searchChatMembers", chat_id: -1007, query: "Member", limit: 20,
       filter: { "@type": "chatMembersFilterMention", topic_id: null },
     });
     expect(internal.request).not.toHaveBeenCalledWith({ "@type": "getUser", user_id: 99 });
@@ -135,7 +135,7 @@ describe("chat mention membership", () => {
       { id: "11", displayName: "Olivia", username: "olivia_member" },
     ]);
     expect(internal.request).toHaveBeenCalledWith({
-      "@type": "searchChatMembers", chat_id: -1007, query, limit: 200,
+      "@type": "searchChatMembers", chat_id: -1007, query, limit: 20,
       filter: { "@type": "chatMembersFilterMention", topic_id: null },
     });
     expect(internal.request).toHaveBeenCalledTimes(2);
