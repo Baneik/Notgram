@@ -90,7 +90,7 @@ describe("chat mention membership", () => {
     type: { "@type": bot ? "userTypeBot" : "userTypeRegular" },
   });
 
-  it("queries the target chat and resolves only current human members", async () => {
+  it("trusts mention eligibility from the target chat rather than rechecking membership", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     internal.upsertUser(user(99));
@@ -108,12 +108,24 @@ describe("chat mention membership", () => {
       }
       throw new Error("Unexpected request");
     });
-    expect((await transport.getChatMentionSuggestions("-1007", "Member", [])).map((value) => value.id)).toEqual(["11", "12"]);
+    expect((await transport.getChatMentionSuggestions("-1007", "Member", [])).map((value) => value.id)).toEqual(["11", "12", "13", "14", "15"]);
     expect(internal.request).toHaveBeenCalledWith({
       "@type": "searchChatMembers", chat_id: -1007, query: "Member", limit: 20,
       filter: { "@type": "chatMembersFilterMention", topic_id: null },
     });
     expect(internal.request).not.toHaveBeenCalledWith({ "@type": "getUser", user_id: 99 });
+  });
+
+  it("preserves TDLib name matching and ordering for mention candidates", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.request = async (request) => {
+      if (request["@type"] === "searchChatMembers") return { members: [member(11, "chatMemberStatusLeft")] };
+      return { ...user(11), first_name: "Ólivia" };
+    };
+    await expect(transport.getChatMentionSuggestions("-1007", "olivia", [])).resolves.toMatchObject([
+      { id: "11", displayName: "Ólivia" },
+    ]);
   });
 
   it.each(["Olivia", "olivia_member"])("finds hidden non-admin members by %s without loading the member list", async (query) => {

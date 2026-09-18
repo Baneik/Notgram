@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Message, User } from "../telegram/types";
 import {
   MAX_MENTION_SUGGESTIONS,
+  chatMentionAuthorsFor,
   mentionSuggestionsFor,
+  mergeMentionSuggestions,
   recentMentionUserIdsFor,
 } from "./mentionSuggestions";
 
@@ -39,6 +41,30 @@ const message = (
 };
 
 describe("mention suggestions", () => {
+  it("uses only actual authors in the target chat across history, search and discussion messages", () => {
+    const users = new Map(["author", "search-author", "commenter", "outside", "mentioned", "other", "bot", "chat:1"]
+      .map((id) => [id, { ...user(id, id), ...(id === "bot" ? { isBot: true } : {}) }]));
+    const authored = (id: string, senderId: string, chatId = "group"): Message => ({
+      ...message(id, ["mentioned"], { outgoing: false }), senderId, chatId,
+    });
+    const result = chatMentionAuthorsFor("group", users,
+      [authored("1", "author"), authored("2", "outside", "different-group"), authored("3", "author")],
+      [authored("4", "search-author"), authored("5", "bot"), authored("6", "chat:1")],
+      [authored("7", "commenter")]);
+    expect(result.map((item) => item.id)).toEqual(["author", "search-author", "commenter"]);
+    expect(chatMentionAuthorsFor("group", undefined, [authored("1", "author")])).toEqual([]);
+  });
+
+  it("merges local authors with authoritative server candidates without losing remote name matches", () => {
+    const local = user("author", "Olivia");
+    const remote = { ...local, displayName: "Updated Olivia" };
+    expect(mergeMentionSuggestions([local], [remote, user("alias", "Ólivia")]))
+      .toEqual([remote, user("alias", "Ólivia")]);
+    expect(mergeMentionSuggestions([local], [])).toEqual([local]);
+    expect(mergeMentionSuggestions([], Array.from({ length: 8 }, (_, i) => user(String(i), String(i)))))
+      .toHaveLength(MAX_MENTION_SUGGESTIONS);
+  });
+
   it("orders previously mentioned users by frequency, then most recent use", () => {
     expect(recentMentionUserIdsFor([
       message("1", ["ada", "mia"]),

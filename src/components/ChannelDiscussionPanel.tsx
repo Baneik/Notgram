@@ -717,6 +717,7 @@ export function ChannelDiscussionPanel({
             textInsertion={textInsertion}
             knownNonBotUsernames={knownNonBotUsernames}
             mentionsEnabled
+            mentionMessages={comments}
             recentMentionUserIds={recentMentionUserIds}
             onTextInsertionApplied={(id) => setTextInsertion((current) => current?.id === id ? undefined : current)}
             inputRef={inputRef}

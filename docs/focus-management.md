@@ -76,6 +76,16 @@ and fit below the owning conversation header. Only the foreground chooser handle
 selection keys; opening the emoji picker suspends text suggestions until it closes.
 Constrained attachment grids scroll without shrinking cards or hiding send controls.
 
+Mention candidates combine actual authors from the current chat's loaded history,
+search results and discussion messages with TDLib's `chatMembersFilterMention`
+results. Local authors remain available while the remote request is pending, empty
+or fails; membership-list visibility does not decide whether a known author can
+be mentioned. Forward origins, mention entities and globally cached users do not
+establish chat scope. Preserve the server's mention eligibility and name matching,
+including non-member commenters and names matched through aliases or transliteration.
+Incoming messages update local matches without restarting the remote query. Query
+completion caches and late responses remain scoped to the current chat and account.
+
 `data-composer-scope` marks ordinary conversations and discussion panels. The
 shared pointer handler processes only the nearest scope. A discussion isolates
 the channel header, timeline, and post editor with `inert`; the covered channel

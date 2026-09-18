@@ -633,6 +633,65 @@ test("mention search excludes cached outsiders and stale recent mentions", async
   await expect(composer).toHaveJSProperty("value", "");
 });
 
+for (const scenario of [
+  { source: "history", fail: false },
+  { source: "search", fail: false },
+  { source: "search", fail: true },
+] as const) {
+  test(`mention search includes this chat's ${scenario.source} authors when the member endpoint is ${scenario.fail ? "unavailable" : "empty"}`, async ({ page }) => {
+    await page.goto("/");
+    const composer = page.getByLabel("消息内容");
+    await expect(composer).toBeVisible();
+    await page.evaluate(async ({ source, fail }) => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+      const state = telegramStore.getState();
+      const base = state.users.get("u-mia")!;
+      const users = new Map(state.users);
+      for (const id of ["hidden-author", "outside", "mention-only"]) {
+        users.set(id, { ...base, id, displayName: "Olivia", firstName: "Olivia", username: undefined });
+      }
+      const messages = new Map(state.messages);
+      const history = messages.get("chat-product")!;
+      const authorMessage = {
+        ...history.at(-1)!, id: "hidden-author-message", chatId: "chat-product", senderId: "hidden-author", outgoing: false,
+        content: { kind: "text" as const, text: "Message by this group's author" },
+      };
+      messages.set("chat-mia", [{ ...authorMessage, chatId: "chat-mia", senderId: "outside" }]);
+      messages.set("chat-product", [...history, {
+        ...authorMessage, id: "mention-only-message", senderId: "u-mia",
+        content: { kind: "text", text: "Olivia", entities: [{ kind: "mentionName", userId: "mention-only", offset: 0, length: 6 }] },
+      }, ...(source === "history" ? [authorMessage] : [])]);
+      telegramStore.setState({
+        users, messages,
+        chatMessageSearch: { input: { chatId: "chat-product", query: "" }, messages: source === "search" ? [authorMessage] : [], loading: false, loadingMore: false },
+        getChatMentionSuggestions: async () => {
+          document.body.dataset.mentionRequested = "1";
+          await new Promise<void>((resolve) => Reflect.set(window, "releaseHiddenMemberSearch", resolve));
+          document.body.dataset.mentionCompleted = "1";
+          if (fail) throw new Error("Member search unavailable");
+          return [];
+        },
+      });
+    }, scenario);
+    await composer.fill("@olivia");
+    await expect(page.locator("body")).toHaveAttribute("data-mention-requested", "1");
+    const mentions = page.getByRole("listbox", { name: "提及成员" });
+    // Known authors must be available while the member-list request is still pending.
+    await expect(mentions.locator('[data-mention-user-id="hidden-author"]')).toBeVisible();
+    await expect(mentions.getByRole("option")).toHaveCount(1);
+    await page.evaluate(() => Reflect.get(window, "releaseHiddenMemberSearch")());
+    await expect(page.locator("body")).toHaveAttribute("data-mention-completed", "1");
+    await expect(mentions.locator('[data-mention-user-id="hidden-author"]')).toBeVisible();
+    await composer.press("Control+1");
+    await composer.press("Enter");
+    expect(await page.evaluate(async () => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+      const last = telegramStore.getState().messages.get("chat-product")!.at(-1)!;
+      return last.content.kind === "text" ? last.content.entities : [];
+    })).toContainEqual(expect.objectContaining({ kind: "mentionName", userId: "hidden-author" }));
+  });
+}
+
 test("mention search keeps matching candidates mounted while refining the query", async ({ page }) => {
   await page.goto("/");
   const composer = page.getByLabel("消息内容");

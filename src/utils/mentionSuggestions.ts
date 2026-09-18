@@ -2,6 +2,28 @@ import type { Message, MessageTextEntity, User } from "../telegram/types";
 
 export const MAX_MENTION_SUGGESTIONS = 5;
 
+export const chatMentionAuthorsFor = (
+  chatId: string,
+  users: ReadonlyMap<string, User> | undefined,
+  ...messageGroups: (readonly Message[] | undefined)[]
+): User[] => {
+  const authors = new Map<string, User>();
+  for (const messages of messageGroups) {
+    for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+      const message = messages![index];
+      // Only actual authors establish chat scope; forwards and mention entities do not.
+      if (message.chatId !== chatId || message.senderId.startsWith("chat:")) continue;
+      const user = users?.get(message.senderId);
+      if (user && !user.isBot && !authors.has(user.id)) authors.set(user.id, user);
+    }
+  }
+  return [...authors.values()];
+};
+
+export const mergeMentionSuggestions = (local: readonly User[], remote: readonly User[]): User[] =>
+  [...new Map([...local, ...remote].map((user) => [user.id, user])).values()]
+    .slice(0, MAX_MENTION_SUGGESTIONS);
+
 const mentionEntitiesForMessage = (message: Message): readonly MessageTextEntity[] => {
   if (message.content.kind === "text") return message.content.entities ?? [];
   if (message.content.kind === "file" || message.content.kind === "media") {

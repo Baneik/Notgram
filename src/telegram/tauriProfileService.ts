@@ -249,13 +249,13 @@ export class TauriProfileService {
   }
 
   async getChatMentionSuggestions(chatId: string, query: string, recentUserIds: readonly string[]): Promise<User[]> {
-    const loadMember = async (member: TdObject): Promise<User | undefined> => {
+    const loadMember = async (member: TdObject, requireMembership = true): Promise<User | undefined> => {
       const sender = asTdObject(member.member_id);
       const status = asTdObject(member.status);
       const kind = status?.["@type"];
       const isMember = kind === "chatMemberStatusMember" || kind === "chatMemberStatusAdministrator" ||
         ((kind === "chatMemberStatusCreator" || kind === "chatMemberStatusRestricted") && status?.is_member === true);
-      if (!isMember || sender?.["@type"] !== "messageSenderUser") return undefined;
+      if ((requireMembership && !isMember) || sender?.["@type"] !== "messageSenderUser") return undefined;
       const userId = tdId(sender.user_id);
       const user = userId ? await this.loadUser(userId).catch(() => undefined) : undefined;
       return user?.isBot === true ? undefined : user;
@@ -272,8 +272,12 @@ export class TauriProfileService {
       });
       // The panel can show only five entries. Avoid resolving hundreds of user
       // objects on every keystroke; TDLib already ranks this result set.
-      const users = await Promise.all(asTdObjects(result.members).slice(0, MENTION_SEARCH_LIMIT).map(loadMember));
-      return mentionSuggestionsFor(users.filter((user): user is User => Boolean(user)), normalizedQuery, []);
+      const users = await Promise.all(asTdObjects(result.members).slice(0, MENTION_SEARCH_LIMIT)
+        .map((member) => loadMember(member, false)));
+      // The mention filter can include non-member commenters and matches aliases or
+      // transliterations that our display-name substring filter cannot reproduce.
+      return [...new Map(users.filter((user): user is User => Boolean(user)).map((user) => [user.id, user])).values()]
+        .slice(0, MAX_MENTION_SUGGESTIONS);
     }
 
     // History is only a ranking signal, never proof of current membership.

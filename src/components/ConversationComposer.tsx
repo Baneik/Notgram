@@ -59,7 +59,7 @@ import {
   mentionTextForUser,
   type ComposerTextInsertion,
 } from "../utils/composerInsertion";
-import { mentionSuggestionsFor } from "../utils/mentionSuggestions";
+import { chatMentionAuthorsFor, mentionSuggestionsFor, mergeMentionSuggestions } from "../utils/mentionSuggestions";
 import {
   prependComposerFormattedText,
   reconcileComposerMentionEntities,
@@ -88,6 +88,7 @@ interface ConversationComposerProps {
   textInsertion?: ComposerTextInsertion;
   knownNonBotUsernames?: ReadonlySet<string>;
   mentionsEnabled?: boolean;
+  mentionMessages?: readonly Message[];
   recentMentionUserIds?: readonly string[];
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
@@ -175,6 +176,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   textInsertion,
   knownNonBotUsernames,
   mentionsEnabled = false,
+  mentionMessages,
   recentMentionUserIds = [],
   onTextInsertionApplied,
   onGeometryChange,
@@ -203,6 +205,12 @@ export const ConversationComposer = memo(function ConversationComposer({
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const getChatMentionSuggestions = useTelegramStore((state) => state.getChatMentionSuggestions);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const mentionHistory = useTelegramStore((state) => state.messages.get(chatId));
+  const mentionSearchMessages = useTelegramStore((state) =>
+    state.chatMessageSearch.input?.chatId === chatId ? state.chatMessageSearch.messages : undefined);
+  const mentionAuthors = useMemo(() => chatMentionAuthorsFor(
+    chatId, users, mentionMessages, mentionHistory, mentionSearchMessages,
+  ), [chatId, users, mentionMessages, mentionHistory, mentionSearchMessages]);
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(draftKey));
   const loadLocalAttachmentDraft = useTelegramStore((state) => state.loadLocalAttachmentDraft);
   const saveLocalAttachmentDraft = useTelegramStore((state) => state.saveLocalAttachmentDraft);
@@ -231,7 +239,10 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [disableNotification, setDisableNotification] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
   const [activeBotSuggestionIndex, setActiveBotSuggestionIndex] = useState(0);
-  const [mentionSuggestions, setMentionSuggestions] = useState<User[]>([]);
+  const [remoteMentionSuggestions, setMentionSuggestions] = useState<User[]>([]);
+  const [localMentionSuggestions, setLocalMentionSuggestions] = useState<User[]>([]);
+  const mentionSuggestions = useMemo(() => mergeMentionSuggestions(localMentionSuggestions, remoteMentionSuggestions),
+    [localMentionSuggestions, remoteMentionSuggestions]);
   const [activeMentionSuggestionIndex, setActiveMentionSuggestionIndex] = useState(0);
   const [inlineResults, setInlineResults] = useState<InlineQueryResultPage>();
   const [inlineLoading, setInlineLoading] = useState(false);
@@ -423,7 +434,18 @@ export const ConversationComposer = memo(function ConversationComposer({
     };
   }, [defaultBotUsername, draft, editingMessage, onGetBotCommands]);
 
-  useEffect(() => {
+  const recentMentionKey = JSON.stringify(recentMentionUserIds);
+  useLayoutEffect(() => {
+    const mentionQuery = !editingMessage && mentionsEnabled
+      ? composerMentionQueryForDraft(draft, inputRef.current?.selectionStart ?? draft.length)
+      : undefined;
+    setLocalMentionSuggestions(mentionQuery
+      ? mentionSuggestionsFor(mentionAuthors, mentionQuery.query, recentMentionUserIds)
+      : []);
+    // New authors can update local matches without restarting the server query.
+  }, [activeAccountId, draft, editingMessage, inputRef, mentionAuthors, mentionsEnabled, recentMentionKey]);
+
+  useLayoutEffect(() => {
     const mentionQuery = !editingMessage && mentionsEnabled
       ? composerMentionQueryForDraft(
         draft,
