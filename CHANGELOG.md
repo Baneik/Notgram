@@ -5,6 +5,20 @@ with prerelease identifiers used for release candidates.
 
 ## [Unreleased]
 
+## [0.5.0-rc.5] - 2026-09-18
+
+Windows x64 candidate with an NSIS installer and a portable ZIP. Both packages
+include the pinned TDLib runtime and build-time Telegram API credentials.
+
+### Added
+
+- Add chat folder filters, stable bulk selection, and more TDLib chat context-menu
+  actions, plus Telegram invite-link handling and localized reporting.
+- Add rich composer formatting, visible-message editing, and responsive mention
+  suggestions that include conversation authors and support hidden-member groups.
+- Add configurable local quote folding and richer, consistent conversation service
+  notices with participant, topic, call, payment, and message-link details.
+
 ### Changed
 
 - Unify photo and video viewing, with lightweight video previews, application-owned
@@ -35,6 +49,12 @@ with prerelease identifiers used for release candidates.
 
 ### Fixed
 
+- Restore saved conversation reading positions, follow newly arrived messages only
+  when the full tail fits, and preserve bottom alignment through delayed layouts.
+- Paginate ordinary history past retained deleted-message archives, keep quote
+  collapse anchored to the pointer, and restore composer focus after chat actions.
+- Improve original-image loading, viewer sizing and zoom, cached-file recovery,
+  media download state, IME composition, and bot start-link compatibility.
 - Separate playback buffering from download progress, preserve valid video ranges
   when seeking, and size loading posters to the video. Make the small video window
   draggable across its surface, with transparent surroundings and automatically
