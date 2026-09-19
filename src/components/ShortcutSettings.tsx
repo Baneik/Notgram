@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { Keyboard, RotateCcw, X } from "lucide-react";
 import { translate } from "../i18n";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { checkShortcutAvailability } from "../shortcuts/shortcutAvailability";
@@ -7,7 +7,6 @@ import { formatShortcut, shortcutActions, shortcutFromEvent, shortcutValidationE
 
 export function ShortcutSettings() {
   const bindings = usePreferencesStore(state => state.shortcuts);
-  const sendOnEnter = usePreferencesStore(state => state.sendOnEnter);
   const [recording, setRecording] = useState<ShortcutAction>();
   const [pending, setPending] = useState<ShortcutAction>();
   const [error, setError] = useState<{ action: ShortcutAction; text: string }>();
@@ -81,13 +80,19 @@ export function ShortcutSettings() {
   return (
     <div className="settings-detail-scroll">
       <section className="settings-section" aria-labelledby="shortcuts-heading">
-        <div className="settings-section-heading"><h4 id="shortcuts-heading">{translate("快捷键")}</h4></div>
+        <div className="settings-section-heading">
+          <Keyboard size={18} strokeWidth={1.8} />
+          <div>
+            <h4 id="shortcuts-heading">{translate("快捷键")}</h4>
+            <span>{translate("自定义会话与文件夹的切换按键")}</span>
+          </div>
+        </div>
         <div className="preference-list">
           {shortcutActions.map(action => (
-            <div className="shortcut-setting" key={action.id}>
-              <div className="preference-row shortcut-row">
-                <span id={`shortcut-${action.id}`}>{action.label()}</span>
-                <div className="shortcut-controls">
+            <div className="preference-row shortcut-setting" key={action.id}>
+              <span id={`shortcut-${action.id}`}>{action.label()}</span>
+              <div className="shortcut-controls">
+                <div className="shortcut-binding">
                   <button type="button" className={`shortcut-recorder ${recording === action.id ? "is-recording" : ""}`}
                     ref={recording === action.id ? recorder : undefined}
                     data-shortcut-recorder="true" aria-labelledby={`shortcut-${action.id}`}
@@ -100,23 +105,15 @@ export function ShortcutSettings() {
                   <button type="button" className="icon-button" aria-label={translate("清除{{value0}}快捷键", { value0: action.label() })}
                     title={translate("清除")} disabled={bindings[action.id] === null}
                     onClick={() => { cancel(); setError(undefined); const state = preferencesStore.getState(); state.setPreference("shortcuts", { ...state.shortcuts, [action.id]: null }); }}><X size={15} /></button>
-                  <button type="button" className="icon-button" aria-label={translate("重置{{value0}}快捷键", { value0: action.label() })}
-                    title={translate("恢复默认值")} disabled={bindings[action.id] === action.defaultBinding || pending === action.id}
-                    onClick={() => { cancel(); void save(action.id, action.defaultBinding); }}><RotateCcw size={15} /></button>
                 </div>
+                <button type="button" className="icon-button" aria-label={translate("重置{{value0}}快捷键", { value0: action.label() })}
+                  title={translate("恢复默认值")} disabled={bindings[action.id] === action.defaultBinding || pending === action.id}
+                  onClick={() => { cancel(); void save(action.id, action.defaultBinding); }}><RotateCcw size={15} /></button>
               </div>
               {error?.action === action.id && <div className="settings-error" id={`shortcut-error-${action.id}`} role="alert">{error.text}</div>}
             </div>
           ))}
         </div>
-      </section>
-      <section className="settings-section" aria-labelledby="input-heading">
-        <div className="settings-section-heading"><h4 id="input-heading">{translate("录入")}</h4></div>
-        <div className="preference-list"><label className="preference-row">
-          <span>{translate("Enter 键发送")}</span>
-          <input type="checkbox" role="switch" checked={sendOnEnter}
-            onChange={event => preferencesStore.getState().setPreference("sendOnEnter", event.target.checked)} />
-        </label></div>
       </section>
     </div>
   );

@@ -1,7 +1,6 @@
 export const en = {
-  "快捷键与录入": "Shortcuts and input",
   "快捷键": "Keyboard shortcuts",
-  "录入": "Input",
+  "自定义会话与文件夹的切换按键": "Customize shortcuts for switching chats and folders",
   "上一个会话": "Previous chat",
   "下一个会话": "Next chat",
   "上一个文件夹": "Previous folder",
@@ -249,7 +248,6 @@ export const en = {
   "DOM 加载": "DOM loading",
   "DOM 可交互": "DOM interactive",
   "DOM 完成": "DOM completed",
-  "Enter 键发送": "Enter key sends",
   "GIF 动态图": "GIF animation",
   "GIF 发送失败": "GIF sending failed",
   "Inline 查询结果": "Inline query result",

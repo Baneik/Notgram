@@ -14,7 +14,7 @@ const rowIds = (page: Page) => rows(page).evaluateAll(elements => elements.map(e
 const recorder = (page: Page, name = "上一个会话") => page.getByRole("button", { name, exact: true });
 const settings = async (page: Page) => {
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "快捷键与录入", exact: true }).click();
+  await page.getByRole("button", { name: "快捷键", exact: true }).click();
 };
 const mockProbe = async (page: Page) => {
   await page.route("**/src/shortcuts/shortcutAvailability.ts", route => route.fulfill({
@@ -195,13 +195,14 @@ test("canceling or leaving recording invalidates a late native response; clear a
   await page.keyboard.press("Escape");
   await page.evaluate(() => Reflect.get(window, "finishShortcutProbe")("available"));
   await expect(recorder(page)).toHaveText("Ctrl + ↑");
-  await expect(page.getByRole("heading", { name: "快捷键与录入", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "快捷键", level: 3, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "清除上一个会话快捷键", exact: true }).click();
   await expect(recorder(page)).toHaveText("未设置");
   await page.evaluate(() => { document.body.dataset.probeResult = "available"; });
   await page.getByRole("button", { name: "重置上一个会话快捷键", exact: true }).click();
   await expect(recorder(page)).toHaveText("Ctrl + ↑");
-  await expect(page.getByRole("switch", { name: "Enter 键发送" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "录入", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Enter 键发送" })).toHaveCount(0);
 });
 
 test("browser-only recording reports unavailable native verification", async ({ page }) => {
@@ -219,7 +220,7 @@ test("standalone settings synchronize bindings with the main window and fit a na
   const standalone = await context.newPage();
   await mockProbe(standalone);
   await standalone.goto("/windows/settings-window.html");
-  await standalone.getByRole("button", { name: "快捷键与录入", exact: true }).click();
+  await standalone.getByRole("button", { name: "快捷键", exact: true }).click();
   await recorder(standalone).click();
   await standalone.keyboard.press("Control+Shift+g");
   await expect(recorder(standalone)).toHaveText("Ctrl + Shift + G");

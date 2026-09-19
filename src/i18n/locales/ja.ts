@@ -1,9 +1,8 @@
 import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
-  "快捷键与录入": "ショートカットと入力",
   "快捷键": "キーボードショートカット",
-  "录入": "入力",
+  "自定义会话与文件夹的切换按键": "チャットとフォルダーを切り替えるキーをカスタマイズ",
   "上一个会话": "前のチャット",
   "下一个会话": "次のチャット",
   "上一个文件夹": "前のフォルダー",
@@ -250,7 +249,6 @@ export const ja: Record<keyof typeof en, string> = {
   "DOM 加载": "DOM読み込み中",
   "DOM 可交互": "DOMインタラクティブ",
   "DOM 完成": "DOM完了",
-  "Enter 键发送": "Enterキーは",
   "GIF 动态图": "GIFアニメーションを送信します",
   "GIF 发送失败": "GIF 送信失敗",
   "Inline 查询结果": "インライン クエリ結果",
