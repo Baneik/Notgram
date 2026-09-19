@@ -467,6 +467,27 @@ Hidden folder warmup waits for a visible document and the selected list to finis
 Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
 and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.
 
+## Unread mention navigation
+
+The TDLib chat mention count and per-message unread flags own mention state. The conversation
+attention index is a navigation index, not a second unread authority. Restore explicit unread
+mentions from cached snapshots and history pages; an old reply to an outgoing message alone does
+not establish unread state. Live replies keep their existing local attention behavior.
+
+The sidebar retains its attention badge when ordinary unread messages reach zero. The conversation
+button includes mentions reported by the chat count even before their IDs have been loaded. Recover
+those IDs through the existing unread-mention search on entry, count changes and reconnection;
+coalesce requests and allow a click to retry. Search recovery must not expand the current history
+window or mark messages read. Navigation loads the selected message's context through the existing
+viewport owner and discards a delayed jump after another navigation or account change.
+
+Only focused, visible message rows submit mention reads. A successful view request does not itself
+clear a server-backed mention: retain the entry until TDLib reports the read, including when its
+reaction is acknowledged first. A zero chat mention count clears known mention flags and entries
+without consuming unrelated local replies or reactions. Late searches cannot overwrite newer
+message state, restore deleted messages, or cross account generations; a reduced aggregate count
+also invalidates a search snapshot that could contain a remotely read, uncached message.
+
 ## Centered conversation notices
 
 TDLib service events retain a small, whitelisted display model in `MessageContent.event`:

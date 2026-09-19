@@ -4429,7 +4429,7 @@ describe("chat filtering", () => {
     expect(store.getState().folderManagementPending).toBe(false);
   });
 
-  it("queues only live mentions and replies to the current user", async () => {
+  it("queues live mentions and replies without restoring already read replies", async () => {
     class LiveEventTransport extends MockTelegramTransport {
       private events?: TelegramEventListener;
       attentionReads: Array<{ chatId: string; messageIds: string[] }> = [];
@@ -4468,7 +4468,8 @@ describe("chat filtering", () => {
         ...template,
         id: "attention-history",
         outgoing: false,
-        containsUnreadMention: true,
+        containsUnreadMention: false,
+        replyTo: { kind: "message", messageId: "attention-own", outgoing: true },
         sentAt: "2026-08-07T10:01:00.000Z",
       }],
     });
@@ -4520,6 +4521,7 @@ describe("chat filtering", () => {
       "attention-mention",
       "attention-reply",
     ]);
+    transport.dispatch({ type: "message.upsert", message: { ...mention, containsUnreadMention: false } });
     await vi.waitFor(() => {
       expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false);
     });
@@ -4697,6 +4699,12 @@ describe("chat filtering", () => {
       .toEqual([combinedAttention.id]);
 
     transport.finishReactionRead();
+    await vi.waitFor(() => expect(store.getState().messages.get("chat-product")
+      ?.find(message => message.id === combinedAttention.id)?.containsUnreadReaction).toBe(false));
+    expect(store.getState().unreadAttentionMessageIds.get("chat-product")).toEqual([combinedAttention.id]);
+    transport.dispatch({ type: "message.upsert", message: {
+      ...combinedAttention, containsUnreadMention: false, containsUnreadReaction: false,
+    } });
     await vi.waitFor(() => expect(store.getState().unreadAttentionMessageIds.has("chat-product")).toBe(false));
   });
 

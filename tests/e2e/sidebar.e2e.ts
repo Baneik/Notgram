@@ -416,7 +416,11 @@ test("folder context menu edits, marks read, and deletes a custom folder", async
   let menu = page.getByRole("menu", { name: "分组操作：工作" });
   await expect(menu.getByRole("menuitem", { name: "编辑文件夹" })).toBeVisible();
   await menu.getByRole("menuitem", { name: "标记为已读" }).click();
-  await expect(page.locator(".chat-list[data-active=true] .unread-count")).toHaveCount(0);
+  await expect(page.locator(".chat-list[data-active=true] .unread-count:not(.has-attention)")).toHaveCount(0);
+  // Reading ordinary messages does not acknowledge unseen mentions in the forum.
+  const mentionBadge = page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"] .unread-count');
+  await expect(mentionBadge).toHaveClass(/has-attention/);
+  await expect(mentionBadge).toHaveText("2");
 
   await workButton.click({ button: "right" });
   menu = page.getByRole("menu", { name: "分组操作：工作" });

@@ -301,6 +301,7 @@ export const createTelegramStore = (
     const acknowledgedAttentionMessages = new Set<string>();
     const seenReactionMessageIds = new Map<string, Set<string>>();
     const reactionAttentionLoads = new Map<string, Promise<void>>();
+    const mentionAttentionLoads = new Map<string, Promise<void>>();
     const reactionReadRequests = new Set<string>();
     const blockedReactionReadRequests = new Set<string>();
     let attentionReadGeneration = 0;
@@ -446,17 +447,29 @@ export const createTelegramStore = (
       else unreadAttentionMessageIds.delete(chatId);
       set({ unreadAttentionMessageIds });
     };
-    const addUnreadReactionAttention = (messages: Message[]) => {
+    const addUnreadServerAttention = (messages: Message[]) => {
       const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
       let changed = false;
       for (const message of messages) {
-        if (message.containsUnreadReaction !== true) continue;
+        if (message.isLocallyDeleted || message.isRemoving) continue;
+        if (!message.containsUnreadMention && !message.containsUnreadReaction) continue;
         const current = unreadAttentionMessageIds.get(message.chatId) ?? [];
         if (current.includes(message.id)) continue;
         unreadAttentionMessageIds.set(message.chatId, [...current, message.id]);
         changed = true;
       }
       if (changed) set({ unreadAttentionMessageIds });
+    };
+    const clearUnreadMentionAttention = (chatId: string) => {
+      const currentMessages = get().messages.get(chatId) ?? [];
+      const mentions = currentMessages.filter(message => message.containsUnreadMention);
+      if (mentions.length === 0) return;
+      const messages = new Map(get().messages);
+      messages.set(chatId, currentMessages.map(message => message.containsUnreadMention
+        ? { ...message, containsUnreadMention: false }
+        : message));
+      set({ messages });
+      removeUnreadAttention(chatId, mentions.filter(message => !message.containsUnreadReaction).map(message => message.id));
     };
     const clearUnreadReactionAttention = (chatId: string) => {
       const currentMessages = get().messages.get(chatId) ?? [];
@@ -471,9 +484,9 @@ export const createTelegramStore = (
       set({ messages });
       const removableIds = reactionIds.filter((messageId) => {
         const message = messages.get(chatId)?.find((candidate) => candidate.id === messageId);
-        return !message ||
+        return !message || (!message.containsUnreadMention && (
           acknowledgedAttentionMessages.has(`${chatId}:${messageId}`) ||
-          !messageHasPrimaryAttention(message);
+          !messageHasPrimaryAttention(message)));
       });
       removeUnreadAttention(chatId, removableIds);
       seenReactionMessageIds.delete(chatId);
@@ -540,12 +553,17 @@ export const createTelegramStore = (
       live: boolean,
     ) => {
       const key = messageEventKey(message);
+      if (message.isLocallyDeleted || message.isRemoving) {
+        removeUnreadAttention(message.chatId, [message.id]);
+        liveAttentionCandidates.delete(key);
+        return;
+      }
       const hasUnreadReaction = message.containsUnreadReaction === true;
       const needsAttention = hasUnreadReaction || messageHasPrimaryAttention(message);
       if (
         previous && (
-          previous.containsUnreadMention !== message.containsUnreadMention ||
-          previous.containsUnreadReaction !== message.containsUnreadReaction
+          (!previous.containsUnreadMention && message.containsUnreadMention) ||
+          (!previous.containsUnreadReaction && message.containsUnreadReaction)
         )
       ) {
         acknowledgedAttentionMessages.delete(key);
@@ -553,7 +571,8 @@ export const createTelegramStore = (
       const previouslyNeededAttention = previous && (
         previous.containsUnreadReaction === true || messageHasPrimaryAttention(previous)
       );
-      if (previouslyNeededAttention && !needsAttention) {
+      if ((previouslyNeededAttention && !needsAttention) ||
+          (previous?.containsUnreadMention && !message.containsUnreadMention && !hasUnreadReaction)) {
         removeUnreadAttention(message.chatId, [message.id]);
       }
       if (previous?.containsUnreadReaction === true && !hasUnreadReaction) {
@@ -563,7 +582,7 @@ export const createTelegramStore = (
         liveAttentionCandidates.delete(key);
         return;
       }
-      if (live || hasUnreadReaction) {
+      if (live || hasUnreadReaction || message.containsUnreadMention) {
         liveAttentionCandidates.add(key);
         if (liveAttentionCandidates.size > 512) {
           liveAttentionCandidates.delete(liveAttentionCandidates.values().next().value!);
@@ -593,16 +612,21 @@ export const createTelegramStore = (
         0,
       ),
     );
-    const refreshUnreadReactionAttention = (chatId: string) => {
+    const refreshUnreadAttention = (chatId: string, kind: "mention" | "reaction") => {
+      const expectedUnreadCount = () => kind === "mention"
+        ? get().chats.get(chatId)?.unreadMentionCount ?? 0
+        : expectedUnreadReactionCount(chatId);
       if (
         get().authorization.kind !== "ready" ||
         get().connectionStatus !== "online" ||
-        expectedUnreadReactionCount(chatId) <= 0
+        expectedUnreadCount() <= 0
       ) return Promise.resolve();
-      const existing = reactionAttentionLoads.get(chatId);
+      const loads = kind === "mention" ? mentionAttentionLoads : reactionAttentionLoads;
+      const existing = loads.get(chatId);
       if (existing) return existing;
       const generation = accountGeneration;
-      const expectedCount = expectedUnreadReactionCount(chatId);
+      const expectedCount = expectedUnreadCount();
+      const before = new Map((get().messages.get(chatId) ?? []).map(message => [message.id, message]));
       const request = (async () => {
         const found: Message[] = [];
         let fromMessageId: string | undefined;
@@ -610,10 +634,11 @@ export const createTelegramStore = (
         for (let pageIndex = 0; pageIndex < maximumPages; pageIndex += 1) {
           const page = await transport.searchChatMessages({
             chatId,
-            filter: "unreadReaction",
+            filter: kind === "mention" ? "unreadMention" : "unreadReaction",
             fromMessageId,
             limit: 100,
           });
+          if (generation !== accountGeneration || expectedUnreadCount() <= 0) return;
           found.push(...page.messages);
           if (
             found.length >= expectedCount ||
@@ -626,29 +651,39 @@ export const createTelegramStore = (
         if (
           generation !== accountGeneration ||
           !get().chats.has(chatId) ||
-          expectedUnreadReactionCount(chatId) <= 0 ||
+          expectedUnreadCount() <= 0 ||
+          (kind === "mention" && expectedUnreadCount() < expectedCount) ||
           found.length === 0
         ) return;
+        const current = new Map((get().messages.get(chatId) ?? []).map(message => [message.id, message]));
+        // Search snapshots must not resurrect a deletion or overwrite a newer read/content update.
+        const recovered = found.filter(message => acceptsMessage(message) &&
+          !message.isLocallyDeleted && !message.isRemoving &&
+          current.get(message.id) === before.get(message.id) &&
+          (kind !== "mention" || !acknowledgedAttentionMessages.has(messageEventKey(message))));
+        if (recovered.length === 0) return;
         const messages = new Map(get().messages);
-        messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], found));
-        set({ messages });
-        queueBlockedReactionReads(found);
-        addUnreadReactionAttention(found);
-        publishMessageChange({ type: "upsert", messages: found, liveMessages: [] });
+        messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], recovered));
+        set({ messages, operationError: undefined });
+        queueBlockedReactionReads(recovered);
+        addUnreadServerAttention(recovered);
+        publishMessageChange({ type: "upsert", messages: recovered, liveMessages: [] });
       })()
         .catch((error) => {
           if (generation === accountGeneration) {
-            set({ operationError: errorMessage(error, translate("无法恢复未读回应")) });
+            set({ operationError: errorMessage(error, kind === "mention"
+              ? translate("无法加载历史消息") : translate("无法恢复未读回应")) });
           }
         })
         .finally(() => {
-          if (reactionAttentionLoads.get(chatId) === request) {
-            reactionAttentionLoads.delete(chatId);
+          if (loads.get(chatId) === request) {
+            loads.delete(chatId);
           }
         });
-      reactionAttentionLoads.set(chatId, request);
+      loads.set(chatId, request);
       return request;
     };
+    const refreshUnreadReactionAttention = (chatId: string) => refreshUnreadAttention(chatId, "reaction");
     const markSeenChatReactionsRead = (chatId: string, visibleMessageIds: string[]) => {
       const chatMessages = get().messages.get(chatId) ?? [];
       const knownReactionMessageIds = chatMessages
@@ -997,6 +1032,7 @@ export const createTelegramStore = (
       acknowledgedAttentionMessages.clear();
       seenReactionMessageIds.clear();
       reactionAttentionLoads.clear();
+      mentionAttentionLoads.clear();
       reactionReadRequests.clear();
       blockedReactionReadRequests.clear();
       attentionReadGeneration += 1;
@@ -1159,12 +1195,13 @@ export const createTelegramStore = (
       );
       const unreadAttentionMessageIds = new Map(current.unreadAttentionMessageIds);
       for (const [chatId, chatMessages] of messages) {
-        const reactionIds = chatMessages
-          .filter((message) => message.containsUnreadReaction === true)
+        const attentionIds = chatMessages
+          .filter((message) => !message.isLocallyDeleted && !message.isRemoving &&
+            (message.containsUnreadMention || message.containsUnreadReaction))
           .map((message) => message.id);
-        if (reactionIds.length === 0) continue;
+        if (attentionIds.length === 0) continue;
         unreadAttentionMessageIds.set(chatId, [
-          ...new Set([...(unreadAttentionMessageIds.get(chatId) ?? []), ...reactionIds]),
+          ...new Set([...(unreadAttentionMessageIds.get(chatId) ?? []), ...attentionIds]),
         ]);
       }
       const folders = current.folders.length > 0
@@ -1591,6 +1628,7 @@ export const createTelegramStore = (
         ]));
       }
       reactionAttentionLoads.delete(fromChatId);
+      mentionAttentionLoads.delete(fromChatId);
       reactionReadRequests.delete(fromChatId);
       const profile = current.profile.target?.kind === "chat" && current.profile.target.chatId === fromChatId
         ? emptyProfileState()
@@ -1902,6 +1940,9 @@ export const createTelegramStore = (
         });
         for (const chat of incomingChats) {
           scheduleSavedMessagesRead(chat);
+          if (chat.unreadMentionCount === 0 && (previousChats.get(chat.id)?.unreadMentionCount ?? 0) > 0) {
+            clearUnreadMentionAttention(chat.id);
+          }
           if ((chat.unreadReactionCount ?? 0) > 0) {
             void refreshUnreadReactionAttention(chat.id);
           } else if ((previousChats.get(chat.id)?.unreadReactionCount ?? 0) > 0) {
@@ -2649,7 +2690,7 @@ export const createTelegramStore = (
             void get().loadChatSponsoredMessages(initialChatId);
           }
           for (const chatMessages of messages.values()) {
-            addUnreadReactionAttention(chatMessages);
+            addUnreadServerAttention(chatMessages);
             queueBlockedReactionReads(chatMessages);
           }
           if (authorization.kind === "ready" && get().connectionStatus === "online") {
@@ -3529,6 +3570,8 @@ export const createTelegramStore = (
         await Promise.all([...chatIds].map((chatId) => markBlockedChatReactionsRead(chatId)));
       },
 
+      refreshUnreadMentions: (chatId) => refreshUnreadAttention(chatId, "mention"),
+
       dismissMessageAttention: (chatId, messageIds) => {
         const uniqueMessageIds = [...new Set(messageIds.filter(Boolean))];
         markSeenChatReactionsRead(chatId, uniqueMessageIds);
@@ -3550,10 +3593,12 @@ export const createTelegramStore = (
           .then(() => {
             if (requestGeneration !== attentionReadGeneration) return;
             const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
-            const readIds = new Set(pendingMessageIds.filter((messageId) =>
-              get().messages.get(chatId)?.find((message) => message.id === messageId)
-                ?.containsUnreadReaction !== true,
-            ));
+            // A successful view request precedes TDLib's authoritative mention-read update.
+            // Keep server-backed mentions reachable until that update also clears the sidebar count.
+            const readIds = new Set(pendingMessageIds.filter((messageId) => {
+              const message = get().messages.get(chatId)?.find(candidate => candidate.id === messageId);
+              return !message?.containsUnreadMention && !message?.containsUnreadReaction;
+            }));
             const remaining = (unreadAttentionMessageIds.get(chatId) ?? [])
               .filter((candidate) => !readIds.has(candidate));
             if (remaining.length > 0) unreadAttentionMessageIds.set(chatId, remaining);

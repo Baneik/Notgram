@@ -361,7 +361,8 @@ const ChatRow = memo(function ChatRow({
       : undefined);
   const hasUnreadAttention = chat.unreadMentionCount > 0;
   const hasUnreadReaction = (chat.unreadReactionCount ?? 0) > 0;
-  const displayUnreadCount = chat.unreadCount > 0 ? chat.unreadCount : (chat.unreadReactionCount ?? 0);
+  const displayUnreadCount = chat.unreadCount > 0 ? chat.unreadCount
+    : Math.max(chat.unreadMentionCount, chat.unreadReactionCount ?? 0);
   const unreadBadgeClassName = `unread-count ${chat.muted ? "is-muted" : ""} ${hasUnreadAttention ? "has-attention" : ""} ${!hasUnreadAttention && hasUnreadReaction ? "has-reaction" : ""}`;
   const unreadBadgeLabel = hasUnreadAttention
     ? translate("{{value0}} 条未读消息，其中包含提及或回复", { value0: displayUnreadCount })

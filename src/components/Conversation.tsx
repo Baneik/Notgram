@@ -94,7 +94,7 @@ import {
   senderNameForMessage,
   serviceTargetSummary,
 } from "./conversationMessages";
-import { channelDiscussionProjection } from "../store/telegramStore.messages";
+import { channelDiscussionProjection, compareMessages } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { autoplayAllowed } from "../utils/motionPreference";
@@ -563,6 +563,9 @@ export function Conversation({
   const dismissMessageAttention = useTelegramStore(
     (state) => state.dismissMessageAttention,
   );
+  const refreshUnreadMentions = useTelegramStore(state => state.refreshUnreadMentions);
+  const authorizationReady = useTelegramStore(state => state.authorization.kind === "ready");
+  const attentionNavigationRef = useRef(0);
   const [actionMenu, setActionMenu] = useState<{
     messageId: string;
     left: number;
@@ -941,7 +944,7 @@ export function Conversation({
   const attentionMessagesById = useMemo(() => new Map(
     (chat ? storedMessages.get(chat.id) ?? [] : []).map((message) => [message.id, message]),
   ), [chat, storedMessages]);
-  const hasPrimaryAttention = useMemo(() => attentionMessageIds.some((messageId) => {
+  const hasPrimaryAttention = (chat?.unreadMentionCount ?? 0) > 0 || attentionMessageIds.some((messageId) => {
     const message = attentionMessagesById.get(messageId);
     if (!message || message.containsUnreadMention) return Boolean(message);
     const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
@@ -950,7 +953,40 @@ export function Conversation({
       reply.messageId && storedMessages.get(reply.chatId ?? message.chatId)
         ?.some((candidate) => candidate.id === reply.messageId && candidate.outgoing),
     );
-  }), [attentionMessageIds, attentionMessagesById, storedMessages]);
+  });
+  // The server count includes mentions outside the loaded history window. Keep their entry point
+  // available while recovering IDs, including after a failed request or a cached/offline entry.
+  const indexedMentionCount = attentionMessageIds.filter(id =>
+    attentionMessagesById.get(id)?.containsUnreadMention).length;
+  const attentionCount = attentionMessageIds.length + Math.max(0,
+    (chat?.unreadMentionCount ?? 0) - indexedMentionCount);
+  useLayoutEffect(() => {
+    attentionNavigationRef.current += 1;
+    return () => { attentionNavigationRef.current += 1; };
+  }, [activeAccountId, conversationIdentity, pinnedViewOpen, scrollRequest?.requestId]);
+  useEffect(() => {
+    if (chat && chat.unreadMentionCount > 0 && authorizationReady &&
+        connectionStatus === "online" && !pinnedViewOpen) {
+      void refreshUnreadMentions(chat.id);
+    }
+  }, [activeAccountId, chat?.id, chat?.unreadMentionCount, authorizationReady,
+    connectionStatus, pinnedViewOpen, refreshUnreadMentions]);
+  const openUnreadAttention = async () => {
+    if (!chat) return;
+    const request = ++attentionNavigationRef.current;
+    focusComposer();
+    if (chat.unreadMentionCount > indexedMentionCount) await refreshUnreadMentions(chat.id);
+    if (request !== attentionNavigationRef.current) return;
+    const state = telegramStore.getState();
+    const candidates = new Set(state.unreadAttentionMessageIds.get(chat.id));
+    const messageId = (state.messages.get(chat.id) ?? []).filter(message => candidates.has(message.id))
+      .sort(compareMessages).at(-1)?.id ?? [...candidates].at(-1);
+    if (messageId) {
+      onOpenMessage(chat.id, messageId, {
+        behavior: "smooth", highlight: true, loadContext: true,
+      });
+    }
+  };
   const replyPreviewForMessage = useCallback((message: Message) => {
     if (!chat) return undefined;
     const preview = replyPreviewFor(
@@ -2935,29 +2971,19 @@ export function Conversation({
           }}
         />
         </ConversationViewportBoundary>
-        {!pinnedViewOpen && currentScrollKey && attentionMessageIds.length > 0 && (
+        {!pinnedViewOpen && currentScrollKey && attentionCount > 0 && (
           <button
             className={`conversation-jump-button jump-to-attention ${!hasPrimaryAttention ? "has-reaction" : ""} ${awayFromLatest || jumpHistoryCount > 0 ? "is-stacked" : ""}`}
             type="button"
             aria-label={translate("{{value0}}，{{value1}} 条待查看", {
               value0: hasPrimaryAttention ? translate("跳到提及或引用") : translate("跳到回应"),
-              value1: attentionMessageIds.length,
+              value1: attentionCount,
             })}
             title={hasPrimaryAttention ? translate("跳到提及或引用") : translate("跳到回应")}
-            onClick={() => {
-              const messageId = attentionMessageIds.at(-1);
-              if (chat && messageId) {
-                onOpenMessage(chat.id, messageId, {
-                  behavior: "smooth",
-                  highlight: true,
-                  loadContext: true,
-                });
-                focusComposer();
-              }
-            }}
+            onClick={() => { void openUnreadAttention(); }}
           >
             {hasPrimaryAttention ? <AtSign size={19} strokeWidth={2.1} /> : <Heart size={18} strokeWidth={2.1} />}
-            <span>{formatUnreadCount(attentionMessageIds.length)}</span>
+            <span>{formatUnreadCount(attentionCount)}</span>
           </button>
         )}
         {!pinnedViewOpen && currentScrollKey && (jumpHistoryCount > 0 || awayFromLatest || historyWindowIsContext) && (
