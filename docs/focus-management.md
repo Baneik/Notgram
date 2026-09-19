@@ -124,6 +124,16 @@ including non-member commenters and names matched through aliases or translitera
 Incoming messages update local matches without restarting the remote query. Query
 completion caches and late responses remain scoped to the current chat and account.
 
+Before native text sends, draft writes, edits or attachment captions, resolve mention
+IDs through TDLib `getUser` and its `have_access` flag. Frontend cached authors are
+display hints, not proof of native access. If needed, restore at most three known
+authored message references with `getMessage`, then try the user's known public
+username while verifying that it still resolves to the same user ID. Recovery does
+not publish history, mark messages read, change focus or remove mention entities.
+Concurrent lookups share pending work within the account; completed lookups are
+not treated as permanent access. Account changes cancel pending sends, and newer
+drafts or clears supersede delayed draft preparation, independently per topic.
+
 `data-composer-scope` marks ordinary conversations and discussion panels. The
 shared pointer handler processes only the nearest scope. A discussion isolates
 the channel header, timeline, and post editor with `inert`; the covered channel

@@ -67,6 +67,7 @@ import {
   TauriProfileService,
   profileField,
 } from "./tauriProfileService";
+import { TauriMentionService } from "./tauriMentionService";
 import {
   TauriMessageMediaService,
   mapEmojiStickerSet,
@@ -424,8 +425,17 @@ export class TauriTelegramTransport implements TelegramTransport {
       }).catch(() => undefined);
     },
   );
+  private mentionService = new TauriMentionService({
+    sessionGeneration: () => this.hydrationGeneration,
+    currentUserId: () => this.currentUserId,
+    request: (request) => this.request(request),
+    rawUsers: this.rawUsers,
+    rawMessages: this.rawMessages,
+    loadCachedSnapshot: () => this.accountStorage.loadCachedSnapshot(),
+  });
   private messageMediaService = new TauriMessageMediaService({
     sessionGeneration: () => this.hydrationGeneration,
+    prepareMentions: (chatId, text, entities) => this.mentionService.prepare(chatId, text, entities),
     recoverFile: (fileId) => this.requestBroker.recoverFile(fileId),
     request: (request) => this.request(request),
     rawMessages: this.rawMessages,

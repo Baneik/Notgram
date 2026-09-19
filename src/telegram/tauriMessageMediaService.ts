@@ -199,6 +199,7 @@ export const mapEmojiStickerSet = (value: unknown): StickerSet | undefined => {
 
 export interface TauriMessageMediaServiceContext {
   sessionGeneration: () => number;
+  prepareMentions: (chatId: string, text: string, entities?: MessageTextEntity[]) => Promise<void>;
   recoverFile: (fileId: number) => Promise<unknown>;
   request: (request: TdObject) => Promise<TdObject>;
   rawMessages: Map<string, Map<string, TdObject>>;
@@ -233,6 +234,7 @@ export interface PendingDownload {
 
 export class TauriMessageMediaService {
   private readonly activeStreams = new Map<number, MediaStreamOwner & { generation: number }>();
+  private readonly pendingDrafts = new Map<string, symbol>();
 
   constructor(private readonly context: TauriMessageMediaServiceContext) {}
 
@@ -595,6 +597,7 @@ export class TauriMessageMediaService {
 
   async sendMessage(input: SendMessageInput) {
     const generation = this.context.sessionGeneration();
+    await this.context.prepareMentions(input.chatId, input.text, input.entities);
     const text = await this.formattedTextInput(input.text, input.entities);
     if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const response = await this.context.request({
@@ -620,7 +623,10 @@ export class TauriMessageMediaService {
   }
 
   async editMessage(input: EditMessageInput) {
+    const generation = this.context.sessionGeneration();
+    await this.context.prepareMentions(input.chatId, input.text, input.entities);
     const text = await this.formattedTextInput(input.text, input.entities);
+    if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const response = await this.context.request(input.contentType === "caption" ? {
       "@type": "editMessageCaption",
       chat_id: numericId(input.chatId),
@@ -635,7 +641,7 @@ export class TauriMessageMediaService {
       reply_markup: null,
       input_message_content: inputMessageText(text, false),
     });
-    if (response["@type"] === "message") this.context.emitMessage(response);
+    if (generation === this.context.sessionGeneration() && response["@type"] === "message") this.context.emitMessage(response);
   }
 
   async deleteMessage(input: DeleteMessageInput) {
@@ -681,6 +687,8 @@ export class TauriMessageMediaService {
 
   async sendMediaCopy(input: SendMediaCopyInput) {
     const generation = this.context.sessionGeneration();
+    await this.context.prepareMentions(input.chatId, input.content.caption ?? "", input.content.captionEntities);
+    if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const response = await this.context.request({
       "@type": "sendMessage",
       chat_id: numericId(input.chatId),
@@ -696,6 +704,24 @@ export class TauriMessageMediaService {
   }
 
   async setChatDraft(input: SetChatDraftInput) {
+    const generation = this.context.sessionGeneration();
+    const key = `${input.chatId}:${input.topicId ?? ""}`;
+    const revision = Symbol();
+    this.pendingDrafts.set(key, revision);
+    try {
+      await this.context.prepareMentions(input.chatId, input.text, input.entities);
+      if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
+      // A cleared or edited draft must win over an older reference lookup.
+      if (this.pendingDrafts.get(key) !== revision) return;
+      await this.sendChatDraft(input);
+    } catch (error) {
+      if (this.pendingDrafts.get(key) === revision) throw error;
+    } finally {
+      if (this.pendingDrafts.get(key) === revision) this.pendingDrafts.delete(key);
+    }
+  }
+
+  private async sendChatDraft(input: SetChatDraftInput) {
     const hasDraft = hasChatDraftContent(input);
     await this.context.request({
       "@type": "setChatDraftMessage",
@@ -884,11 +910,15 @@ export class TauriMessageMediaService {
     if (input.attachments.reduce((sum, attachment) => sum + attachment.file.size + (attachment.thumbnail?.size ?? 0), 0) > MAX_ATTACHMENT_BATCH_BYTES) {
       throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
     }
+    const generation = this.context.sessionGeneration();
+    await this.context.prepareMentions(input.chatId, input.caption ?? "", input.captionEntities);
+    if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const groups = groupOutgoingAttachments(input.attachments);
     let captionPending = input.caption;
     let captionEntitiesPending = input.captionEntities;
     for (const group of groups) {
       const files = await Promise.all(group.map(this.preparePastedAttachment));
+      if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
       const sent = await this.context.requestPreparedPastedFiles(
         input.chatId,
         files,

@@ -403,6 +403,7 @@ describe("TauriTelegramTransport startup", () => {
     const request = vi.fn(() => parsing);
     internal.request = request;
     const sending = transport.sendMessage({ chatId: "7", text: "**retained**" });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ "@type": "parseMarkdown" })));
     internal.hydrationGeneration += 1;
     finish({ "@type": "formattedText", text: "retained", entities: [] });
     await expect(sending).rejects.toThrow("发送已取消");
@@ -3474,6 +3475,7 @@ describe("TauriTelegramTransport message operations", () => {
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
     internal.request = async (request) => {
+      if (request["@type"] === "getUser") return { "@type": "user", id: 11, have_access: true };
       requests.push(request);
       return { "@type": "ok" };
     };
@@ -3544,6 +3546,7 @@ describe("TauriTelegramTransport message operations", () => {
     const requests: TdObject[] = [];
     const events: Parameters<TelegramEventListener>[0][] = [];
     internal.request = async (request) => {
+      if (request["@type"] === "getUser") return { "@type": "user", id: 11, have_access: true };
       requests.push(request);
       return { "@type": "ok" };
     };
