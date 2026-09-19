@@ -4,6 +4,20 @@ The visible message editor is the default typing destination. Explicit search,
 text selection, menus, dialogs, and keyboard navigation retain their own focus.
 An OS window becoming active does not itself identify a message editor.
 
+## Tab behavior
+
+Every app window cancels the native Tab default in the shared WebView key guard,
+including Shift+Tab and modified Tab keys delivered to the page. The event still
+reaches application handlers: plain Tab explicitly accepts the active mention or
+bot-command suggestion. With no available suggestion, it leaves text, selection,
+and focus unchanged. Completion must not depend on `defaultPrevented` being false;
+the guard has already canceled browser traversal. Existing IME checks still prevent
+completion during composition.
+
+Tab does not traverse settings, forms, dialogs, menus, or media controls. Dialogs
+do not cycle focus with Tab, and menus do not dismiss on Tab. Pointer interactions,
+explicit focus requests, menu arrow navigation, and Escape retain their behavior.
+
 ## Conversation editors
 
 `useComposerFocus` gives each editor an owner tied to its account and conversation
@@ -97,9 +111,9 @@ behavior. An unfocused editor still receives focus after an eligible blank click
 
 ## Modal surfaces
 
-`useModalFocus` owns initial focus, keyboard containment, programmatic focus
-containment, and return. Only the active modal handles Tab and Escape. Its sibling
-branches are made inert, including newly mounted background content. Nested
+`useModalFocus` owns initial focus, programmatic focus containment, and return.
+Only the active modal handles Escape. Its sibling branches are made inert,
+including newly mounted background content. Nested
 dialogs isolate siblings rather than their own ancestors. Portaled context menus
 retain their keyboard interaction. Standalone settings retain their window chrome.
 

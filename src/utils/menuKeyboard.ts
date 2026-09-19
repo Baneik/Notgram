@@ -22,20 +22,16 @@ export const handleMenuKeyboard = (
   event: ReactKeyboardEvent<HTMLElement>,
   onDismiss: () => void,
 ) => {
-  event.currentTarget.dataset.keyboardNavigation = "true";
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();
     onDismiss();
     return;
   }
-  if (event.key === "Tab") {
-    onDismiss();
-    return;
-  }
   if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) {
     return;
   }
+  event.currentTarget.dataset.keyboardNavigation = "true";
   const buttons = enabledButtons(event.currentTarget);
   if (buttons.length === 0) return;
   event.preventDefault();

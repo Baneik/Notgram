@@ -13,8 +13,7 @@ test("keyboard navigation closes modals and completes message workflows", async 
   const settingsClose = settingsDialog.getByRole("button", { name: "关闭", exact: true });
   await expect(settingsClose).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  await expect(settingsDialog.locator("button:not([disabled]), input:not([disabled])").last())
-    .toBeFocused();
+  await expect(settingsClose).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(settingsClose).toBeFocused();
   await page.keyboard.press("Escape");
@@ -34,6 +33,11 @@ test("keyboard navigation closes modals and completes message workflows", async 
   await expect(actionMenu).toBeVisible();
   await expect(actionMenu.getByRole("menuitem").first()).toBeFocused();
   await expect(actionMenu).toHaveAttribute("data-keyboard-navigation", "true");
+  for (const key of ["Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    await expect(actionMenu).toBeVisible();
+    await expect(actionMenu.getByRole("menuitem").first()).toBeFocused();
+  }
   await expect(actionMenu.getByRole("menuitem").first())
     .not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.keyboard.press("End");

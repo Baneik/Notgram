@@ -372,6 +372,8 @@ test("small-window surface invokes native dragging without toggling playback and
   await viewer.mouse.move(120, 100);
   await viewer.locator(".media-viewer-stage").focus();
   await viewer.keyboard.press("Tab");
+  await expect(viewer.locator(".media-viewer-stage")).toBeFocused();
+  await viewer.getByRole("slider", { name: "视频进度" }).focus();
   await expect(viewer.getByRole("slider", { name: "视频进度" })).toBeFocused();
   await viewer.waitForTimeout(2_200);
   await expect(backdrop).not.toHaveClass(/is-idle/);

@@ -158,7 +158,7 @@ test("keeps keyboard focus in the report and Escape returns to the profile", asy
   await expect(report.getByRole("radio")).toHaveCount(10);
   await report.getByRole("button", { name: "关闭举报" }).focus();
   await page.keyboard.press("Shift+Tab");
-  await expect(report.getByRole("button", { name: "取消", exact: true })).toBeFocused();
+  await expect(report.getByRole("button", { name: "关闭举报" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(report.getByRole("button", { name: "关闭举报" })).toBeFocused();
   await page.keyboard.press("Escape");

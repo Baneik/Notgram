@@ -131,9 +131,12 @@ test("native context menu does not paint initial focus as a permanent hover", as
 
   const stage = page.locator(".native-context-menu-stage");
   const items = page.getByRole("menu", { name: "焦点菜单" }).getByRole("menuitem");
-  await page.keyboard.press("Tab");
   await items.first().focus();
   await expect(items.first()).toBeFocused();
+  for (const key of ["Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    await expect(items.first()).toBeFocused();
+  }
   await expect(stage).not.toHaveAttribute("data-keyboard-navigation", "true");
   await expect(items.first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 

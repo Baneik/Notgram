@@ -24,6 +24,12 @@ export const isBlockedWebviewShortcut = (event: ShortcutEvent, inComposer = fals
 
 export const installWebviewGuards = () => {
   window.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") {
+      // Disable focus traversal in every window, but let explicit app actions
+      // such as mention and command completion receive the key.
+      event.preventDefault();
+      return;
+    }
     const inComposer = event.target instanceof Element && Boolean(event.target.closest(".composer-input"));
     if (!isBlockedWebviewShortcut(event, inComposer)) return;
     event.preventDefault();

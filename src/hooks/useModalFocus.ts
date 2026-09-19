@@ -121,22 +121,6 @@ export const useModalFocus = <T extends HTMLElement>(
       if (event.key === "Escape" && !options.current.closeDisabled) {
         event.preventDefault();
         options.current.onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = focusableElements(container);
-      if (!focusable.length) {
-        event.preventDefault();
-        container.focus({ preventScroll: true });
-        return;
-      }
-      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
-      if (event.shiftKey && activeIndex <= 0) {
-        event.preventDefault();
-        focusable.at(-1)?.focus({ preventScroll: true });
-      } else if (!event.shiftKey && (activeIndex < 0 || activeIndex === focusable.length - 1)) {
-        event.preventDefault();
-        focusable[0].focus({ preventScroll: true });
       }
     };
     document.addEventListener("focusin", handleFocus);

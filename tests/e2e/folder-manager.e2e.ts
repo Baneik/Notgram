@@ -200,7 +200,7 @@ for (const width of [790, 390]) {
     expect(save.y + save.height).toBeLessThanOrEqual(bounds.y + bounds.height);
     await dialog.getByRole("searchbox").focus();
     await page.keyboard.press("Tab");
-    await expect(dialog.getByRole("combobox")).toBeFocused();
+    await expect(dialog.getByRole("searchbox")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
   });

@@ -42,8 +42,9 @@ test("standalone settings update the still-interactive main window", async ({ pa
   await expect(settingsTitle).toHaveCSS("outline-style", "none");
   await expect(accountCategory).not.toBeFocused();
   await settings.keyboard.press("Tab");
-  await expect(accountCategory).toBeFocused();
-  expect(await accountCategory.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+  await expect(settingsTitle).toBeFocused();
+  await settings.keyboard.press("Shift+Tab");
+  await expect(settingsTitle).toBeFocused();
   await chatCategory.click();
   expect(await chatCategory.evaluate((element) => element.matches(":focus-visible"))).toBe(false);
   await settings.getByRole("spinbutton", { name: "消息字体大小" }).fill("19");
