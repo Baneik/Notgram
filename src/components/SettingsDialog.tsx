@@ -1,4 +1,5 @@
 import { StorageDataPanel } from "./StorageDataPanel";
+import { ShortcutSettings } from "./ShortcutSettings";
 import { translate } from "../i18n";
 import {
   ArrowLeft,
@@ -14,6 +15,7 @@ import {
   Fingerprint,
   HardDrive,
   Languages,
+  Keyboard,
   LoaderCircle,
   LogOut,
   MessageCircle,
@@ -95,6 +97,7 @@ type SettingsCategoryId =
   | "notgram"
   | "notifications"
   | "chats"
+  | "shortcuts"
   | "advanced"
   | "performance"
   | "diagnostics"
@@ -114,7 +117,8 @@ const categories: SettingsCategory[] = [
   { id: "account", get label() { return translate("我的账号"); }, icon: UserCircle, searchTerms: searchTerms("%E8%B4%A6%E5%8F%B7 %E4%B8%AA%E4%BA%BA%E8%B5%84%E6%96%99 %E5%A4%B4%E5%83%8F %E6%89%8B%E6%9C%BA%E5%8F%B7 %E7%94%A8%E6%88%B7%E5%90%8D %E7%94%A8%E6%88%B7ID %E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83 %E7%AD%BE%E5%90%8D %E9%80%80%E5%87%BA%E7%99%BB%E5%BD%95") },
   { id: "notgram", label: "Notgram", icon: SendHorizontal, searchTerms: searchTerms("%E5%B9%BF%E5%91%8A %E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA %E5%B1%8F%E8%94%BD Zalgo %E8%87%AA%E5%AE%9A%E4%B9%89%E5%85%B3%E9%94%AE%E8%AF%8D %E6%AD%A3%E5%88%99 %E8%BE%93%E5%85%A5%E7%8A%B6%E6%80%81 %E6%92%A4%E5%9B%9E%E6%B6%88%E6%81%AF %E6%9C%AC%E5%9C%B0%E4%BF%9D%E5%AD%98 %E5%BC%80%E6%9C%BA%E5%90%AF%E5%8A%A8 %E5%90%AF%E5%8A%A8") },
   { id: "notifications", get label() { return translate("通知与声音"); }, icon: Bell, searchTerms: searchTerms("%E9%80%9A%E7%9F%A5 %E6%A1%8C%E9%9D%A2%E9%80%9A%E7%9F%A5 %E6%B6%88%E6%81%AF%E9%A2%84%E8%A7%88 %E5%A3%B0%E9%9F%B3 %E6%9D%83%E9%99%90") },
-  { id: "chats", get label() { return translate("聊天设置"); }, icon: MessageCircle, searchTerms: searchTerms("%E5%BC%95%E7%94%A8 %E8%87%AA%E5%8A%A8%E6%8A%98%E5%8F%A0 %E9%98%88%E5%80%BC %E8%81%8A%E5%A4%A9 %E6%98%BE%E7%A4%BA %E4%B8%BB%E9%A2%98 %E6%B5%85%E8%89%B2 %E6%B7%B1%E8%89%B2 %E8%83%8C%E6%99%AF%E6%A0%B7%E5%BC%8F %E7%AE%80%E6%B4%81 %E6%9F%94%E5%92%8C %E5%AD%97%E4%BD%93 %E7%BC%A9%E6%94%BE %E6%9C%AA%E8%AF%BB%E8%AE%A1%E6%95%B0 %E5%AF%86%E5%BA%A6 %E8%A1%8C%E9%AB%98 %E6%B6%88%E6%81%AF%E7%BB%84%E9%97%B4%E8%B7%9D %E5%90%8C%E7%BB%84%E6%B6%88%E6%81%AF %E6%B0%94%E6%B3%A1%E7%95%99%E7%99%BD Enter %E5%8F%91%E9%80%81") },
+  { id: "chats", get label() { return translate("聊天设置"); }, icon: MessageCircle, searchTerms: searchTerms("%E5%BC%95%E7%94%A8 %E8%87%AA%E5%8A%A8%E6%8A%98%E5%8F%A0 %E9%98%88%E5%80%BC %E8%81%8A%E5%A4%A9 %E6%98%BE%E7%A4%BA %E4%B8%BB%E9%A2%98 %E6%B5%85%E8%89%B2 %E6%B7%B1%E8%89%B2 %E8%83%8C%E6%99%AF%E6%A0%B7%E5%BC%8F %E7%AE%80%E6%B4%81 %E6%9F%94%E5%92%8C %E5%AD%97%E4%BD%93 %E7%BC%A9%E6%94%BE %E6%9C%AA%E8%AF%BB%E8%AE%A1%E6%95%B0 %E5%AF%86%E5%BA%A6 %E8%A1%8C%E9%AB%98 %E6%B6%88%E6%81%AF%E7%BB%84%E9%97%B4%E8%B7%9D %E5%90%8C%E7%BB%84%E6%B6%88%E6%81%AF %E6%B0%94%E6%B3%A1%E7%95%99%E7%99%BD") },
+  { id: "shortcuts", get label() { return translate("快捷键与录入"); }, icon: Keyboard, searchTerms: searchTerms("%E5%BF%AB%E6%8D%B7%E9%94%AE %E5%BD%95%E5%85%A5 %E4%B8%8A%E4%B8%80%E4%B8%AA %E4%B8%8B%E4%B8%80%E4%B8%AA %E4%BC%9A%E8%AF%9D %E6%96%87%E4%BB%B6%E5%A4%B9 Enter keyboard shortcuts input") },
   { id: "advanced", get label() { return translate("高级设置"); }, icon: SlidersHorizontal, searchTerms: searchTerms("%E9%AB%98%E7%BA%A7 %E4%BB%A3%E7%90%86 %E7%BD%91%E7%BB%9C %E7%B3%BB%E7%BB%9F%E4%BB%A3%E7%90%86 %E7%9B%B4%E8%BF%9E %E8%87%AA%E5%AE%9A%E4%B9%89 HTTP SOCKS5 MTProto %E6%9C%8D%E5%8A%A1%E5%99%A8 %E7%AB%AF%E5%8F%A3 %E7%94%A8%E6%88%B7%E5%90%8D %E5%AF%86%E7%A0%81 %E8%87%AA%E5%8A%A8%E5%88%87%E6%8D%A2 %E6%B5%8B%E8%AF%95%E8%BF%9E%E6%8E%A5 %E7%BC%93%E5%AD%98 %E5%AD%98%E5%82%A8 %E7%BC%93%E5%AD%98%E8%B7%AF%E5%BE%84 %E4%B8%8B%E8%BD%BD%E8%B7%AF%E5%BE%84 %E6%B8%85%E7%90%86%E7%BC%93%E5%AD%98 %E4%BF%9D%E7%95%99%E5%A4%A9%E6%95%B0 %E4%B8%8B%E8%BD%BD %E8%87%AA%E5%8A%A8%E4%B8%8B%E8%BD%BD %E5%9B%BE%E7%89%87 %E8%A7%86%E9%A2%91 %E9%9F%B3%E9%A2%91 %E6%96%87%E4%BB%B6 %E8%AF%AD%E8%A8%80 %E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83") },
   { id: "performance", get label() { return translate("性能监控"); }, icon: Activity, searchTerms: searchTerms("%E6%80%A7%E8%83%BD %E7%9B%91%E6%8E%A7 %E5%90%AF%E5%8A%A8 %E6%B8%B2%E6%9F%93 %E5%86%85%E5%AD%98 %E5%BB%B6%E8%BF%9F") },
   { id: "diagnostics", get label() { return translate("诊断与隐私"); }, icon: ShieldCheck, searchTerms: searchTerms("%E8%AF%8A%E6%96%AD %E9%9A%90%E7%A7%81 %E5%B1%8F%E8%94%BD%E7%94%A8%E6%88%B7 %E4%BC%9A%E8%AF%9D %E6%9D%83%E9%99%90 %E5%B4%A9%E6%BA%83 %E4%B8%BE%E6%8A%A5") },
@@ -241,7 +245,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const themeId = usePreferencesStore((state) => state.themeId);
   const backgroundStyle = usePreferencesStore((state) => state.backgroundStyle);
+  const shortcuts = usePreferencesStore(state => state.shortcuts);
   const preferences: AppPreferences = {
+    shortcuts,
     language,
     notificationsEnabled,
     notificationSound,
@@ -552,6 +558,8 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               <DiagnosticsSettings />
               <SafetySettings />
             </div>
+          ) : activeCategory === "shortcuts" ? (
+            <ShortcutSettings />
           ) : (
             <PreferenceSettings
               category={activeCategory}
@@ -622,9 +630,7 @@ function PreferenceSettings({
         { key: "notificationSound" as const, label: translate("通知声音"), disabled: !preferences.notificationsEnabled },
       ]
     : category === "chats"
-      ? [
-          { key: "sendOnEnter" as const, label: translate("Enter 键发送") },
-        ]
+      ? []
       : [
           { key: "autoplayAnimations" as const, label: translate("自动播放动画") },
           { key: "reduceMotion" as const, label: translate("减少动态效果") },
@@ -804,7 +810,7 @@ function PreferenceSettings({
             <RotateCcw size={15} strokeWidth={2} />{translate("恢复间距默认值")}</button>
         </section>
       )}
-      <section className="settings-section">
+      {options.length > 0 && <section className="settings-section">
         <div className="preference-list">
           {options.map((option) => (
             <label className="preference-row" key={option.key}>
@@ -822,7 +828,7 @@ function PreferenceSettings({
         {category === "power" && systemReduceMotion && (
           <p className="preference-policy-note" role="status">{translate("系统已启用“减少动态效果”，Notgram 会自动停用过渡和动画播放。")}</p>
         )}
-      </section>
+      </section>}
       {error && <div className="settings-error" role="alert">{error}</div>}
     </div>
   );

@@ -2856,6 +2856,11 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .settings-section-heading div { min-width: 0; display: grid; gap: 2px; }
 .settings-section-heading h4 { margin: 0; color: var(--ink); font-size: 12px; font-weight: 650; }
 .settings-section-heading span { color: var(--muted); font-size: 11px; }
+.shortcut-row { flex-wrap: wrap; gap: 8px; }
+.shortcut-controls { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.shortcut-recorder { min-width: 136px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.shortcut-recorder.is-recording { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.shortcut-setting .settings-error { margin-top: 0; }
 /* Storage details share the settings grid, covering its content without opening another window. */
 .settings-section-heading .storage-heading-title { display: flex; align-items: center; gap: 10px; }
 .storage-heading-title .storage-reset { min-height: 24px; padding: 0 6px; font-size: 11px; }

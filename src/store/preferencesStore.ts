@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { defaultShortcutBindings, normalizeShortcutBindings, type ShortcutBindings } from "../shortcuts/shortcuts";
 import { useStore } from "zustand";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -30,6 +31,7 @@ export type UnreadBadgePosition = "right" | "avatar";
 export type BackgroundStyle = "plain" | "soft";
 
 export interface AppPreferences {
+  shortcuts: ShortcutBindings;
   language: LanguagePreference;
   notificationsEnabled: boolean;
   notificationSound: boolean;
@@ -76,6 +78,7 @@ interface PreferencesState extends AppPreferences {
 
 const STORAGE_KEY = "notgram:preferences:v1";
 const defaults: AppPreferences = {
+  shortcuts: defaultShortcutBindings,
   language: "system",
   notificationsEnabled: true,
   notificationSound: true,
@@ -132,6 +135,7 @@ const readPreferences = (): AppPreferences => {
         : !stored.sendTypingStatus
     );
     return {
+      shortcuts: normalizeShortcutBindings(stored.shortcuts),
       language: isLanguagePreference(stored.language) ? stored.language : defaults.language,
       notificationsEnabled: stored.notificationsEnabled ?? defaults.notificationsEnabled,
       notificationSound: stored.notificationSound ?? defaults.notificationSound,
@@ -236,6 +240,7 @@ export const preferencesStore = createStore<PreferencesState>((set) => ({
     systemReduceMotion: initialSystemReduceMotion,
   }),
   setPreference: (key, value) => {
+    if (key === "shortcuts") value = normalizeShortcutBindings(value) as typeof value;
     if (key === "quoteCollapseLines") {
       value = boundedInteger(value, defaults.quoteCollapseLines, 1, 100) as typeof value;
     }
@@ -308,6 +313,7 @@ const applyPreferences = (preferences: AppPreferences, systemMotionReduced: bool
 applyPreferences(initialPreferences, preferencesStore.getState().systemReduceMotion);
 preferencesStore.subscribe((state) => {
   const preferences: AppPreferences = {
+    shortcuts: state.shortcuts,
     language: state.language,
     notificationsEnabled: state.notificationsEnabled,
     notificationSound: state.notificationSound,

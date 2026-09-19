@@ -312,6 +312,9 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
       version: TELEGRAM_CACHE_VERSION,
+      lastFolderChatIds: Array.isArray(value.lastFolderChatIds) ? value.lastFolderChatIds.filter(entry =>
+        isRecord(entry) && typeof entry.folderId === "string" && typeof entry.chatId === "string",
+      ).slice(0, 100) as CachedTelegramSnapshot["lastFolderChatIds"] : undefined,
       historyContexts: Array.isArray(value.historyContexts) ? value.historyContexts.filter(entry =>
         isRecord(entry) && typeof entry.chatId === "string" && typeof entry.targetId === "string" &&
         (entry.topicId === undefined || typeof entry.topicId === "string") &&
@@ -521,6 +524,10 @@ export const cachedSnapshotFrom = (
     profiles: profiles.slice(-100).map((profile) => sanitizeCachedProfile({ ...profile, members: profile.members.slice(0, 100), groupsInCommon: profile.groupsInCommon?.slice(0, 50) })),
     forumTopics: forumTopicsForCache(state),
     lastForumTopicIds: lastForumTopicIdsForCache(state),
+    lastFolderChatIds: [...(state.lastFolderChatIds ?? new Map<string, string>())]
+      .filter(([folderId, chatId]) => state.folders.some(folder => folder.id === folderId) &&
+        state.chats.get(chatId)?.folderIds.includes(folderId))
+      .map(([folderId, chatId]) => ({ folderId, chatId })),
   };
   const durationMs = startedAt === undefined ? 0 : performance.now() - startedAt;
   if (durationMs >= CACHE_SNAPSHOT_LOG_THRESHOLD_MS) {

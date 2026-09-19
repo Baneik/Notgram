@@ -18,6 +18,30 @@ Tab does not traverse settings, forms, dialogs, menus, or media controls. Dialog
 do not cycle focus with Tab, and menus do not dismiss on Tab. Pointer interactions,
 explicit focus requests, menu arrow navigation, and Escape retain their behavior.
 
+## Configurable shortcuts
+
+`shortcuts/shortcuts.ts` declares action IDs, labels, defaults and key normalization.
+Preferences persist bindings and synchronize them with the standalone settings
+window. Navigation dispatch lives in `useAppShortcuts`; it only consumes a matching
+combination, and preserves composition, active dialogs and menus. A usable cached
+workspace accepts navigation while the transport reconnects. Tab remains reserved
+for explicit completion and cannot be assigned to a navigation action.
+
+The recorder consumes keys before editor/search commands and the WebView guard.
+Escape, blur, switching controls and unmount invalidate pending checks. Saving
+checks application duplicates and reserved keys, then probes Windows RegisterHotKey
+on a dedicated thread and immediately unregisters it. These are foreground app
+shortcuts; the probe never installs a persistent global binding. The probe detects
+registered global hotkeys at that instant, not arbitrary keyboard hooks or later
+registrations. Unsupported environments and native errors must not report success.
+
+Folder buttons and shortcuts share the sidebar conversation entry path, including
+drafts, reading positions and forum topics. The folder order matches the rail;
+chat order uses the sidebar sorter, with no wrap at either boundary. Account cache
+stores each folder's last member chat. Missing selections fall back to its first
+chat; empty folders clear the conversation. Late list data may select a chat only
+while the same account and folder still own the pending navigation intent.
+
 ## Conversation editors
 
 `useComposerFocus` gives each editor an owner tied to its account and conversation

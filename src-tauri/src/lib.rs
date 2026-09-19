@@ -9,6 +9,7 @@ mod external_links;
 mod media_viewer_window;
 mod proxy;
 mod settings_window;
+mod shortcuts;
 mod storage;
 mod telegram;
 mod telegram_links;
@@ -89,6 +90,7 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            shortcuts::notgram_check_shortcut,
             telegram_links::notgram_take_telegram_links,
             telegram_links::notgram_telegram_protocol_settings,
             telegram_links::notgram_register_telegram_protocol,

@@ -24,6 +24,7 @@ export const isBlockedWebviewShortcut = (event: ShortcutEvent, inComposer = fals
 
 export const installWebviewGuards = () => {
   window.addEventListener("keydown", (event) => {
+    if (event.target instanceof Element && event.target.closest('[data-shortcut-recorder="true"][aria-pressed="true"]')) return;
     if (event.key === "Tab") {
       // Disable focus traversal in every window, but let explicit app actions
       // such as mention and command completion receive the key.

@@ -1,3 +1,5 @@
+import { useAppShortcuts } from "../hooks/useAppShortcuts";
+import { useFolderNavigation } from "../hooks/useFolderNavigation";
 import { isTauri } from "@tauri-apps/api/core";
 import { projectHistoryWindow } from "../store/conversationHistory";
 import { compareMessages } from "../store/telegramStore.messages";
@@ -971,6 +973,7 @@ export function App() {
 
   const locationForChat = useCallback((chatId: string, topicId?: string): ConversationNavigationLocation => ({
     ...captureConversationLocation(),
+    chatFilter: telegramStore.getState().chatFilter,
     chatId,
     topicId,
     discussionPostId: undefined,
@@ -1699,6 +1702,110 @@ export function App() {
     }
   };
 
+  const selectSidebarChat = (chatId: string) => {
+    setMobileChatOpen(true);
+    const state = telegramStore.getState();
+    if (state.activeChatId === chatId) {
+      openLatestConversation(chatId);
+      return;
+    }
+    const generation = chatOpenGenerationRef.current + 1;
+    chatOpenGenerationRef.current = generation;
+    const targetChat = state.chats.get(chatId);
+    const restoredTopicId = targetChat?.isForum
+      ? state.lastForumTopicIds.get(chatId) ??
+        state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
+      : undefined;
+    const restoredTopic = restoredTopicId
+      ? state.forumTopics.get(chatId)?.find((topic) => topic.id === restoredTopicId)
+      : undefined;
+    syncConversationNavigation(locationForChat(chatId, restoredTopicId));
+    const serverMessageId = restoredTopicId
+      ? (restoredTopic?.unreadCount ?? 0) > 0
+        ? restoredTopic?.lastReadInboxMessageId
+        : undefined
+      : targetChat && targetChat.unreadCount > 0
+        ? targetChat.lastReadInboxMessageId
+        : undefined;
+    const serverMessageLoaded = Boolean(
+      serverMessageId &&
+      (state.messages.get(chatId) ?? []).some(
+        (message) => message.id === serverMessageId && (
+          !restoredTopicId || message.topicId === restoredTopicId
+        ),
+      ),
+    );
+    const targetScrollScope = restoredTopicId
+      ? `${activeAccountId}:topic:${restoredTopicId}`
+      : activeAccountId;
+    const restoreLocally = hasConversationScrollMemory(targetScrollScope, chatId);
+    const targetMessages = (state.messages.get(chatId) ?? [])
+      .filter((message) => !restoredTopicId || message.topicId === restoredTopicId);
+    const performanceTraceId = beginConversationSwitch({
+      cached: targetMessages.length > 0,
+      messageCount: targetMessages.length,
+      viewTransition: false,
+      trackPresentation: true,
+      navigationKind: 1,
+    });
+    markConversationSwitch(performanceTraceId, "transitionStarted");
+    markConversationSwitch(performanceTraceId, "selectionCommitted");
+    beginConversationSnapshot(
+      conversationIdentityFor(chatId, restoredTopicId),
+      !targetChat?.isForum || Boolean(restoredTopicId),
+    );
+    flushSync(() => {
+      issueConversationScrollRequest({
+        kind: "entry",
+        chatId,
+        serverMessageId: restoreLocally ? undefined : serverMessageId,
+        performanceTraceId,
+      });
+      state.selectChat(chatId, {
+        deferHistory: Boolean(serverMessageId && !serverMessageLoaded && !restoreLocally),
+      });
+    });
+    requestAnimationFrame(() => {
+      markConversationSwitch(performanceTraceId, "titleCommitted");
+    });
+    if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
+      void (async () => {
+        markConversationSwitch(performanceTraceId, "asyncWaitStarted");
+        let loaded = false;
+        try {
+          loaded = await telegramStore.getState().loadMessage(
+            chatId,
+            serverMessageId,
+            { onlyIfActive: true },
+          );
+        } finally {
+          markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
+        }
+        if (chatOpenGenerationRef.current !== generation) return;
+        // A target-centric request gives us the correct first view.
+        // Start the ordinary first-page sync only after that view is
+        // ready, so both remote history windows do not compete.
+        telegramStore.getState().selectChat(chatId);
+        if (loaded) return;
+        flushSync(() => {
+          issueConversationScrollRequest({
+            kind: "entry",
+            chatId,
+            performanceTraceId,
+          });
+        });
+      })();
+    }
+  };
+  const changeFolder = useFolderNavigation(selectSidebarChat, () => {
+    chatOpenGenerationRef.current += 1;
+    captureActiveConversationScrollState();
+    discardConversationSnapshot();
+    telegramStore.getState().clearChatSelection();
+    setMobileChatOpen(false);
+  }, closeSearch);
+  useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder);
+
   const activeMessages = useMemo(
     () => {
       const windowMessages = projectHistoryWindow(activeChatMessages, activeHistoryView);
@@ -1800,10 +1907,7 @@ export function App() {
           accountPending={accountPending}
           filter={chatFilter}
           folderManagementPending={folderManagementPending}
-          onFilterChange={(filter) => {
-            closeSearch();
-            setChatFilter(filter);
-          }}
+          onFilterChange={changeFolder}
           onEditFolder={openFolderManager}
           onReorderFolders={(folderIds) => void reorderChatFolders(folderIds)}
           onMarkFolderRead={markChatFolderRead}
@@ -1854,101 +1958,7 @@ export function App() {
           }}
           onSelect={(chatId) => {
             if (searchQuery.trim()) void openGlobalSearchChat(chatId, false, true);
-            else {
-              setMobileChatOpen(true);
-              const state = telegramStore.getState();
-              if (state.activeChatId === chatId) {
-                openLatestConversation(chatId);
-                return;
-              }
-              const generation = chatOpenGenerationRef.current + 1;
-              chatOpenGenerationRef.current = generation;
-              const targetChat = state.chats.get(chatId);
-              const restoredTopicId = targetChat?.isForum
-                ? state.lastForumTopicIds.get(chatId) ??
-                  state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
-                : undefined;
-              const restoredTopic = restoredTopicId
-                ? state.forumTopics.get(chatId)?.find((topic) => topic.id === restoredTopicId)
-                : undefined;
-              syncConversationNavigation(locationForChat(chatId, restoredTopicId));
-              const serverMessageId = restoredTopicId
-                ? (restoredTopic?.unreadCount ?? 0) > 0
-                  ? restoredTopic?.lastReadInboxMessageId
-                  : undefined
-                : targetChat && targetChat.unreadCount > 0
-                  ? targetChat.lastReadInboxMessageId
-                  : undefined;
-              const serverMessageLoaded = Boolean(
-                serverMessageId &&
-                (state.messages.get(chatId) ?? []).some(
-                  (message) => message.id === serverMessageId && (
-                    !restoredTopicId || message.topicId === restoredTopicId
-                  ),
-                ),
-              );
-              const targetScrollScope = restoredTopicId
-                ? `${activeAccountId}:topic:${restoredTopicId}`
-                : activeAccountId;
-              const restoreLocally = hasConversationScrollMemory(targetScrollScope, chatId);
-              const targetMessages = (state.messages.get(chatId) ?? [])
-                .filter((message) => !restoredTopicId || message.topicId === restoredTopicId);
-              const performanceTraceId = beginConversationSwitch({
-                cached: targetMessages.length > 0,
-                messageCount: targetMessages.length,
-                viewTransition: false,
-                trackPresentation: true,
-                navigationKind: 1,
-              });
-              markConversationSwitch(performanceTraceId, "transitionStarted");
-              markConversationSwitch(performanceTraceId, "selectionCommitted");
-              beginConversationSnapshot(
-                conversationIdentityFor(chatId, restoredTopicId),
-                !targetChat?.isForum || Boolean(restoredTopicId),
-              );
-              flushSync(() => {
-                issueConversationScrollRequest({
-                  kind: "entry",
-                  chatId,
-                  serverMessageId: restoreLocally ? undefined : serverMessageId,
-                  performanceTraceId,
-                });
-                state.selectChat(chatId, {
-                  deferHistory: Boolean(serverMessageId && !serverMessageLoaded && !restoreLocally),
-                });
-              });
-              requestAnimationFrame(() => {
-                markConversationSwitch(performanceTraceId, "titleCommitted");
-              });
-              if (serverMessageId && !serverMessageLoaded && !restoreLocally) {
-                void (async () => {
-                  markConversationSwitch(performanceTraceId, "asyncWaitStarted");
-                  let loaded = false;
-                  try {
-                    loaded = await telegramStore.getState().loadMessage(
-                      chatId,
-                      serverMessageId,
-                      { onlyIfActive: true },
-                    );
-                  } finally {
-                    markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
-                  }
-                  if (chatOpenGenerationRef.current !== generation) return;
-                  // A target-centric request gives us the correct first view.
-                  // Start the ordinary first-page sync only after that view is
-                  // ready, so both remote history windows do not compete.
-                  telegramStore.getState().selectChat(chatId);
-                  if (loaded) return;
-                  flushSync(() => {
-                    issueConversationScrollRequest({
-                      kind: "entry",
-                      chatId,
-                      performanceTraceId,
-                    });
-                  });
-                })();
-              }
-            }
+            else selectSidebarChat(chatId);
           }}
           onOpenLatest={(chatId) => openLatestConversation(chatId)}
           onLoadMore={loadMoreChats}
