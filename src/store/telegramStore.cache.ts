@@ -208,6 +208,8 @@ const isQueuedMessage = (item: unknown): item is QueuedOutgoingMessage =>
   (item.replyToMessageId === undefined || typeof item.replyToMessageId === "string") &&
   (item.discussionThreadId === undefined || typeof item.discussionThreadId === "string") &&
   (item.clearDraft === undefined || typeof item.clearDraft === "boolean") &&
+  (item.retryAt === undefined || (typeof item.retryAt === "number" && Number.isSafeInteger(item.retryAt) && item.retryAt >= 0)) &&
+  (item.retryAttempt === undefined || (typeof item.retryAttempt === "number" && Number.isSafeInteger(item.retryAttempt) && item.retryAttempt >= 0)) &&
   (item.replyQuote === undefined || (
     isRecord(item.replyQuote) && typeof item.replyQuote.text === "string" &&
     typeof item.replyQuote.position === "number" && Number.isInteger(item.replyQuote.position) && item.replyQuote.position >= 0

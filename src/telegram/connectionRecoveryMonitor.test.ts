@@ -28,7 +28,7 @@ describe("connection recovery lifecycle", () => {
     window.dispatchEvent(new Event("online"));
     document.dispatchEvent(new Event("visibilitychange"));
     window.dispatchEvent(new Event("focus"));
-    expect(recover).toHaveBeenCalledExactlyOnceWith(false);
+    expect(recover.mock.calls).toEqual([[false], [true]]);
   });
 
   it("does not force an online client to reconnect after a long tray stay", async () => {

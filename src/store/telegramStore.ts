@@ -81,7 +81,8 @@ import { emptyChatMessageSearch } from "./chatMessageSearchState";
 import { emptyProfileState } from "./profileState";
 import { createSearchController } from "./telegramStore.search";
 import { createProfileController } from "./telegramStore.profile";
-import { createOutboxController } from "./telegramStore.outboxController";
+import { createOutboxController, outboxRetryState } from "./telegramStore.outboxController";
+import { RetryableSendError } from "../telegram/sendErrors";
 import { createForumController } from "./telegramStore.forum";
 import { createSessionController } from "./telegramStore.session";
 import { createEmojiPickerController } from "./telegramStore.emoji";
@@ -1004,6 +1005,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      resetOutbox();
       chatJoinTargets.clear();
       history.clear();
       pendingPinnedReorders.clear();
@@ -2299,6 +2301,7 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       accountGeneration += 1;
+      resetOutbox();
       mediaFileRestorer.reset();
       registeredAccountKey = undefined;
       set({
@@ -2442,7 +2445,7 @@ export const createTelegramStore = (
       registerCurrentAccount,
       onError: errorMessage,
     });
-    const { setOutbox, persistOutboxState, flushOutbox } = createOutboxController({
+    const { setOutbox, persistOutboxState, flushOutbox, resetOutbox } = createOutboxController({
       transport,
       get,
       set,
@@ -4521,6 +4524,7 @@ export const createTelegramStore = (
       },
 
       sendMessage: async (text, replyToMessageId, replyQuote, entities, disableNotification, context) => {
+        const sendGeneration = accountGeneration;
         const chatId = context?.chatId ?? get().activeChatId;
         const topicId = context ? context.topicId : get().activeTopicId;
         const clearDraft = context?.clearDraft !== false;
@@ -4538,10 +4542,12 @@ export const createTelegramStore = (
         }
         const draftKey = topicKey(chatId, topicId);
         const previousDraft = clearDraft ? get().drafts.get(draftKey) : undefined;
-        if (!connectionPresentation(get().connectionStatus).operational) {
+        const queueMessage = async (retry?: RetryableSendError) => {
+          if (sendGeneration !== accountGeneration) return false;
           const previousOutbox = get().outbox;
           const previousMessages = get().messages;
           const previousDrafts = get().drafts;
+          const canClearDraft = clearDraft && draftSignature(previousDrafts.get(draftKey)) === draftSignature(previousDraft);
           const item: QueuedOutgoingMessage = {
             id: globalThis.crypto.randomUUID(),
             chatId,
@@ -4555,11 +4561,12 @@ export const createTelegramStore = (
             disableNotification,
             createdAt: new Date().toISOString(),
             status: "queued",
+            ...(retry ? outboxRetryState(retry) : {}),
           };
           const outbox = [...previousOutbox, item];
           const drafts = new Map(previousDrafts);
-          if (clearDraft) drafts.delete(draftKey);
-          const clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
+          if (canClearDraft) drafts.delete(draftKey);
+          const clearGeneration = canClearDraft ? draftSync.expect(draftKey, undefined) : undefined;
           set({
             drafts,
             outbox,
@@ -4572,11 +4579,14 @@ export const createTelegramStore = (
           });
           try {
             await flushCachedSnapshot();
+            if (sendGeneration !== accountGeneration) return false;
             recordConversationSentMessages(get().activeAccountId, chatId);
+            void flushOutbox();
             return true;
           } catch (error) {
+            if (sendGeneration !== accountGeneration) return false;
             if (clearGeneration !== undefined) draftSync.cancelExpectation(draftKey, clearGeneration);
-            if (previousDraft?.pending) {
+            if (canClearDraft && previousDraft?.pending) {
               draftSync.expect(draftKey, draftForSync(previousDraft));
             }
             set({
@@ -4588,8 +4598,10 @@ export const createTelegramStore = (
             });
             return false;
           }
-        }
+        };
+        if (!connectionPresentation(get().connectionStatus).operational) return queueMessage();
         if (clearDraft) await draftSync.flush(draftKey);
+        if (sendGeneration !== accountGeneration) return false;
         const clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
         try {
           await transport.sendMessage({
@@ -4602,6 +4614,7 @@ export const createTelegramStore = (
             disableNotification,
             clearDraft,
           });
+          if (sendGeneration !== accountGeneration) return false;
           if (clearGeneration !== undefined) draftSync.markAwaitingAck(draftKey, clearGeneration);
           const currentDraft = get().drafts.get(draftKey);
           if (clearDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
@@ -4615,7 +4628,9 @@ export const createTelegramStore = (
           recordConversationSentMessages(get().activeAccountId, chatId);
           return true;
         } catch (error) {
+          if (sendGeneration !== accountGeneration) return false;
           if (clearGeneration !== undefined) draftSync.cancelExpectation(draftKey, clearGeneration);
+          if (error instanceof RetryableSendError) return queueMessage(error);
           const currentDraft = get().drafts.get(draftKey);
           if (previousDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const restored = { ...previousDraft, pending: true };
@@ -4902,7 +4917,7 @@ export const createTelegramStore = (
           if (!item) return;
           setOutbox(previous.map((candidate) =>
             candidate.id === itemId
-              ? { ...candidate, status: "queued", error: undefined }
+              ? { ...candidate, status: "queued", error: undefined, retryAt: undefined, retryAttempt: undefined }
               : candidate,
           ));
           try {
@@ -4955,6 +4970,7 @@ export const createTelegramStore = (
         disableNotification,
         context,
       ) => {
+        const sendGeneration = accountGeneration;
         const chatId = context?.chatId ?? get().activeChatId;
         const topicId = context ? context.topicId : get().activeTopicId;
         if (!chatId || attachments.length === 0) return false;
@@ -4968,12 +4984,18 @@ export const createTelegramStore = (
           return false;
         }
         const formattedCaption = trimComposerFormattedText(caption ?? "", captionEntities ?? []);
-        if (!connectionPresentation(get().connectionStatus).operational) {
+        const queueFiles = async (remaining: typeof attachments, retry?: RetryableSendError, captionConsumed = false) => {
+          if (sendGeneration !== accountGeneration) return false;
+          if (remaining.length === 0) return true;
           const id = globalThis.crypto.randomUUID();
           const createdAt = new Date().toISOString();
+          const captionText = captionConsumed ? "" : formattedCaption.text;
+          const accountId = get().activeAccountId;
           try {
-            const metadata = await describeOutgoingAttachments(id, attachments);
-            await attachmentOutbox.put({ id, accountId: get().activeAccountId, createdAt, attachments, metadata, recovery: { chatId, topicId, discussionThreadId: context?.discussionThreadId, replyToMessageId, replyQuote, caption: formattedCaption.text } });
+            const metadata = await describeOutgoingAttachments(id, remaining);
+            if (sendGeneration !== accountGeneration) return false;
+            await attachmentOutbox.put({ id, accountId, createdAt, attachments: remaining, metadata, recovery: { chatId, topicId, discussionThreadId: context?.discussionThreadId, replyToMessageId, replyQuote, caption: captionText } });
+            if (sendGeneration !== accountGeneration) return false;
             const previousOutbox = get().outbox;
             const previousMessages = get().messages;
             const item: QueuedOutgoingMessage = {
@@ -4981,9 +5003,9 @@ export const createTelegramStore = (
               chatId,
               topicId,
               discussionThreadId: context?.discussionThreadId,
-              text: formattedCaption.text || metadata.map(({ name }) => name).join("、"),
-              caption: formattedCaption.text || undefined,
-              ...(formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),
+              text: captionText || metadata.map(({ name }) => name).join("、"),
+              caption: captionText || undefined,
+              ...(!captionConsumed && formattedCaption.entities.length ? { entities: formattedCaption.entities } : {}),
               replyToMessageId,
               replyQuote: replyToMessageId ? replyQuote : undefined,
               disableNotification,
@@ -4991,21 +5013,28 @@ export const createTelegramStore = (
               attachments: metadata,
               createdAt,
               status: "queued",
+              ...(retry ? outboxRetryState(retry) : {}),
             };
             setOutbox([...get().outbox, item]);
             set({ operationError: undefined });
             if (!await persistOutboxState()) {
+              if (sendGeneration !== accountGeneration) return false;
               set({ outbox: previousOutbox, messages: previousMessages });
               return false;
             }
+            if (sendGeneration !== accountGeneration) return false;
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
+            void flushOutbox();
             return true;
           } catch (error) {
-            await attachmentOutbox.remove(id).catch(() => undefined);
+            if (sendGeneration !== accountGeneration) return false;
+            await attachmentOutbox.remove(id, accountId).catch(() => undefined);
             set({ operationError: errorMessage(error, translate("无法保存离线附件")) });
             return false;
           }
-        }
+        };
+        if (!connectionPresentation(get().connectionStatus).operational) return queueFiles(attachments);
+        const accepted = new Set<(typeof attachments)[number]>();
         try {
           const sent = await transport.sendFiles({
             chatId,
@@ -5016,13 +5045,19 @@ export const createTelegramStore = (
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
             disableNotification,
+            onGroupAccepted: async group => { group.forEach(attachment => accepted.add(attachment)); },
           });
+          if (sendGeneration !== accountGeneration) return false;
           if (sent) {
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
             set({ operationError: undefined });
           }
           return sent;
         } catch (error) {
+          if (sendGeneration !== accountGeneration) return false;
+          if (error instanceof RetryableSendError) {
+            return queueFiles(attachments.filter(attachment => !accepted.has(attachment)), error, accepted.size > 0);
+          }
           set({ operationError: error instanceof Error ? error.message : translate("附件发送失败") });
           return false;
         }

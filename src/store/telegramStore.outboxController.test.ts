@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { RetryableSendError, TdRequestError } from "../telegram/sendErrors";
+import { attachmentOutbox } from "./attachmentOutbox";
 import type { QueuedOutgoingMessage } from "../telegram/types";
 import {
   createOutboxController,
@@ -16,7 +18,7 @@ const item = (id: string): QueuedOutgoingMessage => ({
 
 interface HarnessState extends Record<string, unknown> {
   authorization: { kind: "ready" };
-  connectionStatus: "online";
+  connectionStatus: "online" | "offline";
   currentUserId: string;
   drafts: Map<string, unknown>;
   messages: Map<string, unknown>;
@@ -54,10 +56,11 @@ const createHarness = () => {
     topicKey: (chatId, topicId) => topicId ? `${chatId}:topic:${topicId}` : chatId,
     onError: (error, fallback) => error instanceof Error ? error.message : fallback,
   });
-  return { controller, transport, flushCachedSnapshot, getState: () => state };
+  return { controller, transport, flushCachedSnapshot, getState: () => state, set };
 };
 
 describe("telegram store outbox controller", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
   it("preserves the no-clear-draft contract when a discussion reply is replayed", async () => {
     const harness = createHarness();
     harness.controller.setOutbox([{ ...item("thread-reply"), discussionThreadId: "root", replyToMessageId: "comment", clearDraft: false }]);
@@ -126,6 +129,89 @@ describe("telegram store outbox controller", () => {
     await harness.controller.flushOutbox();
     expect(harness.transport.sendMessage).toHaveBeenCalledTimes(1);
     expect(harness.getState().cacheHealth).toBe("invalid");
+  });
+
+  it("retries a confirmed rejection with backoff without another online event", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    harness.controller.setOutbox([item("one"), item("two")]);
+    vi.mocked(harness.transport.sendMessage).mockRejectedValueOnce(new RetryableSendError(new Error("temporary"), 5_000));
+    await harness.controller.flushOutbox();
+    expect(harness.getState().outbox[0]).toMatchObject({ status: "queued", retryAttempt: 1 });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(3);
+    expect(harness.getState().outbox).toEqual([]);
+  });
+
+  it("retains retry deadlines across reconnect and does not block a different chat", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    harness.controller.setOutbox([item("one"), item("two"), { ...item("other"), chatId: "chat-2" }]);
+    vi.mocked(harness.transport.sendMessage).mockRejectedValueOnce(new RetryableSendError(new Error("flood"), 60_000));
+    await harness.controller.flushOutbox();
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(2);
+    expect(harness.transport.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ chatId: "chat-2" }));
+    harness.set({ connectionStatus: "offline" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(2);
+    harness.set({ connectionStatus: "online" });
+    await harness.controller.flushOutbox();
+    expect(harness.getState().outbox).toEqual([]);
+  });
+
+  it.each([new TdRequestError("timeout", "unknown"), new TdRequestError("permission", "rejected", 403), new Error("IPC disconnected")])(
+    "keeps ambiguous and permanent failures for review: %s", async error => {
+      vi.useFakeTimers();
+      const harness = createHarness();
+      harness.controller.setOutbox([item("one")]);
+      vi.mocked(harness.transport.sendMessage).mockRejectedValueOnce(error);
+      await harness.controller.flushOutbox();
+      await vi.advanceTimersByTimeAsync(180_000);
+      await harness.controller.flushOutbox();
+      expect(harness.transport.sendMessage).toHaveBeenCalledTimes(1);
+      expect(harness.getState().outbox[0].status).toBe("failed");
+    },
+  );
+
+  it("cancels old timers and late responses when the account session resets", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    harness.controller.setOutbox([item("one")]);
+    let reject!: (error: Error) => void;
+    vi.mocked(harness.transport.sendMessage).mockImplementationOnce(() => new Promise((_, r) => { reject = r; }));
+    const old = harness.controller.flushOutbox();
+    await vi.advanceTimersByTimeAsync(0);
+    harness.controller.resetOutbox();
+    harness.controller.setOutbox([item("new")]);
+    await harness.controller.flushOutbox();
+    reject(new RetryableSendError(new Error("temporary"), 5_000));
+    await old;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(harness.getState().outbox).toEqual([]);
+    expect(harness.transport.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries only unaccepted attachment groups and consumes the caption once", async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const attachments = [{ file: { name: "a" } }, { file: { name: "b" } }] as never;
+    const metadata = [{ storageId: "a" }, { storageId: "b" }] as never;
+    vi.spyOn(attachmentOutbox, "get").mockResolvedValue({ attachments, metadata } as never);
+    vi.spyOn(attachmentOutbox, "remove").mockResolvedValue(undefined);
+    harness.controller.setOutbox([{ ...item("files"), attachments: metadata, caption: "caption", replyToMessageId: "reply", topicId: "topic" }]);
+    vi.mocked(harness.transport.sendFiles).mockImplementationOnce(async input => {
+      await input.onGroupAccepted?.([input.attachments[0]]);
+      throw new RetryableSendError(new Error("temporary"), 5_000);
+    });
+    await harness.controller.flushOutbox();
+    expect(harness.getState().outbox[0]).toMatchObject({ acceptedAttachmentIds: ["a"], caption: undefined });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(harness.transport.sendFiles).toHaveBeenLastCalledWith(expect.objectContaining({
+      attachments: [{ file: { name: "b" } }], caption: undefined, replyToMessageId: "reply", topicId: "topic",
+    }));
+    expect(harness.getState().outbox).toEqual([]);
   });
 
 });

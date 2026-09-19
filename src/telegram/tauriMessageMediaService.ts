@@ -31,6 +31,7 @@ import {
   numericId,
 } from "./tdlibRequests";
 import { hasChatDraftContent } from "./chatDraft";
+import { classifySendError } from "./sendErrors";
 import {
   groupOutgoingAttachments,
   inspectOutgoingAttachment,
@@ -597,7 +598,9 @@ export class TauriMessageMediaService {
 
   async sendMessage(input: SendMessageInput) {
     const generation = this.context.sessionGeneration();
-    await this.context.prepareMentions(input.chatId, input.text, input.entities);
+    await this.context.prepareMentions(input.chatId, input.text, input.entities).catch(error => {
+      throw classifySendError(error, true);
+    });
     const text = await this.formattedTextInput(input.text, input.entities);
     if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const response = await this.context.request({
@@ -608,7 +611,7 @@ export class TauriMessageMediaService {
       options: messageSendOptions(input.disableNotification),
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
-    });
+    }).catch(error => { throw classifySendError(error); });
     if (generation === this.context.sessionGeneration() && response["@type"] === "message") this.context.emitMessage(response, true);
   }
 
@@ -911,7 +914,9 @@ export class TauriMessageMediaService {
       throw new Error(translate("附件总大小超过离线发件箱单批次上限 512 MB"));
     }
     const generation = this.context.sessionGeneration();
-    await this.context.prepareMentions(input.chatId, input.caption ?? "", input.captionEntities);
+    await this.context.prepareMentions(input.chatId, input.caption ?? "", input.captionEntities).catch(error => {
+      throw classifySendError(error, true);
+    });
     if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
     const groups = groupOutgoingAttachments(input.attachments);
     let captionPending = input.caption;
@@ -930,7 +935,7 @@ export class TauriMessageMediaService {
           ? { text: input.replyQuote.text, position: input.replyQuote.position }
           : undefined,
         input.disableNotification,
-      );
+      ).catch(error => { throw classifySendError(error); });
       if (!sent) return false;
       await input.onGroupAccepted?.(group);
       captionPending = undefined;

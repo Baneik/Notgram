@@ -331,7 +331,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private updateStream?: TdUpdateStream;
   private unlistenError?: UnlistenFn;
   private unlistenProxySettings?: UnlistenFn;
-  private requestBroker = new TdRequestBroker();
+  private requestBroker = new TdRequestBroker(undefined, () => this.requestImmediateConnectionRecovery(true));
   private rawChats = new Map<string, TdObject>();
   private refreshedChats = new Set<string>();
   private chatRefreshes = new Map<string, Promise<TdObject>>();

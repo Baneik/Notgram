@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tdNumber, type TdObject } from "./tdlibMapper";
 import { numericId } from "./tdlibRequests";
 import type { MessageTextEntity } from "./types";
+import { TdRequestError } from "./sendErrors";
 
 type PendingRequest = {
   resolve: (value: TdObject) => void;
@@ -41,7 +42,7 @@ export class TdRequestBroker {
   private pending = new Map<string, PendingRequest>();
   private preparedFiles = new Map<string, (error: Error) => void>();
 
-  constructor(private invokeCommand: InvokeCommand = invoke) {}
+  constructor(private invokeCommand: InvokeCommand = invoke, private onSendTimeout?: () => void) {}
 
   async recoverFile(fileId: number) {
     const extra = crypto.randomUUID();
@@ -67,6 +68,7 @@ export class TdRequestBroker {
       extra,
       translate("TDLib {{value0}} 请求超时。", { value0: requestType }),
       timeoutMs,
+      ["sendMessage", "sendMessageAlbum", "resendMessages"].includes(requestType) ? this.onSendTimeout : undefined,
     );
     void this.invokeCommand("telegram_send", {
       request: { ...request, "@extra": extra },
@@ -106,7 +108,7 @@ export class TdRequestBroker {
     disableNotification = false,
   ) {
     const extra = crypto.randomUUID();
-    const response = this.waitForResponse(extra, translate("附件上传未完成"), 120_000);
+    const response = this.waitForResponse(extra, translate("附件上传未完成"), 120_000, this.onSendTimeout);
     void response.catch(() => undefined);
     void onError;
     try {
@@ -209,11 +211,12 @@ export class TdRequestBroker {
     }
   }
 
-  private waitForResponse(extra: string, timeoutMessage: string, timeoutMs = 30_000) {
+  private waitForResponse(extra: string, timeoutMessage: string, timeoutMs = 30_000, onTimeout?: () => void) {
     return new Promise<TdObject>((resolve, reject) => {
       const timer = globalThis.setTimeout(() => {
         this.pending.delete(extra);
-        reject(new Error(timeoutMessage));
+        reject(new TdRequestError(timeoutMessage, "unknown"));
+        onTimeout?.();
       }, timeoutMs);
       this.pending.set(extra, { resolve, reject, timer });
     });
@@ -236,9 +239,9 @@ export class TdRequestBroker {
   private responseError(update: TdObject) {
     const code = tdNumber(update.code);
     const suffix = code === undefined ? "" : ` (${code})`;
-    return Object.assign(new Error(translate("{{value0}}{{value1}}", {
+    return new TdRequestError(translate("{{value0}}{{value1}}", {
       value0: String(update.message ?? translate("TDLib 请求失败")),
       value1: suffix,
-    })), { code });
+    }), "rejected", code);
   }
 }

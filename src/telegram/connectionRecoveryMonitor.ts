@@ -6,14 +6,17 @@ export const installConnectionRecoveryMonitor = (recover: (force: boolean) => vo
   if (typeof window === "undefined" || typeof document === "undefined") return () => undefined;
   let heartbeatAt = Date.now();
   let lastRequestAt = -Infinity;
-  const request = () => {
+  let lastForcedAt = -Infinity;
+  const request = (force = false) => {
     const now = Date.now();
-    if (now - lastRequestAt < HEARTBEAT_INTERVAL_MS) return;
+    if (now - (force ? lastForcedAt : lastRequestAt) < HEARTBEAT_INTERVAL_MS) return;
     lastRequestAt = now;
-    recover(false);
+    if (force) lastForcedAt = now;
+    recover(force);
   };
   const foreground = () => { if (document.visibilityState === "visible") request(); };
-  window.addEventListener("online", request);
+  const online = () => request(true);
+  window.addEventListener("online", online);
   window.addEventListener("focus", foreground);
   window.addEventListener("pageshow", foreground);
   document.addEventListener("visibilitychange", foreground);
@@ -25,7 +28,7 @@ export const installConnectionRecoveryMonitor = (recover: (force: boolean) => vo
   }, HEARTBEAT_INTERVAL_MS);
   return () => {
     globalThis.clearInterval(timer);
-    window.removeEventListener("online", request);
+    window.removeEventListener("online", online);
     window.removeEventListener("focus", foreground);
     window.removeEventListener("pageshow", foreground);
     document.removeEventListener("visibilitychange", foreground);

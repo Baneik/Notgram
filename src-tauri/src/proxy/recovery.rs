@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, State};
+mod outgoing;
+use outgoing::OutgoingWatchdog;
 
 const CONNECT_GRACE: Duration = Duration::from_secs(20);
 const SYNC_GRACE: Duration = Duration::from_secs(90);
@@ -84,6 +86,7 @@ struct Coordinator {
     last_signal: Option<Instant>,
     verified: bool,
     last_published: Option<ConnectionSnapshot>,
+    outgoing: OutgoingWatchdog,
 }
 
 impl Coordinator {
@@ -112,6 +115,7 @@ impl Coordinator {
             last_signal: None,
             verified: false,
             last_published: None,
+            outgoing: OutgoingWatchdog::default(),
         }
     }
 
@@ -132,6 +136,7 @@ impl Coordinator {
         self.last_signal = None;
         self.last_published = None;
         self.verified = false;
+        self.outgoing = OutgoingWatchdog::default();
     }
 
     fn update_system(&mut self, system: SystemProxy, now: Instant) -> bool {
@@ -245,6 +250,7 @@ impl Coordinator {
     }
 
     fn observe(&mut self, update: &Value, now: Instant) -> bool {
+        self.outgoing.observe(update, now);
         let extra = update.get("@extra").and_then(Value::as_str).unwrap_or("");
         if extra.starts_with("native:proxy:") {
             if !self
@@ -344,6 +350,14 @@ impl Coordinator {
         }
         if self.pending.is_some() {
             return None;
+        }
+        if self.phase == "idle" && self.queued.is_none() && self.outgoing.stalled(now) {
+            // READY can describe an old route. Only actual send/upload progress
+            // clears this watchdog; short READY flaps do not restart its clock.
+            self.outgoing.recovering(now);
+            self.phase = "recovering";
+            self.next_attempt = now;
+            self.verified = false;
         }
         let stage = if let Some(stage) = self.queued.take() {
             stage
@@ -533,6 +547,7 @@ impl ProxyRuntime {
             state.client_id = None;
             state.pending = None;
             state.queued = None;
+            state.outgoing = OutgoingWatchdog::default();
         }
     }
 
@@ -560,7 +575,18 @@ impl ProxyRuntime {
             state.signal(true, now);
         }
         state.last_tick = now;
+        let send_recovery_attempt = state.outgoing.attempts;
         if let Some(request) = state.next_request(now) {
+            if state.outgoing.attempts != send_recovery_attempt {
+                log(
+                    "warn",
+                    "send_stall_recovery",
+                    json!({
+                        "pendingSendCount": state.outgoing.count(),
+                        "attempt": state.outgoing.attempts,
+                    }),
+                );
+            }
             log(
                 "info",
                 "proxy_recovery_request",

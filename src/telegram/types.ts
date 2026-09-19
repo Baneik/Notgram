@@ -1070,6 +1070,8 @@ export interface QueuedOutgoingMessage {
   createdAt: string;
   status: "queued" | "sending" | "failed";
   acceptedAttachmentIds?: string[];
+  retryAt?: number;
+  retryAttempt?: number;
   kind?: "text" | "attachments";
   caption?: string;
   attachments?: QueuedOutgoingAttachment[];
