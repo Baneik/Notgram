@@ -20,7 +20,23 @@ export const draftForSync = (draft?: ChatDraft) =>
 
 export const draftSignature = (draft?: ChatDraft) => JSON.stringify([
   draft?.text ?? "",
-  draft?.entities ?? [],
+  // Editor marks and native echoes can enumerate the same fields/entities differently.
+  draft?.entities?.map((entity) => JSON.stringify([
+    entity.offset,
+    entity.length,
+    entity.kind,
+    entity.href,
+    entity.language,
+    entity.customEmojiId,
+    entity.userId,
+    entity.dateTime && [
+      entity.dateTime.unixTime,
+      entity.dateTime.mode,
+      entity.dateTime.timePrecision,
+      entity.dateTime.datePrecision,
+      entity.dateTime.showDayOfWeek,
+    ],
+  ])).sort() ?? [],
   draft?.replyToMessageId ?? "",
   draft?.replyQuote?.text ?? "",
   draft?.replyQuote?.position ?? -1,
@@ -101,9 +117,7 @@ export class DraftSyncController {
     const expected = this.syncs.get(chatId);
     const current = this.dependencies.getDrafts().get(chatId);
     if (expected && draftSignature(incoming) !== draftSignature(expected.draft)) {
-      if (!incoming || draftSignature(incoming) !== draftSignature(current)) {
-        this.dependencies.discardLocalAttachments?.(chatId);
-      }
+      // A rejected stale echo must not mutate any part of the newer local draft.
       return false;
     }
     if (expected) {

@@ -118,6 +118,12 @@ and fit below the owning conversation header. Only the foreground chooser handle
 selection keys; opening the emoji picker suspends text suggestions until it closes.
 Constrained attachment grids scroll without shrinking cards or hiding send controls.
 
+Draft synchronization compares text entities by their content, independent of object
+field order and entity order from the editor or native mapper. Matching server echoes
+acknowledge local drafts without discarding staged attachments. While newer local text
+is pending, rejected stale echoes (including empty drafts) cannot clear attachments;
+accepted remote draft replacements retain the existing attachment cleanup behavior.
+
 Mention candidates combine actual authors from the current chat's loaded history,
 search results and discussion messages with TDLib's `chatMembersFilterMention`
 results. Local authors remain available while the remote request is pending, empty
