@@ -28,7 +28,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { AutoplayVideo } from "./AutoplayVideo";
 import { StableImage } from "./StableImage";
 import { MediaSpoiler, TextSpoiler, TextSpoilerGroup } from "./Spoiler";
-import { CollapsibleBlockQuote, type CollapseQuoteHandler } from "./CollapsibleBlockQuote";
+import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -43,6 +43,7 @@ interface RichMessageContentProps {
   onSuspendStream: (fileId: number) => Promise<void>;
   onSearchHashtag?: (hashtag: string) => void;
   onCollapseQuote?: CollapseQuoteHandler;
+  onExpandQuote?: ExpandQuoteHandler;
 }
 
 interface RenderContext extends Omit<RichMessageContentProps, "blocks" | "isRtl" | "isFull"> {
@@ -410,6 +411,7 @@ const renderBlocks = (blocks: MessageRichBlock[], parentKey: string, context: Re
             resetKey={`${context.messageId}:${key}`}
             className={block.pull ? "rich-pull-quote" : undefined}
             onCollapse={context.onCollapseQuote}
+            onExpand={context.onExpandQuote}
           >
             {renderBlocks(block.blocks, key, context)}
             {block.credit && block.credit.length > 0 && (
@@ -481,6 +483,7 @@ export function RichMessageContent({
   onSuspendStream,
   onSearchHashtag,
   onCollapseQuote,
+  onExpandQuote,
 }: RichMessageContentProps) {
   const context: RenderContext = {
     messageId,
@@ -493,6 +496,7 @@ export function RichMessageContent({
     onSuspendStream,
     onSearchHashtag,
     onCollapseQuote,
+    onExpandQuote,
   };
   return (
     <TextSpoilerGroup

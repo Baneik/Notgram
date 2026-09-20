@@ -1182,6 +1182,7 @@ export function Conversation({
     pinFollowingMessageMount,
     appendMountMessageId,
     collapseExpandedQuote,
+    expandCollapsedQuote,
     reconcileBottomViewport,
     onListLayoutCommitted,
     onTotalListHeightChanged,
@@ -2802,6 +2803,7 @@ export function Conversation({
                         onPollAnswer={onSetPollAnswer}
                         onBotCallback={onBotCallback}
                         onCollapseQuote={collapseExpandedQuote}
+                        onExpandQuote={expandCollapsedQuote}
                         onMount={gateEntranceAtBottom
                           ? pinFollowingMessageMount
                           : undefined}
@@ -2874,6 +2876,7 @@ export function Conversation({
                           onSearchHashtag={onSearchHashtag}
                           onCollapseQuote={(collapse, pointerY, anchor) =>
                             collapseExpandedQuote(captionMessage.id, collapse, pointerY, anchor)}
+                          onExpandQuote={expandCollapsedQuote}
                         />
                         {!isChannelConversation && (
                           <MessageMetadata message={albumMetadataMessage}

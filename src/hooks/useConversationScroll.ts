@@ -102,6 +102,14 @@ const ENTRY_ANCHOR_LOAD_TIMEOUT_MS = 10_000;
 const bottomScrollTop = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight);
 
+const conversationLeadingSpace = (element: HTMLElement) => {
+  const header = element.querySelector(".message-list-start-spacer")?.getBoundingClientRect();
+  const content = element.querySelector(".message-list-content")?.getBoundingClientRect();
+  const scale = element.getBoundingClientRect().height / element.clientHeight || 1;
+  return (Number.parseFloat(element.style.getPropertyValue("--conversation-entry-start-space")) || 0) +
+    (header && content ? Math.max(0, (content.top - header.bottom) / scale) : 0);
+};
+
 type ScrollControlMode = "following" | "detached" | "restoring" | "navigating";
 type UserScrollDirection = "up" | "down";
 type BottomPinMode = "settle" | "track" | "motion";
@@ -2290,6 +2298,35 @@ export const useConversationScroll = ({
     writeMemory,
   ]);
 
+  const expandCollapsedQuote = useCallback((expand: () => void, quote: Element) => {
+    const element = messageListRef.current;
+    const row = quote.closest<HTMLElement>("[data-message-id]");
+    const messageId = row?.dataset.messageId;
+    if (!element || !currentScrollKey || !row || !messageId || !element.contains(quote) ||
+      element.dataset.conversationVirtuosoKey !== virtuosoKey) {
+      expand();
+      return;
+    }
+    // Explicit expansion owns the reading position even at the latest message.
+    // Detach before the resize so bottom following cannot pull its top upward.
+    const offset = row.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    const leadingSpace = conversationLeadingSpace(element);
+    interruptControlledPositioning("detached");
+    userIntentUntilRef.current = 0;
+    pointerActiveRef.current = false;
+    interactivePointerRef.current = false;
+    const persist = () => writeMemory(currentScrollKey, element, false,
+      conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
+    persist();
+    settleContentAnchorPosition(element, messageId, offset, virtuosoKey, persist);
+    // Short chats lose their bottom-alignment gap as the quote grows. Keep it
+    // as measured space; scrollTop cannot preserve a position above zero.
+    element.style.setProperty("--conversation-entry-start-space", `${leadingSpace}px`);
+    flushSync(expand);
+    restoreAnchor(element, messageId, offset);
+  }, [currentScrollKey, interruptControlledPositioning, restoreAnchor,
+    settleContentAnchorPosition, virtuosoKey, writeMemory]);
+
   const collapseExpandedQuote = useCallback((
     messageId: string,
     collapse: () => void,
@@ -2630,11 +2667,7 @@ export const useConversationScroll = ({
       const anchor = visibleAnchor(element);
       const layout = conversationLayouts.get(key);
       const listBounds = element.getBoundingClientRect();
-      const headerBounds = element.querySelector(".message-list-start-spacer")?.getBoundingClientRect();
-      const contentBounds = element.querySelector(".message-list-content")?.getBoundingClientRect();
-      const scale = listBounds.height / element.clientHeight || 1;
-      const leadingSpace = (Number.parseFloat(element.style.getPropertyValue("--conversation-entry-start-space")) || 0) +
-        (headerBounds && contentBounds ? Math.max(0, (contentBounds.top - headerBounds.bottom) / scale) : 0);
+      const leadingSpace = conversationLeadingSpace(element);
       const nearbyAnchors = [...element.querySelectorAll<HTMLElement>("[data-message-id]")].flatMap(row => {
         const bounds = row.getBoundingClientRect();
         return row.dataset.messageId && bounds.bottom > listBounds.top + 1 && bounds.top < listBounds.bottom - 1
@@ -3190,6 +3223,7 @@ export const useConversationScroll = ({
     appendMountMessageId,
     revealAttentionMessage,
     collapseExpandedQuote,
+    expandCollapsedQuote,
     reconcileBottomViewport,
     onListLayoutCommitted,
     onTotalListHeightChanged,

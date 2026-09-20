@@ -6,6 +6,8 @@ import { observeLayout } from "../utils/layoutObservation";
 
 const COLLAPSED_QUOTE_LINES = 3.5;
 
+export type ExpandQuoteHandler = (expand: () => void, quote: Element) => void;
+
 export type CollapseQuoteHandler = (
   collapse: () => void,
   pointerClientY: number,
@@ -15,6 +17,7 @@ export type CollapseQuoteHandler = (
 export function CollapsibleBlockQuote({
   quoteText,
   resetKey,
+  onExpand,
   onCollapse,
   children,
   as: Container = "span",
@@ -22,6 +25,7 @@ export function CollapsibleBlockQuote({
 }: {
   quoteText?: string;
   resetKey: string;
+  onExpand?: ExpandQuoteHandler;
   onCollapse?: CollapseQuoteHandler;
   children: ReactNode;
   as?: "span" | "blockquote";
@@ -100,7 +104,12 @@ export function CollapsibleBlockQuote({
           type="button"
           aria-label={preview ? translate("展开引用：{{value0}}", { value0: preview }) : translate("展开引用")}
           title={translate("展开引用")}
-          onClick={() => setExpanded(true)}
+          onClick={(event) => {
+            const expand = () => setExpanded(true);
+            const quote = event.currentTarget.parentElement;
+            if (onExpand && quote) onExpand(expand, quote);
+            else expand();
+          }}
         >
           <span className="rich-blockquote-fade" aria-hidden="true" />
           <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />

@@ -11,7 +11,7 @@ import type { MessageTextEntity } from "../telegram/types";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
 import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
-import { CollapsibleBlockQuote, type CollapseQuoteHandler } from "./CollapsibleBlockQuote";
+import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 
@@ -24,6 +24,7 @@ interface MessageRichTextProps {
   onOpenMention?: (username?: string, userId?: string) => void;
   onSearchHashtag?: (hashtag: string) => void;
   onCollapseQuote?: CollapseQuoteHandler;
+  onExpandQuote?: ExpandQuoteHandler;
 }
 
 const entityHref = (entity: MessageTextEntity, value: string) => {
@@ -258,6 +259,7 @@ const renderEntities = (
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
   onCollapseQuote?: CollapseQuoteHandler,
+  onExpandQuote?: ExpandQuoteHandler,
   chatId?: string,
 ) => {
   const highlightRanges = textHighlightRanges(text, highlightQuery);
@@ -324,6 +326,7 @@ const renderEntities = (
         quoteText={text.slice(quoteStart, contentEnd)}
         resetKey={`${quote.offset}:${quote.length}:${text.slice(quoteStart, quoteEnd)}`}
         onCollapse={onCollapseQuote}
+        onExpand={onExpandQuote}
       >
         {renderInlineRange(
           text,
@@ -365,6 +368,7 @@ export function MessageRichText({
   onOpenMention,
   onSearchHashtag,
   onCollapseQuote,
+  onExpandQuote,
 }: MessageRichTextProps) {
   if (entities && entities.length > 0) {
     return (
@@ -380,6 +384,7 @@ export function MessageRichText({
           onOpenMention,
           onSearchHashtag,
           onCollapseQuote,
+          onExpandQuote,
           chatId,
         )}
       </TextSpoilerGroup>
@@ -392,7 +397,8 @@ export function MessageRichText({
         {highlightedText(text, highlightQuery)}
       </div>
     )}>
-      <MarkdownText text={text} className={className} highlightQuery={highlightQuery} onCollapseQuote={onCollapseQuote} />
+      <MarkdownText text={text} className={className} highlightQuery={highlightQuery}
+        onCollapseQuote={onCollapseQuote} onExpandQuote={onExpandQuote} />
     </Suspense>
   );
 }

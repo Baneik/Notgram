@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { revealVirtualMessage } from "./helpers";
 
-const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25, lines = 70, lineText = "keep the collapse control at the pointer.") => {
+const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25, lines = 70, lineText = "keep the collapse control at the pointer.", messageCount = 51) => {
   await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: `${await response.text()}\n{
@@ -25,7 +25,7 @@ const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25
           }
           entities.push({kind:"bold",offset:17,length:4});
         }
-        const source = Array.from({length:51}, (_,i) => ({
+        const source = Array.from({length:${messageCount}}, (_,i) => ({
           id:"collapse-"+i, chatId:"chat-product", senderId:i%2?"u-mia":"u-chen", outgoing:false,
           sentAt:new Date(1700000000000+i*1000).toISOString(), delivery:"read",
           content:i===${quoteIndex} ? {kind:"text",text,entities} : {kind:"text",text:"Surrounding message " + i}
@@ -48,7 +48,7 @@ const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25
           source[${quoteIndex - 1}].mediaAlbumId = source[${quoteIndex}].mediaAlbumId = "collapse-album";
         }
         this.snapshot.messages = [...this.snapshot.messages.filter(m=>m.chatId!=="chat-product"),...source];
-        this.snapshot.chats = this.snapshot.chats.map(c=>c.id==="chat-product"?{...c,unreadCount:0,lastReadInboxMessageId:"collapse-50"}:c);
+        this.snapshot.chats = this.snapshot.chats.map(c=>c.id==="chat-product"?{...c,unreadCount:0,lastReadInboxMessageId:"collapse-${messageCount - 1}"}:c);
         return connect.call(this,listener);
       };
     }` });
@@ -108,6 +108,117 @@ const recordCollapse = async (page: Page, keyboard = false) => {
 const collapseFrames = (page: Page) => page.evaluate(() => (
   window as typeof window & { collapseFrames?: Promise<Array<{ error: number; top: number; hidden: boolean }>> }
 ).collapseFrames!);
+
+for (const scenario of [
+  { name: "bottom", surface: "text", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "near bottom", surface: "text", quoteIndex: 48, scale: 100, keyboard: false },
+  { name: "zoom and keyboard", surface: "text", quoteIndex: 50, scale: 125, keyboard: true },
+  { name: "photo caption", surface: "photo", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "album caption", surface: "album", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "markdown", surface: "markdown", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "rich", surface: "rich", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "detached history", surface: "text", quoteIndex: 25, scale: 100, keyboard: false },
+  { name: "short chat", surface: "text", quoteIndex: 0, scale: 100, keyboard: false, messageCount: 1 },
+  { name: "short quote in short chat", surface: "text", quoteIndex: 0, scale: 125, keyboard: false, messageCount: 1, lines: 12 },
+  { name: "narrow and reduced motion", surface: "text", quoteIndex: 50, scale: 100, keyboard: false, width: 580, reduced: true },
+].map(scenario => ({ messageCount: 51, lines: 70, width: 1280, reduced: false, ...scenario }))) test(`quote expands downward from its visible position (${scenario.name})`, async ({ page }) => {
+  await page.setViewportSize({ width: scenario.width, height: 800 });
+  await page.addInitScript(({ scale, reduced }) => localStorage.setItem("notgram:preferences:v1",
+    JSON.stringify({ interfaceScale: scale, reduceMotion: reduced })), scenario);
+  await installQuoteHistory(page, scenario.surface, scenario.quoteIndex, scenario.lines, "keep the collapse control at the pointer.", scenario.messageCount);
+  await page.goto("/");
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  const list = page.locator(".message-list");
+  await expect(list).toHaveAttribute("aria-busy", "false");
+  if (scenario.quoteIndex === 25) await revealVirtualMessage(page, "collapse-25");
+  else await expect.poll(() => list.evaluate(element =>
+    element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+  const quote = list.locator(".rich-blockquote");
+  await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
+  await page.evaluate(() => {
+    const state = window as typeof window & { expansionFrames?: Promise<number[]> };
+    document.addEventListener("click", function record(event) {
+      const button = (event.target as Element).closest(".rich-blockquote-expand");
+      if (!button) return;
+      document.removeEventListener("click", record, true);
+      const quote = button.closest(".rich-blockquote")!;
+      const top = quote.getBoundingClientRect().top;
+      state.expansionFrames = new Promise(resolve => {
+        const offsets: number[] = [];
+        const started = performance.now();
+        const sample = () => requestAnimationFrame(() => setTimeout(() => {
+          offsets.push(quote.isConnected ? quote.getBoundingClientRect().top - top : 1e6);
+          if (performance.now() - started < 1000) sample();
+          else resolve(offsets);
+        }, 0));
+        sample();
+      });
+    }, true);
+  });
+  const expand = quote.getByRole("button", { name: /展开引用/ });
+  if (scenario.keyboard) await expand.press("Enter");
+  else await expand.click();
+  await expect(quote).toHaveAttribute("data-quote-state", "expanded");
+  const frames = await page.evaluate(() => (window as typeof window & {
+    expansionFrames?: Promise<number[]>;
+  }).expansionFrames!);
+  expect(frames.length).toBeGreaterThan(10);
+  expect(Math.max(...frames.map(Math.abs)), JSON.stringify(frames)).toBeLessThanOrEqual(1);
+  const scrollTop = await list.evaluate(element => element.scrollTop);
+  await quote.hover({ position: { x: 10, y: 10 } });
+  await page.mouse.wheel(0, 240);
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(scrollTop + 100);
+  await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
+});
+
+for (const action of ["wheel", "latest", "switch chat"]) {
+  test(`quote expansion immediately yields to ${action}`, async ({ page }) => {
+    await installQuoteHistory(page, "text", 0, 70, "keep reading downward.", 1);
+    await page.goto("/");
+    const list = page.locator(".message-list");
+    if (action === "switch chat") {
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+      await expect(list).toHaveAttribute("aria-busy", "false");
+      await page.locator(".jump-to-latest").click();
+      await expect.poll(() => list.evaluate(element =>
+        element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+    }
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(list).toHaveAttribute("aria-busy", "false");
+    const expand = list.getByRole("button", { name: /展开引用/ });
+    await expand.click();
+    if (action === "wheel") {
+      await page.mouse.wheel(0, 240);
+      await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(100);
+      const tops = await list.evaluate(async element => {
+        const samples: number[] = [];
+        for (let frame = 0; frame < 30; frame++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+          samples.push(element.scrollTop);
+        }
+        return samples;
+      });
+      expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
+    } else {
+      if (action === "latest") await page.locator(".jump-to-latest").click();
+      else await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+      await expect(list).toHaveAttribute("aria-busy", "false");
+      await expect.poll(() => list.evaluate(element =>
+        element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+      const distances = await list.evaluate(async element => {
+        const samples: number[] = [];
+        for (let frame = 0; frame < 20; frame++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+          samples.push(element.scrollHeight - element.clientHeight - element.scrollTop);
+        }
+        return samples;
+      });
+      expect(Math.max(...distances.map(Math.abs))).toBeLessThanOrEqual(1);
+      await expect.poll(() => list.evaluate(element =>
+        parseFloat(element.style.getPropertyValue("--conversation-entry-start-space")) || 0)).toBe(0);
+    }
+  });
+}
 
 for (const scenario of [
   { name: "text", surface: "text", scale: 100, width: 1280, reduced: false },

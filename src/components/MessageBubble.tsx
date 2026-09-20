@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
+import type { ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import type {
   Chat,
   Message,
@@ -142,6 +143,7 @@ export interface MessageBubbleProps {
     pointerClientY: number,
     getCollapsedAnchor: () => Element | null,
   ) => void;
+  onExpandQuote?: ExpandQuoteHandler;
   onMount?: (onPinned?: () => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
@@ -207,6 +209,7 @@ function MessageBubbleComponent({
   onPollAnswer,
   onBotCallback,
   onCollapseQuote,
+  onExpandQuote,
   onMount,
   deferUntilPinned = false,
   previousAudioPlaybackId,
@@ -682,6 +685,7 @@ function MessageBubbleComponent({
         onOpenMention={onOpenMention}
         onSearchHashtag={onSearchHashtag}
         onCollapseQuote={collapseQuote}
+        onExpandQuote={onExpandQuote}
       />
       {!showReactionFooter && messageMeta}
     </MessageTextFlow>
@@ -810,6 +814,7 @@ function MessageBubbleComponent({
                 onOpenMention={onOpenMention}
                 onSearchHashtag={onSearchHashtag}
                 onCollapseQuote={collapseQuote}
+                onExpandQuote={onExpandQuote}
               />
               {message.isPending && (
                 content.text ? (
@@ -827,6 +832,7 @@ function MessageBubbleComponent({
               isRtl={content.isRtl}
               isFull={content.isFull}
               onCollapseQuote={collapseQuote}
+              onExpandQuote={onExpandQuote}
               messageId={message.id}
               highlightQuery={searchQuery}
               onDownload={onDownload}
@@ -1080,6 +1086,7 @@ function MessageBubbleComponent({
                   onOpenMention={onOpenMention}
                   onSearchHashtag={onSearchHashtag}
                   onCollapseQuote={collapseQuote}
+                  onExpandQuote={onExpandQuote}
                 />
               )}
             </div>
@@ -1136,6 +1143,7 @@ function MessageBubbleComponent({
                   onOpenMention={onOpenMention}
                   onSearchHashtag={onSearchHashtag}
                   onCollapseQuote={collapseQuote}
+                  onExpandQuote={onExpandQuote}
                 />
               )}
             </div>

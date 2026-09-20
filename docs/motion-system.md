@@ -22,6 +22,13 @@ presentation animations. They remain under their existing single-owner coordinat
 may use the bounded visual handoff above, but that layer cannot delay, select, measure, or write the
 destination.
 
+Expanding a quote detaches bottom following before changing its height and preserves
+the containing message's current screen offset, so the added content grows downward.
+Reuse the content-anchor coordinator through virtual measurements and layout commits.
+For a short bottom-aligned chat, preserve its existing leading gap as measured start
+space; explicit latest navigation clears it through the normal scroll lifecycle.
+User scrolling and newer navigation immediately take over from expansion settlement.
+
 Collapsing a long quote is a local layout change. Commit the collapsed content and
 anchor its expand chevron to the pointer before the next paint (keyboard activation
 uses the former collapse button's center). Reuse the content-anchor coordinator for

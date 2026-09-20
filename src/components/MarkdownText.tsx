@@ -6,16 +6,17 @@ import { Children, memo, useMemo, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightTextNodes } from "../utils/textHighlight";
-import { CollapsibleBlockQuote, type CollapseQuoteHandler } from "./CollapsibleBlockQuote";
+import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 
 interface MarkdownTextProps {
   text: string;
   className: string;
   highlightQuery?: string;
   onCollapseQuote?: CollapseQuoteHandler;
+  onExpandQuote?: ExpandQuoteHandler;
 }
 
-function MarkdownText({ text, className, highlightQuery, onCollapseQuote }: MarkdownTextProps) {
+function MarkdownText({ text, className, highlightQuery, onCollapseQuote, onExpandQuote }: MarkdownTextProps) {
   useTranslation();
   const highlight = (children: ReactNode) => highlightTextNodes(children, highlightQuery);
   const components = useMemo<Components>(() => ({
@@ -36,14 +37,14 @@ function MarkdownText({ text, className, highlightQuery, onCollapseQuote }: Mark
     li: ({ children }) => <li>{highlight(children)}</li>,
     // Ignore parser separators between blocks; pre-wrap would turn them into empty preview lines.
     blockquote: ({ children }) => (
-      <CollapsibleBlockQuote as="blockquote" resetKey={text} onCollapse={onCollapseQuote}>
+      <CollapsibleBlockQuote as="blockquote" resetKey={text} onCollapse={onCollapseQuote} onExpand={onExpandQuote}>
         {highlight(Children.toArray(children).filter((child) => typeof child !== "string" || child.trim()))}
       </CollapsibleBlockQuote>
     ),
     td: ({ children }) => <td>{highlight(children)}</td>,
     th: ({ children }) => <th>{highlight(children)}</th>,
     pre: ({ children }) => <pre>{highlight(children)}</pre>,
-  }), [text, highlightQuery, onCollapseQuote]);
+  }), [text, highlightQuery, onCollapseQuote, onExpandQuote]);
   return (
     <div className={`message-rich-text ${className}`} data-rich-text="markdown">
       <Markdown
