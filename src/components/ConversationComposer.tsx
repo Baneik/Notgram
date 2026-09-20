@@ -44,7 +44,9 @@ import {
   closeVideoPreviewWindow,
   openVideoPreviewWindow,
 } from "../media/videoWindowBridge";
-import { usePreferencesStore } from "../store/preferencesStore";
+import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
+import { shortcutActionForEvent } from "../shortcuts/shortcuts";
+import { equalFormattedText } from "../utils/formattedText";
 import { useTelegramStore } from "../store/telegramStore";
 import { colorThemeForThemeId } from "../theme/theme";
 import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
@@ -1045,16 +1047,33 @@ export const ConversationComposer = memo(function ConversationComposer({
   };
 
   const submitMessage = async () => {
+    if (sending) return;
+    const original = editingMessage?.content;
+    const originalText = original?.kind === "text" ? original.text
+      : original && isCaptionContent(original) ? original.caption ?? "" : "";
+    const originalEntities = original?.kind === "text" ? original.entities
+      : original && isCaptionContent(original) ? original.captionEntities : undefined;
+    // Compare on submission: edits reverted to the original are also a no-op.
+    if (editingMessage && equalFormattedText(draftRef.current, mentionEntitiesRef.current, originalText, originalEntities)) {
+      onCancelEditing();
+      focusComposer();
+      return;
+    }
     if (!editingMessage && pendingAttachments.length > 0) {
       closeEmojiPicker();
       await sendPendingAttachments();
       return;
     }
     const submitted = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
-    if ((!submitted.text && !editingCaption) || sending) return;
+    if (!submitted.text && !editingCaption) return;
     const restoreFocus = focus.capture();
     closeEmojiPicker();
     if (editingMessage) {
+      if (equalFormattedText(submitted.text, submitted.entities, originalText, originalEntities)) {
+        onCancelEditing();
+        restoreFocus();
+        return;
+      }
       setSending(true);
       const edited = await onEditMessage(editingMessage.id, submitted.text, submitted.entities);
       setSending(false);
@@ -1574,11 +1593,19 @@ export const ConversationComposer = memo(function ConversationComposer({
             stopTyping();
           }}
           onKeyDown={(event) => {
-            if (event.key === "ArrowUp" && !event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey &&
-              !event.nativeEvent.isComposing && !composingRef.current && !draftRef.current &&
-              !editingMessage && !replyingTo && !sending && pendingAttachments.length === 0) {
+            if (!event.nativeEvent.isComposing && !composingRef.current && (
+              shortcutActionForEvent(event.nativeEvent, preferencesStore.getState().shortcuts) === "editLastMessage" ||
+              (editingMessage && event.key === "Escape")
+            )) {
               event.preventDefault();
-              onEditLatestVisible();
+              event.stopPropagation();
+              if (event.repeat || sending) return;
+              if (editingMessage) {
+                onCancelEditing();
+                focusComposer();
+              } else if (!draftRef.current && !replyingTo && pendingAttachments.length === 0) {
+                onEditLatestVisible();
+              }
               return;
             }
             if (!event.nativeEvent.isComposing && !composingRef.current && showMentionPanel) {
@@ -1632,7 +1659,7 @@ export const ConversationComposer = memo(function ConversationComposer({
               }
             }
             const submitWithKeyboard = event.key === "Enter" && (
-              (sendOnEnter && !event.shiftKey) ||
+              ((sendOnEnter || editingMessage) && !event.shiftKey) ||
               (!sendOnEnter && (event.ctrlKey || event.metaKey))
             );
             if (!submitWithKeyboard || event.nativeEvent.isComposing || composingRef.current) return;

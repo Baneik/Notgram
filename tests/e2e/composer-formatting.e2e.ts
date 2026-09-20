@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { ComposerInputElement } from "../../src/components/ComposerInput";
 import type { telegramStore as Store } from "../../src/store/telegramStore";
-import { revealVirtualMessage } from "./helpers";
+import { chooseMessageMenuItem, revealVirtualMessage } from "./helpers";
 
 const input = (page: Page) => page.getByRole("textbox", { name: "消息内容" });
 const select = async (composer: Locator, start: number, end: number) => {
@@ -17,6 +17,143 @@ const paste = async (composer: Locator, text: string) => composer.evaluate((elem
   const data = new DataTransfer(); data.setData("text/plain", value);
   element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
 }, text);
+
+const watchSubmissions = async (page: Page) => page.evaluate(async () => {
+  const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };
+  const { editMessage, sendMessage } = telegramStore.getState();
+  document.body.dataset.editCalls = "0";
+  document.body.dataset.sendCalls = "0";
+  telegramStore.setState({
+    editMessage: (...args) => {
+      document.body.dataset.editCalls = String(Number(document.body.dataset.editCalls) + 1);
+      return editMessage(...args);
+    },
+    sendMessage: (...args) => {
+      document.body.dataset.sendCalls = String(Number(document.body.dataset.sendCalls) + 1);
+      return sendMessage(...args);
+    },
+  });
+});
+
+for (const exitKey of ["Control+r", "Escape"]) {
+  test(`editing exits with ${exitKey} and restores the previous draft without submitting`, async ({ page }) => {
+    await ready(page);
+    const composer = input(page);
+    await composer.fill("original message"); await composer.press("Enter");
+    const row = page.locator(".message-row.is-outgoing").filter({ hasText: "original message" });
+    await expect(row).toBeVisible();
+    await composer.fill("saved draft");
+    await select(composer, 0, 5); await composer.press("Control+Shift+B");
+    await row.locator(".message-bubble-shell").click({ button: "right" });
+    await chooseMessageMenuItem(page, "编辑");
+    await expect(composer).toHaveJSProperty("value", "original message");
+    await watchSubmissions(page);
+    await composer.fill("unsaved changes");
+    await composer.press(exitKey);
+    await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+    await expect(composer).toHaveJSProperty("value", "saved draft");
+    await expect(composer.locator("strong")).toHaveText("saved");
+    await expect(composer).toBeFocused();
+    await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "0");
+    await expect(page.locator("body")).toHaveAttribute("data-send-calls", "0");
+  });
+}
+
+test("Enter exits unchanged or reverted edits, while text and format changes are submitted", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("original 🙂\nsecond line"); await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  await watchSubmissions(page);
+  for (const reverted of [false, true]) {
+    await composer.press("Control+r");
+    await expect(composer).toHaveJSProperty("value", "original 🙂\nsecond line");
+    if (reverted) {
+      await composer.fill("changed");
+      await composer.fill("original 🙂\nsecond line");
+      await expect(composer).toHaveJSProperty("value", "original 🙂\nsecond line");
+      await select(composer, 0, 8);
+      await composer.press("Control+Shift+B"); await composer.press("Control+Shift+B");
+      await expect(composer.locator("strong")).toHaveCount(0);
+    }
+    await composer.press("Enter");
+    await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+    await expect(composer).toHaveJSProperty("value", "");
+    await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "0");
+  }
+  await composer.press("Control+r");
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.fill("changed message"); await composer.press("Enter");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "1");
+  await composer.press("Control+r");
+  await expect(composer).toHaveJSProperty("value", "changed message");
+  await composer.press("Control+A"); await composer.press("Control+Shift+B"); await composer.press("Enter");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "2");
+  await composer.press("Control+r");
+  await expect(composer.locator("strong")).toHaveText("changed message");
+  await composer.press("Control+A");
+  await composer.press("Control+Shift+B"); await composer.press("Control+Shift+B");
+  await composer.press("Enter");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "2");
+  await expect(page.locator("body")).toHaveAttribute("data-send-calls", "0");
+});
+
+test("edit keys respect IME and key repeat; Enter exits even with Enter-to-send disabled", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("IME original"); await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  await composer.press("Control+r");
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.dispatchEvent("keydown", { key: "r", code: "KeyR", ctrlKey: true, repeat: true });
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.dispatchEvent("compositionstart");
+  for (const key of ["Escape", "Enter", "r"]) {
+    await composer.dispatchEvent("keydown", { key, code: key === "r" ? "KeyR" : key, ctrlKey: key === "r", isComposing: true });
+  }
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.dispatchEvent("compositionend");
+  await page.evaluate(async () => {
+    const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+    preferencesStore.getState().setPreference("sendOnEnter", false);
+  });
+  await watchSubmissions(page);
+  await composer.press("Shift+Enter");
+  await expect(composer).toHaveJSProperty("value", "IME original\n");
+  await composer.press("Backspace"); await composer.press("Enter");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "0");
+});
+
+test("unchanged empty captions and whitespace-preserving originals exit without an edit request", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("fixture message"); await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  await watchSubmissions(page);
+  for (const caption of [false, true]) {
+    await page.evaluate(async (caption) => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };
+      const messages = new Map(telegramStore.getState().messages);
+      const rows = [...messages.get("chat-product")!];
+      rows[rows.length - 1] = { ...rows.at(-1)!, content: caption
+        ? { kind: "file", fileName: "example.txt", sizeLabel: "1 B", caption: "" }
+        : { kind: "text", text: "  original with whitespace\n" } };
+      messages.set("chat-product", rows);
+      telegramStore.setState({ messages });
+    }, caption);
+    await composer.press("Control+r");
+    await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+    await expect(composer).toHaveJSProperty("value", caption ? "" : "  original with whitespace\n");
+    await composer.press("Enter");
+    await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+    await expect(page.locator("body")).toHaveAttribute("data-edit-calls", "0");
+  }
+  await expect(page.locator("body")).toHaveAttribute("data-send-calls", "0");
+});
 
 test("IME preedit hides the placeholder through updates, commit and cancellation", async ({ page }) => {
   await ready(page);
@@ -247,22 +384,24 @@ test("context clipboard actions preserve selection and paste at the saved caret"
   await expect(composer).toHaveJSProperty("value", "hello world");
 });
 
-test("ArrowUp edits only the latest visible outgoing message and leaves drafts alone", async ({ page }) => {
+test("Ctrl+R replaces ArrowUp for editing the latest visible outgoing message and leaves drafts alone", async ({ page }) => {
   await ready(page);
   const composer = input(page);
   await composer.fill("latest visible edit"); await composer.press("Enter");
   await expect(page.locator(".message-row.is-outgoing").filter({ hasText: "latest visible edit" })).toBeVisible();
   await composer.press("ArrowUp");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await composer.press("Control+r");
   await expect(page.locator(".composer-context.is-editing")).toBeVisible();
   await expect(composer).toHaveJSProperty("value", "latest visible edit");
   await expect(composer).toHaveJSProperty("selectionStart", 19);
   await page.getByRole("button", { name: "取消编辑", exact: true }).click();
-  await composer.fill("draft"); await composer.press("ArrowUp");
+  await composer.fill("draft"); await composer.press("Control+r");
   await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
   await expect(composer).toHaveJSProperty("value", "draft");
 });
 
-test("ArrowUp ignores outgoing messages outside the viewport, then edits a visible older one", async ({ page }) => {
+test("Ctrl+R ignores outgoing messages outside the viewport, then edits a visible older one", async ({ page }) => {
   await ready(page);
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -285,11 +424,11 @@ test("ArrowUp ignores outgoing messages outside the viewport, then edits a visib
     return Boolean(element.querySelector('[data-message-id="visible-edit-59"]'));
   })).toBe(true);
   await revealVirtualMessage(page, "visible-edit-59");
-  await input(page).focus(); await input(page).press("ArrowUp");
+  await input(page).focus(); await input(page).press("Control+r");
   await expect(input(page)).toHaveJSProperty("value", "");
   await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
   await revealVirtualMessage(page, "visible-edit-30");
-  await input(page).focus(); await input(page).press("ArrowUp");
+  await input(page).focus(); await input(page).press("Control+r");
   await expect(page.locator(".composer-context.is-editing")).toBeVisible();
   await expect(input(page)).toHaveJSProperty("value", "row 30\nsecond line\nthird line");
 });
@@ -311,7 +450,11 @@ test("discussion drafts restore formatting and the caret at the end", async ({ p
   await expect(composer).toHaveJSProperty("selectionStart", "discussion draft".length);
   await composer.press("Enter");
   await expect(composer).toHaveJSProperty("value", "");
-  await composer.press("ArrowUp");
+  await composer.press("Control+r");
   await expect(panel.locator(".composer-context.is-editing")).toBeVisible();
   await expect(composer.locator("strong")).toHaveText("discussion");
+  await composer.press("Escape");
+  await expect(panel.locator(".composer-context.is-editing")).toHaveCount(0);
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect(composer).toBeFocused();
 });

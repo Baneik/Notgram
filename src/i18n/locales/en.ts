@@ -1,6 +1,7 @@
 export const en = {
   "快捷键": "Keyboard shortcuts",
-  "自定义会话与文件夹的切换按键": "Customize shortcuts for switching chats and folders",
+  "自定义会话、文件夹切换与消息编辑按键": "Customize shortcuts for switching chats and folders and editing messages",
+  "重新编辑上一条消息": "Edit the previous message",
   "上一个会话": "Previous chat",
   "下一个会话": "Next chat",
   "上一个文件夹": "Previous folder",

@@ -5,9 +5,10 @@ const key = (code: string, extra: Partial<KeyboardEvent> = {}) => ({ code, key: 
   ctrlKey: true, shiftKey: false, altKey: false, metaKey: false, isComposing: false, keyCode: 0, ...extra });
 
 describe("application shortcut bindings", () => {
-  it("matches exactly and preserves the four defaults", () => {
+  it("matches exactly and preserves the defaults", () => {
     expect(shortcutActionForEvent(key("ArrowUp"), defaultShortcutBindings)).toBe("previousChat");
     expect(shortcutActionForEvent(key("PageDown"), defaultShortcutBindings)).toBe("nextFolder");
+    expect(shortcutActionForEvent(key("KeyR"), defaultShortcutBindings)).toBe("editLastMessage");
     expect(shortcutActionForEvent(key("ArrowUp", { shiftKey: true }), defaultShortcutBindings)).toBeUndefined();
     expect(shortcutActionForEvent(key("ArrowUp", { ctrlKey: false }), defaultShortcutBindings)).toBeUndefined();
     expect(formatShortcut(defaultShortcutBindings.previousChat)).toBe("Ctrl + ↑");
@@ -22,14 +23,20 @@ describe("application shortcut bindings", () => {
   it.each(["KeyA", "Shift+KeyA", "Ctrl+KeyC", "Ctrl+Shift+KeyM", "Ctrl+KeyK", "Alt+F4", "Ctrl+Meta+KeyG", "F12", "F5"])("rejects reserved or unsafe binding %s", binding => {
     expect(shortcutValidationError(binding)).toBeTruthy();
   });
-  it.each(["Ctrl+ArrowUp", "Ctrl+PageDown", "Ctrl+Shift+KeyG", "Alt+KeyG", "F8"])("accepts binding %s for native verification", binding => {
+  it.each(["Ctrl+ArrowUp", "Ctrl+PageDown", "Ctrl+KeyR", "Ctrl+Shift+KeyG", "Alt+KeyG", "F8"])("accepts binding %s for native verification", binding => {
     expect(shortcutValidationError(binding)).toBeUndefined();
   });
   it("migrates absent data and sanitizes corrupt and duplicate bindings", () => {
     expect(normalizeShortcutBindings(undefined)).toEqual(defaultShortcutBindings);
     expect(normalizeShortcutBindings({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: "Ctrl+ArrowUp", nextFolder: "oops" }))
-      .toEqual({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: null, nextFolder: "Ctrl+PageDown" });
+      .toEqual({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: null, nextFolder: "Ctrl+PageDown", editLastMessage: "Ctrl+KeyR" });
     expect(parseShortcut("Shift+Ctrl+KeyG")).toBeUndefined();
     expect(parseShortcut("Ctrl+Ctrl+KeyG")).toBeUndefined();
+  });
+  it("preserves re-edit customization and reserves modified browser refresh", () => {
+    expect(normalizeShortcutBindings({ editLastMessage: "Ctrl+Shift+KeyE" }).editLastMessage).toBe("Ctrl+Shift+KeyE");
+    expect(normalizeShortcutBindings({ editLastMessage: null }).editLastMessage).toBeNull();
+    expect(shortcutValidationError("Ctrl+Shift+KeyR")).toBeTruthy();
+    expect(normalizeShortcutBindings({ previousChat: "Ctrl+KeyR" }).editLastMessage).toBeNull();
   });
 });

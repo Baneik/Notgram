@@ -1,6 +1,7 @@
 import { translate } from "../i18n";
 import type { ChatDraft } from "../telegram/types";
 import { hasChatDraftContent } from "../telegram/chatDraft";
+import { textEntitySignature } from "../utils/formattedText";
 
 export const DRAFT_SYNC_DELAY_MS = 450;
 const DRAFT_ACK_TIMEOUT_MS = 5_000;
@@ -20,23 +21,7 @@ export const draftForSync = (draft?: ChatDraft) =>
 
 export const draftSignature = (draft?: ChatDraft) => JSON.stringify([
   draft?.text ?? "",
-  // Editor marks and native echoes can enumerate the same fields/entities differently.
-  draft?.entities?.map((entity) => JSON.stringify([
-    entity.offset,
-    entity.length,
-    entity.kind,
-    entity.href,
-    entity.language,
-    entity.customEmojiId,
-    entity.userId,
-    entity.dateTime && [
-      entity.dateTime.unixTime,
-      entity.dateTime.mode,
-      entity.dateTime.timePrecision,
-      entity.dateTime.datePrecision,
-      entity.dateTime.showDayOfWeek,
-    ],
-  ])).sort() ?? [],
+  draft?.entities?.map(textEntitySignature).sort() ?? [],
   draft?.replyToMessageId ?? "",
   draft?.replyQuote?.text ?? "",
   draft?.replyQuote?.position ?? -1,

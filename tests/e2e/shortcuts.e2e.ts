@@ -300,6 +300,70 @@ test("browser-only recording reports unavailable native verification", async ({ 
   await expect(recorder(page)).toHaveText("Ctrl + ↑");
 });
 
+test("re-edit shortcut can be rebound, cleared, restored and persisted without changing folders", async ({ page }) => {
+  await mockProbe(page);
+  await ready(page);
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("configurable edit"); await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  const before = await state(page);
+  await settings(page);
+  const field = recorder(page, "重新编辑上一条消息");
+  await expect(field).toHaveText("Ctrl + R");
+  await recorder(page).click();
+  await page.keyboard.press("Control+r");
+  await expect(page.getByRole("alert")).toHaveText('已用于“重新编辑上一条消息”');
+  await page.keyboard.press("Escape");
+  await field.click(); await page.keyboard.press("Control+Shift+e");
+  await expect(field).toHaveText("Ctrl + Shift + E");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await composer.focus();
+  await composer.press("Control+r");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await composer.press("Control+Shift+e");
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  expect(await state(page)).toEqual(before);
+  await composer.press("Control+Shift+e");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await settings(page);
+  await page.getByRole("button", { name: "清除重新编辑上一条消息快捷键", exact: true }).click();
+  await expect(field).toHaveText("未设置");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await composer.focus(); await composer.press("Control+r"); await composer.press("Control+Shift+e");
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+  await settings(page);
+  await page.getByRole("button", { name: "重置重新编辑上一条消息快捷键", exact: true }).click();
+  await expect(field).toHaveText("Ctrl + R");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await composer.focus(); await composer.press("Control+r");
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.press("Escape");
+  await page.reload(); await settings(page);
+  await expect(field).toHaveText("Ctrl + R");
+});
+
+test("Ctrl+R reassigned to navigation stays blocked in settings and works in the conversation", async ({ page }) => {
+  await mockProbe(page);
+  await ready(page);
+  await rows(page).nth(1).click();
+  const ids = await rowIds(page);
+  const before = await state(page);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("searchbox", { name: "搜索设置" }).fill("重新编辑上一条消息");
+  await page.getByRole("button", { name: "快捷键", exact: true }).click();
+  await page.getByRole("button", { name: "清除重新编辑上一条消息快捷键", exact: true }).click();
+  await recorder(page).click(); await page.keyboard.press("Control+r");
+  await expect(recorder(page)).toHaveText("Ctrl + R");
+  await page.keyboard.press("Control+r");
+  await expect(page.getByRole("dialog", { name: "设置", exact: true })).toBeVisible();
+  expect(await state(page)).toEqual(before);
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByRole("textbox", { name: "消息内容" }).focus();
+  await page.keyboard.press("Control+r");
+  await expect.poll(async () => (await state(page)).chat).toBe(ids[0]);
+  await expect(page.locator(".composer-context.is-editing")).toHaveCount(0);
+});
+
 test("standalone settings synchronize bindings with the main window and fit a narrow dark layout", async ({ page, context }) => {
   await ready(page);
   const standalone = await context.newPage();

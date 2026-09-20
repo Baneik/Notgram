@@ -96,12 +96,18 @@ Restored drafts start with a collapsed selection at the end; routine focus retur
 preserve the current selection. Native and browser format menus retain the range
 that opened them and return through the same focus owner.
 
-With an empty composer, unmodified ArrowUp chooses the latest editable outgoing
+With an empty composer, the configurable "Edit the previous message" shortcut
+(Ctrl+R by default) chooses the latest editable outgoing
 message intersecting that editor's current message viewport. Virtual overscan and
 offscreen history do not qualify. Permission loading is bounded to those visible
 candidates; subsequent input, scrolling, navigation, or unmounting cancels the
-pending intent. Replies, attachment drafts, and active edits retain their input
-behavior. Composer Ctrl+Shift+M/X/U/B/Q/K shortcuts are local to this editor.
+pending intent. Replies and attachment drafts retain their input behavior;
+ArrowUp keeps its ordinary cursor or suggestion navigation. During editing, the
+same shortcut or Escape cancels and restores the previous draft. Enter submits
+the edit (Shift+Enter retains newline insertion), comparing the current text and
+formatting entities with the original only at submission. Unchanged content,
+including edits reverted to the original, exits without an edit/send request.
+Composer Ctrl+Shift+M/X/U/B/Q/K shortcuts are local to this editor.
 Formatting runs in ProseMirror's key handler and maps the visible DOM selection
 before applying a mark; `selectionchange` may still be queued. React capture must
 not consume these shortcuts against a stale selection. The editor and WebView

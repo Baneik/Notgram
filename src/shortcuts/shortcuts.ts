@@ -5,6 +5,7 @@ export const shortcutActions = [
   { id: "nextChat", label: () => translate("下一个会话"), defaultBinding: "Ctrl+ArrowDown" },
   { id: "previousFolder", label: () => translate("上一个文件夹"), defaultBinding: "Ctrl+PageUp" },
   { id: "nextFolder", label: () => translate("下一个文件夹"), defaultBinding: "Ctrl+PageDown" },
+  { id: "editLastMessage", label: () => translate("重新编辑上一条消息"), defaultBinding: "Ctrl+KeyR" },
 ] as const;
 
 export type ShortcutAction = typeof shortcutActions[number]["id"];
@@ -46,8 +47,8 @@ export const shortcutValidationError = (binding: string): string | undefined => 
     (parsed.ctrl && parsed.alt && parsed.code === "Delete")) return translate("此快捷键由系统保留");
   if (!parsed.ctrl && !parsed.alt && !/^F\d+$/.test(parsed.code)) return translate("请选择组合键或功能键");
   if ((parsed.ctrl && !parsed.alt && (
-    ["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY", "KeyF", "KeyJ", "KeyK", "KeyP", "KeyR", "KeyS", "KeyU", "KeyW", "KeyI", "KeyB"].includes(parsed.code) ||
-    (parsed.shift && ["KeyM", "KeyQ"].includes(parsed.code))
+    ["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY", "KeyF", "KeyJ", "KeyK", "KeyP", "KeyS", "KeyU", "KeyW", "KeyI", "KeyB"].includes(parsed.code) ||
+    (parsed.shift && ["KeyM", "KeyQ", "KeyR"].includes(parsed.code))
   )) || parsed.code === "F5" || (parsed.shift && parsed.code === "F10") ||
     (parsed.alt && ["ArrowLeft", "ArrowRight", "Home"].includes(parsed.code))) return translate("此快捷键已被应用占用");
   return undefined;

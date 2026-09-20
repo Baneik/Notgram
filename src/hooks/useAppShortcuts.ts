@@ -4,6 +4,7 @@ import { telegramStore } from "../store/telegramStore";
 import { filterAndSortChats } from "../store/telegramStore.selectors";
 import { shortcutActionForEvent } from "../shortcuts/shortcuts";
 import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
+import { isBlockedWebviewShortcut } from "../utils/webviewGuards";
 
 export function useAppShortcuts(selectChat: (id: string) => void, selectFolder: (id: string) => void) {
   const callbacks = useRef({ selectChat, selectFolder });
@@ -24,9 +25,10 @@ export function useAppShortcuts(selectChat: (id: string) => void, selectFolder: 
     const startComposition = () => { composing = true; };
     const endComposition = () => { composing = false; };
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || composing || document.hidden) return;
+      // WebView guards cancel browser defaults but forward registered app actions.
+      if ((event.defaultPrevented && !isBlockedWebviewShortcut(event)) || composing || document.hidden) return;
       const action = shortcutActionForEvent(event, preferencesStore.getState().shortcuts);
-      if (!action) return;
+      if (!action || action === "editLastMessage") return;
       const state = telegramStore.getState();
       if (!state.chatListReady || !["ready", "preparing"].includes(state.authorization.kind) ||
         state.accountSwitching || activeModal() ||

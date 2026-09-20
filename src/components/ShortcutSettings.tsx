@@ -84,7 +84,7 @@ export function ShortcutSettings() {
           <Keyboard size={18} strokeWidth={1.8} />
           <div>
             <h4 id="shortcuts-heading">{translate("快捷键")}</h4>
-            <span>{translate("自定义会话与文件夹的切换按键")}</span>
+            <span>{translate("自定义会话、文件夹切换与消息编辑按键")}</span>
           </div>
         </div>
         <div className="preference-list">

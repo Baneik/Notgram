@@ -1,4 +1,5 @@
 import { preferencesStore } from "../store/preferencesStore";
+import { shortcutActionForEvent } from "../shortcuts/shortcuts";
 import { composerFormatShortcut } from "./composerFormatting";
 
 type ShortcutEvent = Pick<
@@ -33,7 +34,10 @@ export const installWebviewGuards = () => {
     }
     const inComposer = event.target instanceof Element && Boolean(event.target.closest(".composer-input"));
     if (!isBlockedWebviewShortcut(event, inComposer)) return;
+    const action = shortcutActionForEvent(event, preferencesStore.getState().shortcuts);
     event.preventDefault();
+    // Suppress browser defaults even when a registered app action cannot run.
+    if (action && (action !== "editLastMessage" || inComposer)) return;
     event.stopImmediatePropagation();
   }, { capture: true });
 

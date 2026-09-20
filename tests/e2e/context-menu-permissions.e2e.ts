@@ -104,7 +104,7 @@ test("native composer format menu preserves the selected range and returns typin
   await surface.close();
 });
 
-test("a delayed ArrowUp permission response cannot replace newly typed text", async ({ page }) => {
+test("a delayed Ctrl+R permission response cannot replace newly typed text", async ({ page }) => {
   await prepare(page);
   const input = page.locator(".composer-input");
   await input.fill("candidate for delayed edit"); await input.press("Enter");
@@ -116,7 +116,7 @@ test("a delayed ArrowUp permission response cannot replace newly typed text", as
       try { return await load(...args); } finally { window.__lateEditCompleted = true; }
     };
   });
-  await input.press("ArrowUp");
+  await input.press("Control+r");
   await expect.poll(() => page.evaluate(() => window.__menuProbe.releases.length)).toBe(1);
   await input.pressSequentially("keep this draft");
   await page.evaluate(() => window.__menuProbe.releases.forEach(release => release()));
