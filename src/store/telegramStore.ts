@@ -1069,7 +1069,6 @@ export const createTelegramStore = (
         forumTopicsLoading: new Set(),
         topicHistories: new Map(),
         lastForumTopicIds: new Map(),
-        lastFolderChatIds: new Map(),
         activeChatId: undefined,
         activeTopicId: undefined,
         globalSearch: emptyGlobalSearch(),
@@ -1234,10 +1233,6 @@ export const createTelegramStore = (
         outbox,
         forumTopics,
         lastForumTopicIds,
-        lastFolderChatIds: new Map((snapshot.lastFolderChatIds ?? [])
-          .filter(entry => folders.some(folder => folder.id === entry.folderId) &&
-            chats.get(entry.chatId)?.folderIds.includes(entry.folderId))
-          .map(entry => [entry.folderId, entry.chatId])),
         activeChatId: nextActiveChatId,
         activeTopicId: current.activeTopicId ?? cachedActiveTopicId,
         chatFilter: current.chatFilter !== "main" ? current.chatFilter : chatFilter,
@@ -1604,8 +1599,6 @@ export const createTelegramStore = (
       sharedMediaIndex.clearChat(toChatId);
 
       const activeChatId = current.activeChatId === fromChatId ? toChatId : current.activeChatId;
-      const lastFolderChatIds = new Map([...current.lastFolderChatIds].map(([folderId, chatId]) =>
-        [folderId, chatId === fromChatId ? toChatId : chatId]));
       const oldAttachmentGenerationKeys = [...localAttachmentDraftGenerations.keys()]
         .filter((key) => migrateChatKey(key, fromChatId, toChatId) !== key);
       for (const key of oldAttachmentGenerationKeys) {
@@ -1653,7 +1646,6 @@ export const createTelegramStore = (
         lastForumTopicIds,
         typingUserIds,
         chatAdministratorLabels,
-        lastFolderChatIds,
         activeChatId,
         profile,
         groupManagement,
@@ -1876,7 +1868,6 @@ export const createTelegramStore = (
         );
         set({
           folders,
-          lastFolderChatIds: new Map([...get().lastFolderChatIds].filter(([id]) => folders.some(folder => folder.id === id))),
           chatFilter: activeFolderExists
             ? get().chatFilter
             : (folders[0]?.id ?? "main"),
@@ -2553,7 +2544,6 @@ export const createTelegramStore = (
       forumTopicsLoading: new Set(),
       topicHistories: new Map(),
       lastForumTopicIds: new Map(),
-      lastFolderChatIds: new Map(),
       activeTopicId: undefined,
       searchQuery: "",
       chatFilter: "main",
@@ -2649,7 +2639,7 @@ export const createTelegramStore = (
           const initialFolder = (current.folders.length > 0 ? current.folders : folders)
             .some(folder => folder.id === current.chatFilter) ? current.chatFilter : (folders[0]?.id ?? "main");
           const initialChats = filterAndSortChats(chats.values(), initialFolder, "");
-          const firstChat = initialChats.find(chat => chat.id === current.lastFolderChatIds.get(initialFolder)) ?? initialChats[0];
+          const firstChat = initialChats[0];
           const authorization =
             current.authorization.kind === "preparing"
               ? snapshot.authorization
@@ -2952,15 +2942,6 @@ export const createTelegramStore = (
         }
       },
 
-      clearChatSelection: () => {
-        const { activeChatId, activeTopicId } = get();
-        if (activeChatId) void draftSync.flush(topicKey(activeChatId, activeTopicId));
-        advanceConversationGeneration();
-        transport.setConversationFocus?.(undefined);
-        set({ activeChatId: undefined, activeTopicId: undefined });
-        scheduleCacheWrite();
-      },
-
       selectChat: (chatId, options) => {
         if (!get().chats.has(chatId)) {
           set({ operationError: translate("会话不存在或当前账号无权访问") });
@@ -2982,12 +2963,9 @@ export const createTelegramStore = (
         const lastForumTopicIds = restoredTopicId
           ? touchForumTopic(chatId, restoredTopicId)
           : new Map(get().lastForumTopicIds);
-        const lastFolderChatIds = new Map(get().lastFolderChatIds);
-        if (targetChat?.folderIds.includes(get().chatFilter)) lastFolderChatIds.set(get().chatFilter, chatId);
         set({
           activeChatId: chatId,
           activeTopicId: restoredTopicId,
-          lastFolderChatIds,
           lastForumTopicIds,
         });
         scheduleCacheWrite();
@@ -4369,12 +4347,7 @@ export const createTelegramStore = (
 
       setSearchQuery: searchController.setSearchQuery,
       setChatFilter: (chatFilter) => {
-        const current = get();
-        const lastFolderChatIds = new Map(current.lastFolderChatIds);
-        if (current.activeChatId && current.chats.get(current.activeChatId)?.folderIds.includes(current.chatFilter)) {
-          lastFolderChatIds.set(current.chatFilter, current.activeChatId);
-        }
-        set({ chatFilter, lastFolderChatIds });
+        set({ chatFilter });
         scheduleCacheWrite();
         void loadChats(chatFilter);
       },

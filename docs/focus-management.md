@@ -35,12 +35,16 @@ shortcuts; the probe never installs a persistent global binding. The probe detec
 registered global hotkeys at that instant, not arbitrary keyboard hooks or later
 registrations. Unsupported environments and native errors must not report success.
 
-Folder buttons and shortcuts share the sidebar conversation entry path, including
-drafts, reading positions and forum topics. The folder order matches the rail;
-chat order uses the sidebar sorter, with no wrap at either boundary. Account cache
-stores each folder's last member chat. Missing selections fall back to its first
-chat; empty folders clear the conversation. Late list data may select a chat only
-while the same account and folder still own the pending navigation intent.
+Folder buttons and shortcuts change only the sidebar folder and close search;
+the open conversation, draft, reading position and forum topic remain in place,
+including for empty folders and late list data. No per-folder chat selection is
+remembered. After a folder change, the first previous/next chat shortcut selects
+the current first row, even when the retained chat belongs to that folder. Later
+shortcuts move from the selected chat; an explicit sidebar chat click also resumes
+navigation from that row. Selecting the same folder does not reset navigation.
+Actual chat changes share the sidebar conversation entry path. The folder order
+matches the rail; chat order uses the sidebar sorter, with no wrap at either
+boundary. The shortcut cursor is transient and resets across account switches.
 
 ## Conversation editors
 

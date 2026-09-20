@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { scrollAwayFromBottom, visibleMessageAnchor } from "./helpers";
 
 const state = (page: Page) => page.evaluate(async () => {
   const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
   const current = telegramStore.getState();
-  return { chat: current.activeChatId ?? null, folder: current.chatFilter, memory: [...current.lastFolderChatIds] };
+  return { chat: current.activeChatId ?? null, folder: current.chatFilter };
 });
 const ready = async (page: Page) => {
   await page.goto("/");
@@ -45,42 +46,50 @@ test("chat shortcuts follow displayed order, preserve drafts and stop at list bo
   await expect.poll(async () => (await state(page)).chat).toBe(ids[0]);
 });
 
-test("folder clicks and shortcuts select the first chat and restore independent selections after reload", async ({ page }) => {
+test("folder clicks and shortcuts preserve the conversation until chat navigation starts at the first row", async ({ page }) => {
   await ready(page);
   await rows(page).filter({ hasText: "Mia Chen" }).click();
   const mainChat = (await state(page)).chat;
+  const input = page.getByRole("textbox", { name: "消息内容" });
+  await input.fill("folder switch draft");
+  const editor = await input.elementHandle();
   await page.keyboard.press("Control+PageDown");
   await expect.poll(async () => (await state(page)).folder).toBe("folder:work");
   const work = await rowIds(page);
+  expect((await state(page)).chat).toBe(mainChat);
+  await expect(input).toHaveJSProperty("value", "folder switch draft");
+  expect(await editor!.evaluate(node => node.isConnected)).toBe(true);
+  await page.keyboard.press("Control+ArrowDown");
   await expect.poll(async () => (await state(page)).chat).toBe(work[0]);
   await rows(page).nth(1).click();
   const workChat = (await state(page)).chat;
   await page.locator('.rail-button[data-folder-id="main"]').click();
-  await expect.poll(async () => (await state(page)).chat).toBe(mainChat);
+  expect((await state(page)).chat).toBe(workChat);
   await page.locator('.rail-button[data-folder-id="folder:work"]').click();
-  await expect.poll(async () => (await state(page)).chat).toBe(workChat);
-  await expect.poll(() => page.evaluate(() => {
-    const cache = Object.values(localStorage).map(value => { try { return JSON.parse(value); } catch { return {}; } });
-    return cache.some(value => value.lastFolderChatIds?.some((entry: { folderId: string }) => entry.folderId === "folder:work"));
-  }), { timeout: 20_000 }).toBe(true);
-  await page.reload();
-  await expect(page.locator('.rail-button[data-folder-id="folder:work"]')).toHaveClass(/is-active/);
-  await page.keyboard.press("Control+PageUp");
-  await expect.poll(async () => (await state(page)).chat).toBe(mainChat);
-  await page.keyboard.press("Control+PageDown");
-  await expect.poll(async () => (await state(page)).chat).toBe(workChat);
+  expect((await state(page)).chat).toBe(workChat);
+  await page.keyboard.press("Control+ArrowDown");
+  await expect.poll(async () => (await state(page)).chat).toBe(work[0]);
+  await page.keyboard.press("Control+ArrowDown");
+  await expect.poll(async () => (await state(page)).chat).toBe(work[1]);
+  await page.locator('.rail-button[data-folder-id="main"]').click();
+  await rows(page).filter({ hasText: "Mia Chen" }).click();
+  await expect(input).toHaveJSProperty("value", "folder switch draft");
 });
 
-test("empty folders clear the conversation, accept late data and cancel stale selection intents", async ({ page }) => {
+test("empty folders and late list data preserve the conversation until another chat shortcut", async ({ page }) => {
   await ready(page);
+  await rows(page).and(page.locator('[data-chat-id="chat-product"]')).click();
+  const before = (await state(page)).chat;
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
     telegramStore.setState(state => ({ folders: [...state.folders, { id: "folder:empty", title: "Empty", iconName: "Custom" }] }));
   });
   const empty = page.locator('.rail-button[data-folder-id="folder:empty"]');
   await empty.click();
-  await expect.poll(async () => (await state(page)).chat).toBeNull();
-  await expect(page.getByRole("textbox", { name: "消息内容" })).toHaveCount(0);
+  expect((await state(page)).chat).toBe(before);
+  await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
+  await page.keyboard.press("Control+ArrowDown");
+  expect((await state(page)).chat).toBe(before);
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
     const current = telegramStore.getState();
@@ -89,6 +98,9 @@ test("empty folders clear the conversation, accept late data and cancel stale se
     chats.set(chat.id, { ...chat, folderIds: [...chat.folderIds, "folder:empty"] });
     telegramStore.setState({ chats });
   });
+  await expect(rows(page)).toHaveCount(1);
+  expect((await state(page)).chat).toBe(before);
+  await page.keyboard.press("Control+ArrowUp");
   await expect.poll(async () => (await state(page)).chat).toBe("chat-mia");
   await page.locator('.rail-button[data-folder-id="main"]').click();
   await page.evaluate(async () => {
@@ -99,9 +111,8 @@ test("empty folders clear the conversation, accept late data and cancel stale se
     telegramStore.setState({ chats });
   });
   await empty.click();
-  await expect.poll(async () => (await state(page)).chat).toBeNull();
+  expect((await state(page)).chat).toBe("chat-mia");
   await page.locator('.rail-button[data-folder-id="folder:work"]').click();
-  const before = await state(page);
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
     const chats = new Map(telegramStore.getState().chats);
@@ -109,7 +120,7 @@ test("empty folders clear the conversation, accept late data and cancel stale se
     chats.set(chat.id, { ...chat, folderIds: ["main", "folder:empty"] });
     telegramStore.setState({ chats });
   });
-  expect((await state(page)).chat).toBe(before.chat);
+  expect((await state(page)).chat).toBe("chat-mia");
 });
 
 test("modal dialogs and IME composition retain their keys", async ({ page }) => {
@@ -125,8 +136,9 @@ test("modal dialogs and IME composition retain their keys", async ({ page }) => 
   expect(await state(page)).toEqual(before);
 });
 
-test("folder navigation follows reordered folders and falls back when a remembered chat leaves", async ({ page }) => {
+test("folder navigation follows reordered folders and starts from the current first row", async ({ page }) => {
   await ready(page);
+  const before = (await state(page)).chat;
   await page.evaluate(async () => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
     const current = telegramStore.getState();
@@ -135,7 +147,9 @@ test("folder navigation follows reordered folders and falls back when a remember
   });
   await page.keyboard.press("Control+PageUp");
   await expect.poll(async () => (await state(page)).folder).toBe("folder:work");
-  const remembered = (await state(page)).chat!;
+  expect((await state(page)).chat).toBe(before);
+  await rows(page).first().click();
+  const removed = (await state(page)).chat!;
   await page.keyboard.press("Control+PageUp");
   expect((await state(page)).folder).toBe("folder:work");
   await page.keyboard.press("Control+PageDown");
@@ -146,10 +160,81 @@ test("folder navigation follows reordered folders and falls back when a remember
     const chat = chats.get(id)!;
     chats.set(id, { ...chat, folderIds: chat.folderIds.filter(folder => folder !== "folder:work") });
     telegramStore.setState({ chats });
-  }, remembered);
+  }, removed);
   await page.keyboard.press("Control+PageUp");
+  expect((await state(page)).chat).toBe(removed);
+  await page.keyboard.press("Control+ArrowUp");
   await expect.poll(async () => (await state(page)).chat).toBe((await rowIds(page))[0]);
-  expect((await state(page)).chat).not.toBe(remembered);
+  expect((await state(page)).chat).not.toBe(removed);
+});
+
+test("the first shortcut selects the first row even when the retained chat already belongs to the folder", async ({ page }) => {
+  await ready(page);
+  const main = await rowIds(page);
+  await rows(page).nth(2).click();
+  await page.keyboard.press("Control+PageDown");
+  await page.keyboard.press("Control+PageUp");
+  expect((await state(page)).chat).toBe(main[2]);
+  await page.keyboard.press("Control+ArrowUp");
+  await expect.poll(async () => (await state(page)).chat).toBe(main[0]);
+
+  await page.keyboard.press("Control+PageDown");
+  await page.keyboard.press("Control+PageUp");
+  await page.keyboard.press("Control+ArrowDown");
+  expect((await state(page)).chat).toBe(main[0]);
+  await page.keyboard.press("Control+ArrowDown");
+  await expect.poll(async () => (await state(page)).chat).toBe(main[1]);
+});
+
+test("explicit chat clicks resume navigation and selecting the same folder does not reset it", async ({ page }) => {
+  await ready(page);
+  const main = await rowIds(page);
+  await rows(page).nth(1).click();
+  await page.keyboard.press("Control+PageDown");
+  await page.keyboard.press("Control+PageUp");
+  await rows(page).nth(1).click();
+  await page.keyboard.press("Control+ArrowDown");
+  await expect.poll(async () => (await state(page)).chat).toBe(main[2]);
+  await page.locator('.rail-button[data-folder-id="main"]').click();
+  await page.keyboard.press("Control+PageUp");
+  await page.keyboard.press("Control+ArrowUp");
+  await expect.poll(async () => (await state(page)).chat).toBe(main[1]);
+});
+
+test("folder browsing preserves the message viewport and detached reading position", async ({ page }) => {
+  await ready(page);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await scrollAwayFromBottom(page);
+  const anchor = await visibleMessageAnchor(page);
+  expect(anchor.id).toBeTruthy();
+  const viewport = await page.locator(".message-list").elementHandle();
+  const before = (await state(page)).chat;
+  await page.keyboard.press("Control+PageDown");
+  expect((await state(page)).chat).toBe(before);
+  expect(await viewport!.evaluate(element => element.isConnected)).toBe(true);
+  expect((await visibleMessageAnchor(page)).id).toBe(anchor.id);
+  expect(Math.abs((await visibleMessageAnchor(page)).offset - anchor.offset)).toBeLessThanOrEqual(1);
+  await page.locator('.rail-button[data-folder-id="main"]').click();
+  expect((await visibleMessageAnchor(page)).id).toBe(anchor.id);
+  expect(Math.abs((await visibleMessageAnchor(page)).offset - anchor.offset)).toBeLessThanOrEqual(1);
+});
+
+test("folder browsing keeps the selected forum topic and its draft open", async ({ page }) => {
+  await ready(page);
+  await rows(page).and(page.locator('[data-chat-id="chat-forum"]')).click();
+  await page.getByRole("navigation", { name: "话题切换" }).locator('[data-topic-id="12"]').click();
+  const topic = page.getByRole("region", { name: "构建与发布 话题 对话" });
+  await expect(topic).toBeVisible();
+  const input = page.getByRole("textbox", { name: "消息内容" });
+  await input.fill("retained topic draft");
+  const editor = await input.elementHandle();
+  await page.keyboard.press("Control+PageDown");
+  await expect(topic).toBeVisible();
+  expect((await state(page)).chat).toBe("chat-forum");
+  expect(await editor!.evaluate(element => element.isConnected)).toBe(true);
+  await expect(input).toHaveJSProperty("value", "retained topic draft");
+  await page.keyboard.press("Control+ArrowDown");
+  await expect.poll(async () => (await state(page)).chat).toBe((await rowIds(page))[0]);
 });
 
 test("shortcut recording checks duplicates, reserved keys, OS conflicts and errors before saving", async ({ page }) => {

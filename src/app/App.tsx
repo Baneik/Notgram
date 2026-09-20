@@ -1703,6 +1703,7 @@ export function App() {
   };
 
   const selectSidebarChat = (chatId: string) => {
+    resumeChatNavigation();
     setMobileChatOpen(true);
     const state = telegramStore.getState();
     if (state.activeChatId === chatId) {
@@ -1797,14 +1798,8 @@ export function App() {
       })();
     }
   };
-  const changeFolder = useFolderNavigation(selectSidebarChat, () => {
-    chatOpenGenerationRef.current += 1;
-    captureActiveConversationScrollState();
-    discardConversationSnapshot();
-    telegramStore.getState().clearChatSelection();
-    setMobileChatOpen(false);
-  }, closeSearch);
-  useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder);
+  const changeFolder = useFolderNavigation(closeSearch);
+  const resumeChatNavigation = useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder);
 
   const activeMessages = useMemo(
     () => {
