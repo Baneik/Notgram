@@ -51,7 +51,7 @@ test("private chat deletion supports cancel, visible failure, and retry", async 
   await row(page, "chat-mia").click();
   await (await openMenu(page, "chat-mia", "Mia Chen")).getByRole("menuitem", { name: "删除", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "删除“Mia Chen”？" });
-  await expect(dialog).toContainText("对方的聊天记录不受影响");
+  await expect(dialog).toContainText("将删除你的聊天记录，无法撤销。对方不受影响。");
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await expect(row(page, "chat-mia")).toBeVisible();
   await page.evaluate(() => {

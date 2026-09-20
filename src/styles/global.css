@@ -2503,7 +2503,17 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-delete-heading > span { width: 36px; height: 36px; display: grid; place-items: center; color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 10%, var(--color-bg-elevated)); border-radius: 7px; }
 .message-delete-heading h3 { margin: 0 0 5px; font-size: 17px; font-weight: 650; }
 .message-delete-heading p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
-.confirm-action-dialog .message-delete-heading p { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.5; }
+.confirm-action-dialog { width: min(360px, calc(100vw - 40px)); padding: 20px; gap: 20px; border-radius: 12px; }
+.confirm-action-heading { min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }
+.confirm-action-heading h3 { margin: 0; color: var(--ink); font-size: 16px; line-height: 1.4; font-weight: 650; }
+.confirm-action-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.confirm-action-dialog > [role="alert"] { margin: 0; color: var(--color-status-danger); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.confirm-action-dialog .message-delete-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.confirm-action-dialog .message-delete-actions > button {
+  width: 100%; min-width: 0; height: 38px; min-height: 38px; padding: 0 12px; gap: 6px; border-radius: 7px; font-size: 13px; font-weight: 600;
+}
+.confirm-action-dialog .dialog-secondary { color: var(--ink); background: var(--color-bg-control); border-color: var(--color-border-default); }
+.confirm-action-dialog .dialog-secondary:hover:not(:disabled) { background: var(--color-bg-control-hover); }
 .message-delete-preview {
   margin: 0; padding: 10px 12px; overflow: hidden; color: var(--color-text-secondary); background: var(--color-bg-control-hover);
   border-left: 3px solid var(--color-border-strong); border-radius: 0 6px 6px 0; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;

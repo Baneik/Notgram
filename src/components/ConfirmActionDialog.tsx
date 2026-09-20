@@ -1,5 +1,5 @@
 import { translate } from "../i18n";
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 
@@ -50,14 +50,12 @@ export function ConfirmActionDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-action-title"
+        aria-describedby="confirm-action-description"
         tabIndex={-1}
       >
-        <div className="message-delete-heading">
-          <span><AlertTriangle size={18} strokeWidth={1.9} /></span>
-          <div>
-            <h3 id="confirm-action-title">{title}</h3>
-            <p>{description}</p>
-          </div>
+        <div className="confirm-action-heading">
+          <h3 id="confirm-action-title">{title}</h3>
+          <p id="confirm-action-description">{description}</p>
         </div>
         {failed && error && <p role="alert">{error}</p>}
         <div className="message-delete-actions">

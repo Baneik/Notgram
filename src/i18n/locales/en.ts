@@ -95,7 +95,7 @@ export const en = {
   "停用“{{value0}}”？": "Stop “{{value0}}”?",
   "停用后，机器人将被加入 Telegram 黑名单，不能再向您发送消息。已有聊天记录会保留，可在设置的黑名单中解除。": "The bot will be blocked on Telegram and can no longer send you messages. Your chat history will be kept. You can unblock it in Settings.",
   "停用": "Stop bot",
-  "将为当前账号删除全部聊天记录及本地保留副本，并从会话列表移除。对方的聊天记录不受影响；收到新消息时，会话会重新出现。此操作无法撤销。": "All chat history and locally retained copies will be deleted for your account, and the chat will be removed from your lists. The other party's history is unaffected. New messages can make the chat reappear. This cannot be undone.",
+  "将删除你的聊天记录，无法撤销。对方不受影响。": "Your chat history will be deleted. This cannot be undone. The other person's history is unaffected.",
   "已停用": "Bot stopped",
   "此会话不支持仅为自己删除": "This chat cannot be deleted only for you.",
   "您已不在此群组或频道中": "You are no longer a member of this group or channel.",

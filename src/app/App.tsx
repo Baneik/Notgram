@@ -150,7 +150,7 @@ const confirmationText = (action: PendingConfirmation) => {
     };
     case "deleteChat": return {
       title: translate("删除“{{value0}}”？", { value0: action.title }),
-      description: translate("将为当前账号删除全部聊天记录及本地保留副本，并从会话列表移除。对方的聊天记录不受影响；收到新消息时，会话会重新出现。此操作无法撤销。"),
+      description: translate("将删除你的聊天记录，无法撤销。对方不受影响。"),
       confirmLabel: translate("删除"),
     };
     case "deleteFolder": return {
