@@ -297,7 +297,7 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   await expect(downloadButton).not.toBeFocused();
   await expect.poll(() => popup.evaluate(() => document.activeElement?.classList.contains("media-viewer-stage"))).toBe(true);
   const details = viewer.getByLabel("图片详细信息");
-  await expect(details.locator("span")).toHaveText(["数据中心：DC2", "尺寸：640 × 360", "大小：186 KB"]);
+  await expect(details.locator("span")).toHaveText(["数据中心：DC2, Amsterdam, NL", "尺寸：640 × 360", "大小：186 KB"]);
   await expect(details).toHaveCSS("text-align", "left");
   const caption = popup.locator(".media-viewer-caption");
   await expect(caption).toHaveText("新的媒体预览样式");
@@ -323,12 +323,13 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   expect(detailsBounds.x + detailsBounds.width).toBeLessThanOrEqual(thumbnailBounds.x);
   expect(captionBounds.y + captionBounds.height).toBeLessThan(thumbnailBounds.y);
   const imageViewport = popup.locator(".media-viewer-viewport");
+  const surface = popup.locator(".media-viewer-surface");
+  const fitted = (await surface.boundingBox())!;
   await imageViewport.hover();
   await popup.keyboard.down("Control"); await popup.mouse.wheel(0, -240); await popup.keyboard.up("Control");
-  const surface = popup.locator(".media-viewer-surface");
-  await expect(surface).toHaveAttribute("style", /scale\(1\.5\)/);
+  await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(fitted.width * 1.5, 1);
   await popup.keyboard.press("+");
-  await expect(surface).toHaveAttribute("style", /scale\(2\.25\)/);
+  await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(fitted.width * 2.25, 1);
   const beforePan = await surface.evaluate(element => (element as HTMLElement).style.transform);
   const imageBounds = (await imageViewport.boundingBox())!;
   await popup.mouse.move(imageBounds.x + imageBounds.width / 2, imageBounds.y + imageBounds.height / 2);
@@ -337,9 +338,10 @@ test("single-clicking a photo opens a dedicated fullscreen viewer with wheel zoo
   const previousNavigationBounds = await viewer.getByRole("button", { name: "上一张" }).boundingBox();
   await popup.keyboard.press("ArrowLeft");
   await expect(viewer).toHaveAttribute("aria-label", "图片查看器：纵向图片.jpg");
-  await expect(details.locator("span")).toHaveText(["数据中心：DC4", "尺寸：512 × 512", "大小：220 KB"]);
+  await expect(details.locator("span")).toHaveText(["数据中心：DC4, Amsterdam, NL", "尺寸：512 × 512", "大小：220 KB"]);
   await expect(popup.locator(".media-viewer-caption")).toHaveText("纵向图片应该按实际比例收窄，外壳不能留下额外空白。");
-  await expect(surface).toHaveAttribute("style", /scale\(1\)/);
+  await expect(popup.locator(".media-viewer-zoom")).toHaveCount(0);
+  await expect(surface).toHaveAttribute("style", /translate\(0px, 0px\)/);
   const nextNavigationBounds = await viewer.getByRole("button", { name: "下一张" }).boundingBox();
   expect(nextNavigationBounds!.y).toBeCloseTo(previousNavigationBounds!.y, 0);
   await thumbnails.getByRole("button", { name: "查看 界面预览.jpg" }).click();

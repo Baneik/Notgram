@@ -126,6 +126,9 @@ node. The thumbnail strip selects small sources and adapts its item count to ava
 two adjacent local originals are warmed, sequentially and at low priority, after the current original
 has decoded and navigation settles. Zoom input retains every delta and clamps each intermediate
 transform, while both zoom and drag painting coalesce to one write per animation frame.
+Zoom updates the surface's layout dimensions so the browser rasterizes the original at its displayed
+size; do not scale a fitted image layer or pin it with `will-change: transform`. Panning uses translation
+only. Zoom limits must allow long images to reach actual size and 200% of the decoded dimensions.
 Viewer session updates coalesce file progress, ignore duplicate initialization, and cancel pending
 initialization/prefetch when replaced, closed, or the main account changes. Media-window focus return
 continues to follow the shared focus contract.

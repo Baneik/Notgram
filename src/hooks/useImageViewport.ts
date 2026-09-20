@@ -16,7 +16,14 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
     const { image, viewport, center } = geometry.current;
     transform.current = clampImageTransform(transform.current, image, viewport, center);
     const { zoom: scale, x, y } = transform.current;
-    if (surfaceRef.current) surfaceRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    if (surfaceRef.current) {
+      // Rasterize at the displayed size: scaling a fitted composited layer loses
+      // detail on long images. Keep pan/zoom in one style write per frame.
+      surfaceRef.current.style.cssText =
+        `left: ${viewport.width / 2 + center.x}px; top: ${viewport.height / 2 + center.y}px; ` +
+        `width: ${(image.width * scale).toFixed(4)}px; height: ${(image.height * scale).toFixed(4)}px; ` +
+        `transform: translate(${x}px, ${y}px);`;
+    }
   }, []);
 
   const schedulePaint = () => {
@@ -48,13 +55,9 @@ export function useImageViewport(identity: string, dimensions: ImageSize) {
       // Fit above the controls; enlarged pixels and pan bounds use the entire screen.
       const image = fitImage(dimensions, { width: Math.max(1, fit.width - 112), height: Math.max(1, fit.height - 32) });
       const actualZoom = dimensions.width / image.width;
-      geometry.current = { viewport, image, center, actualZoom, maxZoom: Math.max(4, Math.min(32, actualZoom * 2)) };
-      if (surfaceRef.current) {
-        surfaceRef.current.style.left = `${viewport.width / 2 + center.x}px`;
-        surfaceRef.current.style.top = `${viewport.height / 2 + center.y}px`;
-        surfaceRef.current.style.width = `${image.width}px`;
-        surfaceRef.current.style.height = `${image.height}px`;
-      }
+      // The limit is relative to source pixels, so even very long images can
+      // reach actual size and 200% regardless of their fitted scale.
+      geometry.current = { viewport, image, center, actualZoom, maxZoom: Math.max(4, actualZoom * 2) };
       setPixelRatio(image.width / dimensions.width);
       paint();
     };

@@ -14,19 +14,30 @@ async function openFixture(page: Page, previewOnly = false, options: {
   thumbnailGate?: Promise<void>;
   neighborGate?: Promise<void>;
   onRequest?: (path: string) => void;
+  originalSize?: { width: number; height: number };
+  detailPattern?: boolean;
 } = {}) {
   await page.route("**/viewer-fixture.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Viewer fixture</title>" }));
   await page.goto("/viewer-fixture.html");
-  const images = await page.evaluate(() => {
-    const render = (width: number, height: number) => {
+  const originalSize = options.originalSize ?? { width: 3200, height: 2000 };
+  const images = await page.evaluate(({ originalSize, detailPattern }) => {
+    const render = (width: number, height: number, patterned = false) => {
       const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
       const context = canvas.getContext("2d")!;
+      if (patterned) {
+        const tile = document.createElement("canvas"); tile.width = 4; tile.height = 4;
+        const pixels = tile.getContext("2d")!;
+        pixels.fillStyle = "white"; pixels.fillRect(0, 0, 4, 4);
+        pixels.fillStyle = "black"; pixels.fillRect(0, 0, 2, 2); pixels.fillRect(2, 2, 2, 2);
+        context.fillStyle = context.createPattern(tile, "repeat")!; context.fillRect(0, 0, width, height);
+        return canvas.toDataURL("image/png").split(",")[1]!;
+      }
       context.fillStyle = "#3f7969"; context.fillRect(0, 0, width, height);
       context.fillStyle = "#e2d5a4"; context.fillRect(width / 4, height / 4, width / 2, height / 2);
       return canvas.toDataURL("image/jpeg").split(",")[1]!;
     };
-    return { original: render(3200, 2000), thumbnail: render(160, 100) };
-  });
+    return { original: render(originalSize.width, originalSize.height, detailPattern), thumbnail: render(160, 100) };
+  }, { originalSize, detailPattern: options.detailPattern });
   const requests: string[] = [];
   await page.route("**/viewer-image/**", async route => {
     const pathname = new URL(route.request().url()).pathname;
@@ -37,11 +48,12 @@ async function openFixture(page: Page, previewOnly = false, options: {
     if (pathname === "/viewer-image/original-5.jpg") await options.neighborGate;
     if (pathname.includes("delayed")) await new Promise(resolve => setTimeout(resolve, 600));
     if (pathname.includes("failed")) { await route.abort(); return; }
-    await route.fulfill({ contentType: "image/jpeg", body: Buffer.from(pathname.includes("thumb") ? images.thumbnail : images.original, "base64") });
+    const thumbnail = pathname.includes("thumb");
+    await route.fulfill({ contentType: !thumbnail && options.detailPattern ? "image/png" : "image/jpeg", body: Buffer.from(thumbnail ? images.thumbnail : images.original, "base64") });
   });
   const messages: PhotoMessage[] = Array.from({ length: 15 }, (_, index) => ({
     id: `photo-${index}`, chatId: "viewer-fixture", senderId: "fixture", outgoing: false, sentAt: "2026-09-14T00:00:00Z", delivery: "read",
-    content: { kind: "media", mediaType: "photo", fileName: `image-${index}.jpg`, sizeLabel: "2 MB", width: 3200, height: 2000,
+    content: { kind: "media", mediaType: "photo", fileName: `image-${index}.jpg`, sizeLabel: "2 MB", ...originalSize,
       localPath: previewOnly && index === 6 ? undefined : `/viewer-image/original-${index}.jpg`,
       thumbnailPath: `/viewer-image/thumb-${index}.jpg`,
       isDownloaded: !(previewOnly && index === 6), dataCenterId: 5, remoteId: "AwADBAADewAPKgQ",
@@ -139,11 +151,12 @@ test("neighbor warming is sequential and cancels the remaining queue when naviga
   }
 });
 
-test("zoom wheel bursts preserve every delta with one transform write per frame", async ({ page }) => {
+test("zoom wheel bursts preserve every delta with one style write per frame", async ({ page }) => {
   await openFixture(page);
   const result = await page.evaluate(async () => {
     const viewport = document.querySelector(".media-viewer-viewport")!;
     const surface = document.querySelector<HTMLElement>(".media-viewer-surface")!;
+    const width = surface.getBoundingClientRect().width;
     let writes = 0;
     const observer = new MutationObserver(records => { writes += records.length; });
     observer.observe(surface, { attributes: true, attributeFilter: ["style"] });
@@ -152,7 +165,7 @@ test("zoom wheel bursts preserve every delta with one transform write per frame"
     }));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     observer.disconnect();
-    return { writes, scale: new DOMMatrix(getComputedStyle(surface).transform).a };
+    return { writes, scale: surface.getBoundingClientRect().width / width };
   });
   expect(result.scale).toBeCloseTo(Math.exp(100 * Math.log(1.5) / 240), 4);
   expect(result.writes).toBeGreaterThan(0);
@@ -170,14 +183,16 @@ async function replaceOriginal(page: Page, source: string) {
 
 test("original upgrades retain painted pixels and the exact viewport during loading and errors", async ({ page }) => {
   await openFixture(page, true);
-  await page.keyboard.press("+");
   const surface = page.locator(".media-viewer-surface");
+  const fitted = (await surface.boundingBox())!;
+  await page.keyboard.press("+");
+  await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(fitted.width * 1.5, 1);
   const viewport = page.locator(".media-viewer-viewport");
   const bounds = (await viewport.boundingBox())!;
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.down(); await page.mouse.move(bounds.x + bounds.width / 2 + 80, bounds.y + bounds.height / 2 + 40, { steps: 12 }); await page.mouse.up();
-  const before = await surface.evaluate(element => (element as HTMLElement).style.transform);
-  expect(before).toContain("scale(1.5)");
+  const before = await surface.boundingBox();
+  expect(before!.width).toBeCloseTo(fitted.width * 1.5, 1);
   await page.evaluate(() => {
     const state = { blankFrames: 0, retainedFrames: 0, running: true };
     (window as unknown as { upgradeSampling: typeof state }).upgradeSampling = state;
@@ -198,10 +213,10 @@ test("original upgrades retain painted pixels and the exact viewport during load
   });
   expect(sampling.blankFrames).toBe(0);
   expect(sampling.retainedFrames).toBeGreaterThan(10);
-  expect(await surface.evaluate(element => (element as HTMLElement).style.transform)).toBe(before);
+  expect(await surface.boundingBox()).toEqual(before);
   await replaceOriginal(page, "/viewer-image/failed-original.jpg");
   await expect(page.locator('.media-viewer-image[src="/viewer-image/thumb-6.jpg"][data-image-state="ready"]')).toHaveCount(1);
-  expect(await surface.evaluate(element => (element as HTMLElement).style.transform)).toBe(before);
+  expect(await surface.boundingBox()).toEqual(before);
 });
 
 test("thumbnails stay small and selected images remain visible at every viewport", async ({ page }) => {
@@ -263,7 +278,7 @@ test("drag bursts write once per frame and zooming keeps the pointed image detai
   await page.mouse.move(Math.round(bounds.x + bounds.width / 2 + 70), Math.round(bounds.y + bounds.height / 2 + 40));
   const before = await surface.boundingBox();
   await page.keyboard.down("Control"); await page.mouse.wheel(0, -240); await page.keyboard.up("Control");
-  await expect(surface).toHaveAttribute("style", /scale\(1\.5\)/);
+  await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(before!.width * 1.5, 1);
   const after = (await surface.boundingBox())!;
   const point = { x: Math.round(bounds.x + bounds.width / 2 + 70), y: Math.round(bounds.y + bounds.height / 2 + 40) };
   expect((point.x - after.x) / after.width).toBeCloseTo((point.x - before!.x) / before!.width, 4);
@@ -287,7 +302,8 @@ test("drag bursts write once per frame and zooming keeps the pointed image detai
   expect(writes).toBeGreaterThan(0);
   expect(writes).toBeLessThanOrEqual(2);
   await page.locator(".media-viewer-image").dblclick();
-  await expect(surface).toHaveAttribute("style", /translate\(0px, 0px\) scale\(1\)/);
+  await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(before!.width, 1);
+  await expect(surface).toHaveAttribute("style", /translate\(0px, 0px\)/);
 });
 
 test("late decodes cannot replace a newly selected image and captions clamp to five lines without scrollbars", async ({ page }) => {
@@ -378,3 +394,79 @@ test("light and dark themes keep metadata legible over a bright complex backgrou
     await expect(page.locator(".media-viewer-details")).toHaveCSS("font-weight", "500");
   }
 });
+
+for (const deviceScaleFactor of [1, 1.25, 2]) {
+  test.describe(`image detail at ${deviceScaleFactor} device scale`, () => {
+    test.use({ deviceScaleFactor });
+    for (const size of [
+      { width: 359, height: 8780 }, { width: 8780, height: 359 },
+      { width: 3200, height: 2000 }, { width: 2000, height: 3200 },
+      { width: 2048, height: 2048 }, { width: 64, height: 64 },
+      { width: 359, height: 30000 },
+    ]) {
+      test(`${size.width}x${size.height} retains original detail through zoom and pan`, async ({ page }, testInfo) => {
+        await openFixture(page, false, { originalSize: size, detailPattern: true });
+        const surface = page.locator(".media-viewer-surface");
+        const fitted = (await surface.boundingBox())!;
+        // Use the fitted integer axis so subpixel layout rounding is not
+        // magnified into a different target scale for very narrow images.
+        const actualZoom = Math.max(2, Number.isInteger(fitted.width) ? size.width / fitted.width : size.height / fitted.height);
+        const expected = size.width === 64 ? { width: 128, height: 128 } : size;
+        const point = { clientX: fitted.x + fitted.width / 2, clientY: fitted.y + fitted.height / 2 };
+        // Start with an intermediate zoom to exercise reuse of a previously painted layer.
+        await page.mouse.move(point.clientX, point.clientY);
+        await page.keyboard.down("Control"); await page.mouse.wheel(0, -240 * deviceScaleFactor); await page.keyboard.up("Control");
+        await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(fitted.width * 1.5, 1);
+        await page.locator(".media-viewer-viewport").dispatchEvent("wheel", {
+          bubbles: true, ctrlKey: true, ...point,
+          deltaY: -Math.log(actualZoom / 1.5) * 240 / Math.log(1.5),
+        });
+        await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(expected.width, 0);
+        await expect.poll(async () => (await surface.boundingBox())!.height).toBeCloseTo(expected.height, 0);
+        const bounds = (await surface.boundingBox())!;
+        const clip = { x: Math.ceil(bounds.x + bounds.width / 2 - 24), y: Math.ceil(bounds.y + bounds.height / 2 - 24), width: 48, height: 48 };
+        const actual = await page.screenshot({ clip, path: testInfo.outputPath("actual-detail.png") });
+        if (deviceScaleFactor === 1 && size.width !== 64) {
+          // At one device pixel per source pixel, require the detail of a fresh
+          // unscaled original as well, not just agreement between input paths.
+          await page.evaluate(({ bounds, size }) => {
+            const original = document.querySelector<HTMLImageElement>('.media-viewer-image[data-image-state="ready"]')!;
+            const reference = document.createElement("img"); reference.id = "quality-reference"; reference.src = original.src;
+            reference.style.cssText = `position: fixed; z-index: 999999; translate: -50% -50%; left: ${bounds.x + bounds.width / 2}px; top: ${bounds.y + bounds.height / 2}px; width: ${size.width}px; height: ${size.height}px; max-width: none; max-height: none;`;
+            document.body.append(reference);
+            return reference.decode();
+          }, { bounds, size });
+          const native = await page.screenshot({ clip, path: testInfo.outputPath("native-detail.png") });
+          expect(actual.equals(native), "100% zoom should retain the original pixels").toBe(true);
+          await page.locator("#quality-reference").evaluate(element => element.remove());
+        }
+        // Compare incremental wheel zoom with a direct jump to actual size.
+        // DOM dimensions alone cannot detect reuse of a blurry composited layer.
+        const viewport = page.locator(".media-viewer-viewport");
+        await viewport.dispatchEvent("dblclick", { bubbles: true, ...point });
+        await expect(page.locator(".media-viewer-zoom")).toHaveCount(0);
+        await viewport.dispatchEvent("dblclick", { bubbles: true, ...point });
+        await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(expected.width, 1);
+        const reference = await page.screenshot({ clip, path: testInfo.outputPath("reference-detail.png") });
+        expect(actual.equals(reference), "Ctrl+wheel and double click should paint the same original detail").toBe(true);
+
+        if (size.height > 800) {
+          await page.mouse.move(point.clientX, point.clientY);
+          await page.mouse.down();
+          await page.mouse.move(point.clientX, point.clientY + 120, { steps: 4 });
+          await page.mouse.up();
+          expect((await surface.boundingBox())!.y - bounds.y).toBeCloseTo(120, 1);
+        }
+        // The longest image must reach native size via double click as well as wheel input.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.keyboard.press("ArrowRight");
+        await expect(page.locator(".media-viewer-zoom")).toHaveCount(0);
+        const next = page.locator('.media-viewer-image[data-image-state="ready"]');
+        await next.dblclick();
+        await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(size.width === 64 ? 128 : size.width, 1);
+        await page.keyboard.press("+"); await page.keyboard.press("+");
+        await expect.poll(async () => (await surface.boundingBox())!.width).toBeCloseTo(size.width === 64 ? 256 : size.width * 2, 1);
+      });
+    }
+  });
+}
