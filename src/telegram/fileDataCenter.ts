@@ -68,6 +68,9 @@ const DATA_CENTER_LOCATIONS: Record<number, string> = {
   5: "Singapore, SG",
 };
 
+export const getTdlibDataCenterLocation = (id: number): string =>
+  DATA_CENTER_LOCATIONS[id] ?? translate("Telegram 数据中心");
+
 export interface TdlibDataCenterDetails {
   id?: number;
   location: string;
@@ -80,7 +83,7 @@ export const resolveTdlibDataCenter = async (
   for (const remoteId of remoteIds) {
     if (!remoteId) continue;
     const id = parseTdlibRemoteFileDataCenter(remoteId);
-    if (id) return { id, location: DATA_CENTER_LOCATIONS[id] ?? translate("Telegram 数据中心") };
+    if (id) return { id, location: getTdlibDataCenterLocation(id) };
   }
 
   try {
@@ -88,7 +91,7 @@ export const resolveTdlibDataCenter = async (
     const rawId = option.value;
     const id = typeof rawId === "number" ? rawId : Number(rawId);
     if (Number.isFinite(id) && id > 0) {
-      return { id, location: DATA_CENTER_LOCATIONS[id] ?? translate("Telegram 数据中心") };
+      return { id, location: getTdlibDataCenterLocation(id) };
     }
   } catch {
     // TDLib builds may not expose the internal dc_id option.

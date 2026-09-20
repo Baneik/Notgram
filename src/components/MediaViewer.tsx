@@ -1,5 +1,5 @@
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
-import { parseTdlibRemoteFileDataCenter } from "../telegram/fileDataCenter";
+import { getTdlibDataCenterLocation, parseTdlibRemoteFileDataCenter } from "../telegram/fileDataCenter";
 import { translate } from "../i18n";
 import { ChevronLeft, ChevronRight, Download, ImageOff, LoaderCircle, Play } from "lucide-react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type WheelEvent } from "react";
@@ -210,7 +210,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   // continue presenting the account's DC as this image's storage location.
   const dc = content.remoteId ? parseTdlibRemoteFileDataCenter(content.remoteId) : undefined;
   const imageDetails = [
-    translate("数据中心：{{value0}}", { value0: dc ? `DC${dc}` : translate("未知") }),
+    translate("数据中心：{{value0}}", { value0: dc ? `DC${dc}, ${getTdlibDataCenterLocation(dc)}` : translate("未知") }),
     translate("尺寸：{{value0}}", { value0: (video?.width && video.height) || naturalSize?.identity === identity || (content.width && content.height) ? `${dimensions.width} × ${dimensions.height}` : translate("未知") }),
     translate("大小：{{value0}}", { value0: content.sizeLabel }),
   ];
