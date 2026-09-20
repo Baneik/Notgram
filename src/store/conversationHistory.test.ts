@@ -30,6 +30,115 @@ const harness = (initial: Message[]) => {
 describe("conversation history ownership", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("repairs a persisted overnight gap even when the newest cached message is in the head page", async () => {
+    const h = harness([41, 42, 43, 198, 199, 200].map(message));
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 200;
+      return page(Array.from({ length: Math.min(30, from) }, (_, i) => from - i), from > 30);
+    });
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    expect(h.messages().map(m => Number(m.id))).toEqual(Array.from({ length: 180 }, (_, i) => i + 21));
+    expect(h.request).toHaveBeenCalledTimes(6);
+    h.history.clear();
+  });
+
+  it("keeps a budget-paused gap out of latest and resumes it after another reconnect", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 1000;
+      return page(Array.from({ length: Math.min(30, from) }, (_, i) => from - i), from > 30);
+    });
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("paused");
+    expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 270 }, (_, i) => i + 731));
+    expect(h.messages().some(m => m.id === "1")).toBe(true);
+    h.history.invalidate();
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("paused");
+    for (let i = 0; i < 4 && h.state().recovery !== "complete"; i++) await h.history.older("7");
+    expect(h.state().recovery).toBe("complete");
+    expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 1000 }, (_, i) => i + 1));
+    h.history.clear();
+  });
+
+  it("retries a failed gap from its committed refresh cursor on upward loading", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(100)]);
+    h.request.mockResolvedValueOnce(page([100, 99])).mockRejectedValueOnce(new Error("timeout"));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("failed");
+    expect(h.visible().map(m => m.id)).toEqual(["99", "100"]);
+    h.request.mockResolvedValueOnce(page([98, 97, 1]));
+    await h.history.older("7");
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "refresh", fromMessageId: "99" });
+    expect(h.state().recovery).toBe("complete");
+    expect(h.visible().map(m => m.id)).toEqual(["1", "97", "98", "99", "100"]);
+    const calls = h.request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.request).toHaveBeenCalledTimes(calls);
+    h.history.clear();
+  });
+
+  it("keeps a recovery gap pageable even when the old reader had exhausted history", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1)]);
+    h.request.mockResolvedValueOnce(page([1], false));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().hasMore).toBe(false);
+    h.history.invalidate();
+    h.request.mockResolvedValueOnce(page([100, 99])).mockRejectedValueOnce(new Error("offline"));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state()).toMatchObject({ recovery: "failed", hasMore: true });
+    h.request.mockResolvedValueOnce(page([98, 1], false));
+    await h.history.older("7");
+    expect(h.state()).toMatchObject({ recovery: "complete", hasMore: false });
+    expect(h.visible().map(m => m.id)).toEqual(["1", "98", "99", "100"]);
+    h.history.clear();
+  });
+
+  it("rejoins the entire validated old tail before resuming its older reader cursor", async () => {
+    const h = harness([40, 60, 100].map(message));
+    h.request.mockResolvedValueOnce(page([100, 60, 40]));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    h.history.invalidate();
+    h.request.mockResolvedValueOnce(page([150, 149])).mockResolvedValueOnce(page([148, 100]));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    expect(h.visible().map(m => m.id)).toEqual(["40", "60", "100", "148", "149", "150"]);
+    h.request.mockResolvedValueOnce(page([39, 38]));
+    await h.history.older("7");
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "older", fromMessageId: "40" });
+    expect(h.visible().map(m => m.id)).toEqual(["38", "39", "40", "60", "100", "148", "149", "150"]);
+    h.history.clear();
+  });
+
+  it("preserves a cached reading target and saves the detached cache for restart", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(2), message(100)]);
+    h.history.focus("7", undefined, "1");
+    h.request.mockResolvedValueOnce(page([100, 99])).mockRejectedValueOnce(new Error("timeout"));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().view?.id).toBe("context:1");
+    expect(h.visible().map(m => m.id)).toEqual(["1", "2"]);
+    const contexts = h.history.cachedContexts(h.messages());
+    const restored = harness(h.messages());
+    restored.history.restoreContexts(contexts);
+    expect(restored.visible().map(m => m.id)).toEqual(["99", "100"]);
+    restored.history.focus("7", undefined, "1");
+    expect(restored.visible().map(m => m.id)).toEqual(["1", "2"]);
+    h.history.clear();
+    restored.history.clear();
+  });
+
   it("admits restored deletion archives only as reader pages reach their history range", async () => {
     const retained = [1, 20, 40, 59, 61].map(id => ({ ...message(id), isLocallyDeleted: true }));
     const h = harness(upsertMessages([message(60), message(62)], retained));
@@ -105,8 +214,12 @@ describe("conversation history ownership", () => {
 
   it("preserves an admitted oldest message when it is deleted or a refresh overlaps a warm cache", async () => {
     const h = harness([message(40), message(60), message(100)]);
+    h.request.mockResolvedValueOnce(page([100, 60, 40]));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
     h.history.focus("7");
     h.merge([{ ...message(40), isLocallyDeleted: true }]);
+    h.history.invalidate();
     h.request.mockResolvedValue(page([100, 99, 98]));
     await h.history.ensure("7");
     await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
@@ -115,10 +228,11 @@ describe("conversation history ownership", () => {
 
   it("bounds duplicate-page walking and resumes from the committed cursor", async () => {
     vi.useFakeTimers();
-    const h = harness(Array.from({ length: 100 }, (_, i) => message(i + 1)));
+    const h = harness([message(100)]);
     h.request.mockImplementation(async (_chat, _topic, request) => page([request.fromMessageId ? Number(request.fromMessageId) - 1 : 100]));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
+    h.merge(Array.from({ length: 100 }, (_, i) => message(i + 1)));
     await h.history.older("7");
     expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_REFRESH_PAGE_BUDGET);
     expect(h.state()).toMatchObject({ loading: false, hasMore: true });
@@ -130,10 +244,11 @@ describe("conversation history ownership", () => {
 
   it("keeps a partial duplicate walk retryable after a timeout", async () => {
     vi.useFakeTimers();
-    const h = harness([message(40), message(60), message(100)]);
+    const h = harness([message(100)]);
     h.request.mockResolvedValueOnce(page([100, 99]));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
+    h.merge([message(40), message(60)]);
     h.request.mockResolvedValueOnce(page([98, 97])).mockRejectedValueOnce(new Error("timeout"));
     await h.history.older("7");
     expect(h.state()).toMatchObject({ loading: false, hasMore: true });
@@ -168,6 +283,10 @@ describe("conversation history ownership", () => {
     const context = Array.from({ length: 31 }, (_, i) => message(100 + i));
     h.history.context("7", undefined, "115", context);
     h.merge(context);
+    h.request.mockResolvedValueOnce(page(Array.from({ length: 164 }, (_, i) => 10000 - i)));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    h.request.mockClear();
     h.request.mockResolvedValue(page(Array.from({ length: 30 }, (_, i) => 10000 - i)));
     for (let cycle = 0; cycle < 4; cycle++) {
       h.history.invalidate();

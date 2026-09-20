@@ -369,6 +369,20 @@ failures/stalls have a bounded three-attempt retry path using the existing retry
 accounts clears all window and retry ownership. Reconnect retires requests but preserves reader
 windows and their cursors.
 
+A cold cache has no continuity guarantee: it may contain an old tail plus a newer head page saved
+after an interrupted recovery. Its first refresh must walk through the oldest ordinary cached
+message outside explicit contexts, rather than stopping at the newest cached ID. After validation,
+ordinary reconnects use the recent boundary again. An unfinished refresh keeps its original boundary
+across further reconnects; accepting a newer page does not prove that the remaining gap is filled.
+
+When the head page has not reached that boundary, older unconfirmed cache records move into an
+existing-style context window. They remain available to saved reading anchors and are persisted via
+`historyContexts`, but cannot appear immediately adjacent to the head page in the latest timeline.
+Subsequent server pages admit them through the normal window merge. Upward loading resumes paused
+or failed refreshes from the committed refresh cursor and coalesces with an active refresh. Pending
+recovery keeps the latest window pageable even if its pre-disconnect reader had reached the oldest
+message. Completion restores that reader's exhaustion state; it does not delete unconfirmed records.
+
 Retained deletion archives have independent persistence and do not establish coverage of ordinary
 server history. A restored chat can contain only 60 recent ordinary messages alongside much older
 archives. Each window keeps its oldest covered message boundary; latest admits archives at or above

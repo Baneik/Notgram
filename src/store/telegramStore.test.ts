@@ -951,6 +951,7 @@ describe("telegram store", () => {
       folders: structuredClone(mockSnapshot.folders),
       chats: structuredClone(mockSnapshot.chats),
       messages: [olderMessage, missingMessage],
+      historyContexts: [{ chatId: "chat-product", targetId: olderMessage.id, messageIds: [olderMessage.id] }],
       activeChatId: "chat-product",
       chatFilter: "main",
     };
@@ -995,8 +996,8 @@ describe("telegram store", () => {
     await store.getState().initialize();
 
     const messages = store.getState().messages.get("chat-product") ?? [];
-    // Recovery only bridges the recent boundary. A distant cached record does
-    // not demand a background scan; it remains available to explicit paging.
+    // An explicitly isolated context is not a recovery boundary. Unconfirmed
+    // records in either window remain cached until an explicit deletion.
     expect(transport.historyRequests).toBe(1);
     expect(messages).toHaveLength(31);
     expect(messages.some((message) => message.id === missingMessage.id)).toBe(true);

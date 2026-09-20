@@ -68,6 +68,7 @@ const extendRange = (window: Window, messages: Message[]) => {
 
 interface Refresh {
   boundary: Set<string>;
+  detachedIds?: Set<string>;
   cursor?: string;
   pages: number;
   failures: number;
@@ -83,6 +84,7 @@ interface Scope {
   selected: Window;
   excluded: Set<string>;
   needsRefresh: boolean;
+  validated?: boolean;
   refresh?: Refresh;
   targetId?: string;
   view?: HistoryWindowView;
@@ -164,7 +166,8 @@ export class ConversationHistory {
 
   private view(scope: Scope): HistoryWindowView {
     const ids = scope.selected === scope.latest ? undefined : scope.selected.ids;
-    const { oldest, newest, hasMore } = scope.selected;
+    const { oldest, newest } = scope.selected;
+    const hasMore = scope.selected.hasMore || (scope.selected === scope.latest && Boolean(scope.refresh));
     if (scope.view?.id === scope.selected.id && scope.view.excludedIds === scope.excluded && scope.view.messageIds === ids &&
       scope.view.oldest === oldest && scope.view.newest === newest && scope.view.hasMore === hasMore) return scope.view;
     scope.view = { id: scope.selected.id, excludedIds: scope.excluded, messageIds: ids, oldest, newest, hasMore };
@@ -173,9 +176,10 @@ export class ConversationHistory {
 
   private publish(scope: Scope, patch: Partial<ConversationHistoryState> = {}, page?: ChatHistoryPage) {
     const previous = this.host.state(scope.chatId, scope.topicId);
+    const view = this.view(scope);
     this.host.publish(scope.chatId, scope.topicId, {
       loading: false, initialized: previous?.initialized ?? false,
-      ...previous, ...patch, hasMore: scope.selected.hasMore, view: this.view(scope),
+      ...previous, ...patch, hasMore: view.hasMore!, view,
       ...(scope.selected.loading ? { loading: true, background: false } : {}),
     }, page);
   }
@@ -193,11 +197,11 @@ export class ConversationHistory {
     this.pending.clear();
     for (const scope of this.scopes.values()) {
       scope.needsRefresh = true;
-      const newest = this.host.messages(scope.chatId, scope.topicId)
-        .filter(message => !scope.excluded.has(message.id) && !message.isLocallyDeleted &&
-          !message.isPending && message.delivery !== "sending" && message.delivery !== "failed").at(-1);
-      scope.refresh = { boundary: new Set(newest ? [newest.id] : []), pages: 0, failures: 0,
-        advancesReader: !scope.latest.cursor, ownedCursor: scope.latest.cursor };
+      const previous = scope.refresh;
+      scope.refresh = { boundary: previous?.boundary ?? this.refreshBoundary(scope), pages: 0, failures: 0,
+        detachedIds: previous?.detachedIds,
+        advancesReader: !scope.latest.cursor || Boolean(previous?.advancesReader && previous.ownedCursor === scope.latest.cursor),
+        ownedCursor: scope.latest.cursor };
       for (const window of [scope.latest, ...scope.contexts.values()]) {
         window.loading = false;
         window.failures = 0;
@@ -315,7 +319,10 @@ export class ConversationHistory {
 
   older(chatId: string, topicId?: string) {
     const scope = this.scope(chatId, topicId);
-    if (scope.selected === scope.latest && scope.refresh && this.host.state(chatId, topicId)?.recovery === "paused") {
+    const recovery = this.host.state(chatId, topicId)?.recovery;
+    if (scope.selected === scope.latest && scope.refresh && recovery && recovery !== "complete") {
+      const pending = this.pending.get(`${historyScopeKey(chatId, topicId)}:refresh`);
+      if (pending) return pending;
       scope.refresh.pages = 0;
       scope.refresh.failures = 0;
       return this.refresh(scope);
@@ -369,15 +376,45 @@ export class ConversationHistory {
       ? operation() : Promise.resolve();
   }
 
+  private refreshBoundary(scope: Scope) {
+    const messages = this.host.messages(scope.chatId, scope.topicId)
+      .filter(message => !scope.excluded.has(message.id) && serverMessage(message));
+    // A restored cache may already contain a new head page and an old tail with
+    // a hole between them. Only a server walk through its oldest record validates it.
+    const boundary = scope.validated ? messages.at(-1) : messages[0];
+    return new Set(boundary ? [boundary.id] : []);
+  }
+
+  private separateUncoveredCache(scope: Scope, page: ChatHistoryPage) {
+    const returned = page.messages ?? this.host.messages(scope.chatId, scope.topicId)
+      .filter(message => page.messageIds.includes(message.id));
+    const oldest = returned.filter(serverMessage).sort(compareMessages)[0];
+    if (!oldest) return;
+    const cached = this.host.messages(scope.chatId, scope.topicId).filter(message =>
+      !scope.excluded.has(message.id) && serverMessage(message) && compareMessages(message, oldest) < 0);
+    if (!cached.length) return;
+    // Keep the old reading checkpoint available through the existing context
+    // navigation/cache path, without presenting the unfilled gap as adjacent rows.
+    const target = cached.find(message => message.id === scope.targetId) ?? cached.at(-1)!;
+    const window: Window = { id: `context:${target.id}`, ids: new Set(cached.map(message => message.id)),
+      cursor: cached[0].id, hasMore: true };
+    extendRange(window, cached);
+    scope.contexts.set(window.id, window);
+    scope.excluded = new Set([...scope.excluded, ...window.ids]);
+    const refresh = scope.refresh!;
+    refresh.detachedIds = new Set([...(refresh.detachedIds ?? []), ...window.ids]);
+    if (scope.selected === scope.latest && scope.targetId && window.ids.has(scope.targetId)) scope.selected = window;
+    scope.latest.oldest = scope.latest.newest = undefined;
+    extendRange(scope.latest, this.host.messages(scope.chatId, scope.topicId)
+      .filter(message => !scope.excluded.has(message.id) && serverMessage(message)));
+  }
+
   private refresh(scope: Scope) {
     const key = `${historyScopeKey(scope.chatId, scope.topicId)}:refresh`;
     const generation = this.generation;
     return this.run(key, async () => {
       if (!this.current(scope, generation)) return;
-      const newest = this.host.messages(scope.chatId, scope.topicId)
-        .filter(message => !scope.excluded.has(message.id) && !message.isLocallyDeleted &&
-          !message.isPending && message.delivery !== "sending" && message.delivery !== "failed").at(-1);
-      const refresh = scope.refresh ??= { boundary: new Set(newest ? [newest.id] : []), pages: 0, failures: 0,
+      const refresh = scope.refresh ??= { boundary: this.refreshBoundary(scope), pages: 0, failures: 0,
         advancesReader: !scope.latest.cursor, ownedCursor: scope.latest.cursor };
       const startedAt = performance.now();
       const beforeCount = this.host.messages(scope.chatId, scope.topicId).length;
@@ -390,6 +427,11 @@ export class ConversationHistory {
           const previousCursor = refresh.cursor;
           refresh.cursor = page.nextFromMessageId ?? page.messageIds.at(-1) ?? refresh.cursor;
           refresh.pages++;
+          const boundaryReached = refresh.boundary.size === 0 ||
+            page.messageIds.some(id => refresh.boundary.has(id)) ||
+            reachedCachedHistoryBoundary(refresh.boundary, new Set(page.messageIds));
+          const complete = !page.hasMore || (!page.stalled && boundaryReached);
+          if (!previousCursor && !complete) this.separateUncoveredCache(scope, page);
           // Refresh must not consume an existing reader's older cursor.
           const previousReaderCursor = scope.latest.cursor;
           const previousHasMore = scope.latest.hasMore;
@@ -399,19 +441,27 @@ export class ConversationHistory {
             scope.latest.cursor = previousReaderCursor;
             scope.latest.hasMore = previousHasMore && page.hasMore;
           } else refresh.ownedCursor = scope.latest.cursor;
-          const boundaryReached = refresh.boundary.size === 0 ||
-            page.messageIds.some(id => refresh.boundary.has(id)) ||
-            reachedCachedHistoryBoundary(refresh.boundary, new Set(page.messageIds));
-          const complete = !page.hasMore || (!page.stalled && boundaryReached);
           stopReason = complete ? 1 : page.stalled || refresh.cursor === previousCursor ? 2 : 0;
-          this.publish(scope, { loading: false, background: false, initialized: true, recovery: complete ? "complete" : "refreshing" }, page);
-          scope.firstPage?.resolve();
           if (complete) {
+            // The whole detached cache is now inside the validated server walk.
+            // Restore it before resuming the pre-reconnect older reader cursor;
+            // that cursor may already be below records absent from this response.
+            if (refresh.detachedIds) {
+              scope.excluded = new Set([...scope.excluded].filter(id => !refresh.detachedIds!.has(id)));
+              extendRange(scope.latest, this.host.messages(scope.chatId, scope.topicId)
+                .filter(message => refresh.detachedIds!.has(message.id) && serverMessage(message)));
+              if (scope.selected !== scope.latest && [...scope.selected.ids].every(id => !scope.excluded.has(id))) {
+                scope.selected = scope.latest;
+              }
+            }
             scope.needsRefresh = false;
+            scope.validated = true;
             scope.refresh = undefined;
             this.retries.complete(key);
-            break;
           }
+          this.publish(scope, { loading: false, background: false, initialized: true, recovery: complete ? "complete" : "refreshing" }, page);
+          scope.firstPage?.resolve();
+          if (complete) break;
           if (stopReason === 2) {
             if (++refresh.failures < HISTORY_RETRY_BUDGET) this.retries.schedule(key, () => this.retry(scope, () => this.refresh(scope)));
             break;
