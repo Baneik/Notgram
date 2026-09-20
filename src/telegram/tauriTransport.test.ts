@@ -254,12 +254,13 @@ describe("TauriTelegramTransport startup", () => {
     expect(events).toEqual([]);
   });
 
-  it("deletes only private history and rejects stale reads without dropping newer messages", async () => {
+  it.each([false, true])("deletes private history forEveryone=%s without dropping newer messages", async forEveryone => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
     const events: TelegramEvent[] = [];
     const raw = { ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: true,
+      can_be_deleted_for_all_users: true,
       last_message: rawMessage(100) };
     internal.finishInitialChatSync();
     internal.upsertChat(raw);
@@ -277,9 +278,9 @@ describe("TauriTelegramTransport startup", () => {
       internal.emitMessage(rawMessage(200));
       return { "@type": "ok" };
     };
-    await expect(transport.deletePrivateChat("7")).resolves.toBeUndefined();
+    await expect(transport.deletePrivateChat("7", forEveryone)).resolves.toBeUndefined();
     expect(requests.filter(request => request["@type"] === "deleteChatHistory")).toEqual([{
-      "@type": "deleteChatHistory", chat_id: 7, remove_from_chat_list: true, revoke: false,
+      "@type": "deleteChatHistory", chat_id: 7, remove_from_chat_list: true, revoke: forEveryone,
     }]);
     expect(events).toContainEqual(expect.objectContaining({ type: "message.remove", messageId: "50", source: "local" }));
     expect(events).toContainEqual({ type: "chat.historyDeleted", chatId: "7", lastMessageId: "100" });
@@ -294,6 +295,30 @@ describe("TauriTelegramTransport startup", () => {
     internal.request = vi.fn(async () => ({ ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: permission }));
     await expect(transport.deletePrivateChat("7")).rejects.toThrow("仅为自己删除");
     expect(internal.request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, undefined])("never downgrades both-sides deletion when fresh permission is %s", async permission => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.finishInitialChatSync();
+    internal.upsertChat({ ...rawChat(7, 1_700_000_007), can_be_deleted_for_all_users: true });
+    internal.request = vi.fn(async () => ({ ...rawChat(7, 1_700_000_007),
+      can_be_deleted_only_for_self: true, can_be_deleted_for_all_users: permission }));
+    await expect(transport.deletePrivateChat("7", true)).rejects.toThrow("为双方删除");
+    expect(internal.request).toHaveBeenCalledTimes(1);
+    expect(internal.request).toHaveBeenCalledWith({ "@type": "getChat", chat_id: 7 });
+  });
+
+  it("allows both-sides deletion when deleting only for self is unavailable", async () => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    internal.finishInitialChatSync();
+    internal.request = vi.fn(async request => request["@type"] === "getChat"
+      ? { ...rawChat(7, 1_700_000_007), can_be_deleted_only_for_self: false, can_be_deleted_for_all_users: true }
+      : { "@type": "ok" });
+    await expect(transport.deletePrivateChat("7", true)).resolves.toBeUndefined();
+    expect(internal.request).toHaveBeenCalledWith({ "@type": "deleteChatHistory", chat_id: 7,
+      remove_from_chat_list: true, revoke: true });
   });
 
   it("synchronizes bot blocking from both request acknowledgements and remote updates", async () => {

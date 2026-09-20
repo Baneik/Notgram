@@ -17,6 +17,14 @@ import {
 
 describe("TDLib mapper", () => {
   it.each([
+    [true, false], [false, true], [true, true], [false, false], [undefined, undefined],
+  ])("maps chat deletion scopes independently: self=%s, everyone=%s", (self, everyone) => {
+    const chat = mapTdChat({ id: 7, type: { "@type": "chatTypePrivate", user_id: 7 },
+      can_be_deleted_only_for_self: self, can_be_deleted_for_all_users: everyone }, "1");
+    expect(chat).toMatchObject({ canDeleteForSelf: self === true, canDeleteForAllUsers: everyone === true });
+  });
+
+  it.each([
     [undefined, true, false, true],
     [false, true, false, false],
     [true, true, false, true],

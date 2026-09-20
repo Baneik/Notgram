@@ -34,7 +34,7 @@ describe("chat list actions", () => {
     expect(store.getState().operationError).toBe("new account error");
   });
 
-  it("deletes private history, including retained copies, without deleting another chat", async () => {
+  it.each([false, true])("deletes private history and retained copies with forEveryone=%s", async forEveryone => {
     const transport = new ChatActionTransport();
     const store = createTelegramStore(transport);
     await store.getState().initialize();
@@ -43,7 +43,9 @@ describe("chat list actions", () => {
     const old = store.getState().messages.get("chat-mia")![0];
     transport.publish({ type: "message.upsert", message: { ...old, id: "retained-copy", isLocallyDeleted: true } });
     const product = store.getState().chats.get("chat-product");
-    await expect(store.getState().deletePrivateChat("chat-mia")).resolves.toBe(true);
+    const deleting = vi.spyOn(transport, "deletePrivateChat");
+    await expect(store.getState().deletePrivateChat("chat-mia", forEveryone)).resolves.toBe(true);
+    expect(deleting).toHaveBeenCalledWith("chat-mia", forEveryone);
     expect(store.getState().messages.get("chat-mia")).toEqual([]);
     expect(store.getState().chats.get("chat-mia")?.folderIds).toEqual([]);
     expect(store.getState().activeChatId).not.toBe("chat-mia");
@@ -102,6 +104,13 @@ describe("chat list actions", () => {
     const chat = store.getState().chats.get("chat-mia")!;
     transport.publish({ type: "chat.upsert", chat: { ...chat, canDeleteForSelf: undefined } });
     await expect(store.getState().deletePrivateChat(chat.id)).resolves.toBe(false);
+    for (const permission of [false, undefined]) {
+      transport.publish({ type: "chat.upsert", chat: { ...chat, canDeleteForAllUsers: permission } });
+      await expect(store.getState().deletePrivateChat(chat.id, true)).resolves.toBe(false);
+    }
+    for (const id of ["chat-product", "chat-release", "chat-saved"]) {
+      await expect(store.getState().deletePrivateChat(id, true)).resolves.toBe(false);
+    }
     expect(deleting).not.toHaveBeenCalled();
   });
 

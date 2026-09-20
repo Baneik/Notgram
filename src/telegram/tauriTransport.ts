@@ -1849,12 +1849,13 @@ export class TauriTelegramTransport implements TelegramTransport {
     await this.refreshChatMembership(chatId);
   }
 
-  async deletePrivateChat(chatId: string) {
+  async deletePrivateChat(chatId: string, forEveryone = false) {
     const generation = this.sessionGeneration;
     const raw = await this.refreshChat(chatId);
     if (generation !== this.sessionGeneration) return;
-    if (this.mapChat(raw)?.kind !== "direct" || raw.can_be_deleted_only_for_self !== true) {
-      throw new Error(translate("此会话不支持仅为自己删除"));
+    if (this.mapChat(raw)?.kind !== "direct" ||
+      (forEveryone ? raw.can_be_deleted_for_all_users : raw.can_be_deleted_only_for_self) !== true) {
+      throw new Error(forEveryone ? translate("此会话不支持为双方删除") : translate("此会话不支持仅为自己删除"));
     }
     this.localHistoryDeleteIntents.add(chatId);
     let lastMessageId = this.deletedHistory.get(chatId) ?? "0";
@@ -1870,7 +1871,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         "@type": "deleteChatHistory",
         chat_id: numericId(chatId),
         remove_from_chat_list: true,
-        revoke: false,
+        revoke: forEveryone,
       });
       if (generation !== this.sessionGeneration) return;
       this.deletedHistory.set(chatId, lastMessageId);

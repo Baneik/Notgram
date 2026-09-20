@@ -2507,6 +2507,9 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .confirm-action-heading { min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }
 .confirm-action-heading h3 { margin: 0; color: var(--ink); font-size: 16px; line-height: 1.4; font-weight: 650; }
 .confirm-action-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.confirm-action-checkbox { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; line-height: 1.5; cursor: pointer; }
+.confirm-action-checkbox input { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.confirm-action-checkbox:has(input:disabled) { opacity: 0.55; cursor: default; }
 .confirm-action-dialog > [role="alert"] { margin: 0; color: var(--color-status-danger); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .confirm-action-dialog .message-delete-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .confirm-action-dialog .message-delete-actions > button {

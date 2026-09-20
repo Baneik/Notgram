@@ -132,7 +132,8 @@ const conversationIdentityFor = (chatId: string, topicId?: string) =>
 
 type PendingConfirmation =
   | { kind: "leaveGroup"; chatId: string; title: string; channel: boolean }
-  | { kind: "deleteChat" | "stopBot"; chatId: string; title: string }
+  | { kind: "deleteChat"; chatId: string; title: string; offerForEveryone: boolean; forEveryone?: boolean }
+  | { kind: "stopBot"; chatId: string; title: string }
   | { kind: "deleteFolder"; folderId: string; title: string };
 
 const confirmationText = (action: PendingConfirmation) => {
@@ -150,7 +151,8 @@ const confirmationText = (action: PendingConfirmation) => {
     };
     case "deleteChat": return {
       title: translate("删除“{{value0}}”？", { value0: action.title }),
-      description: translate("将删除你的聊天记录，无法撤销。对方不受影响。"),
+      description: action.forEveryone ? translate("将删除双方的聊天记录，无法撤销。")
+        : translate("将删除你的聊天记录，无法撤销。对方不受影响。"),
       confirmLabel: translate("删除"),
     };
     case "deleteFolder": return {
@@ -1962,7 +1964,8 @@ export function App() {
           folderManagementPending={folderManagementPending}
           onSetPinned={setChatPinned}
           onSetMuted={setChatMuted}
-          onRequestDeleteChat={(chat) => setPendingConfirmation({ kind: "deleteChat", chatId: chat.id, title: chat.title })}
+          onRequestDeleteChat={(chat) => setPendingConfirmation({ kind: "deleteChat", chatId: chat.id,
+            title: chat.title, offerForEveryone: chat.canDeleteForAllUsers === true })}
           onRequestStopBot={(chat) => setPendingConfirmation({ kind: "stopBot", chatId: chat.id, title: chat.title })}
           onSetFolderMembership={setChatFolderMembership}
           onRequestLeaveGroup={(chat) => setPendingConfirmation({
@@ -2232,10 +2235,21 @@ export function App() {
         {pendingConfirmation ? <ConfirmActionDialog
           {...confirmationText(pendingConfirmation)}
           error={operationError}
+          checkbox={pendingConfirmation.kind === "deleteChat" &&
+            (pendingConfirmation.offerForEveryone || chats.get(pendingConfirmation.chatId)?.canDeleteForAllUsers === true) ? {
+              label: translate("为双方删除"),
+              checked: pendingConfirmation.forEveryone === true,
+              disabled: chats.get(pendingConfirmation.chatId)?.canDeleteForAllUsers !== true && !pendingConfirmation.forEveryone,
+              onChange: forEveryone => setPendingConfirmation(current => current?.kind === "deleteChat"
+                ? { ...current, offerForEveryone: true, forEveryone } : current),
+            } : undefined}
+          confirmDisabled={pendingConfirmation.kind === "deleteChat" &&
+            (pendingConfirmation.forEveryone ? chats.get(pendingConfirmation.chatId)?.canDeleteForAllUsers
+              : chats.get(pendingConfirmation.chatId)?.canDeleteForSelf) !== true}
           onConfirm={() => {
             switch (pendingConfirmation.kind) {
               case "leaveGroup": return leaveGroup(pendingConfirmation.chatId);
-              case "deleteChat": return deletePrivateChat(pendingConfirmation.chatId);
+              case "deleteChat": return deletePrivateChat(pendingConfirmation.chatId, pendingConfirmation.forEveryone === true);
               case "stopBot": return stopBot(pendingConfirmation.chatId);
               case "deleteFolder": return deleteChatFolder(pendingConfirmation.folderId);
             }

@@ -228,10 +228,11 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 .get("remove_from_chat_list")
                 .and_then(Value::as_bool)
                 != Some(true)
-                || request.get("revoke").and_then(Value::as_bool) != Some(false)
+                || request.get("revoke").and_then(Value::as_bool).is_none()
             {
                 return Err(
-                    "Chat history deletion must remove only the current user's history".to_string(),
+                    "Chat history deletion must remove the chat and specify a deletion scope"
+                        .to_string(),
                 );
             }
         }
@@ -1965,15 +1966,22 @@ mod tests {
     }
 
     #[test]
-    fn chat_history_deletion_cannot_revoke_history_for_other_users() {
+    fn chat_history_deletion_requires_an_explicit_boolean_scope() {
         let request = json!({
             "@type": "deleteChatHistory", "chat_id": 7, "remove_from_chat_list": true,
             "revoke": false, "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&request).is_ok());
+        let mut for_everyone = request.clone();
+        for_everyone["revoke"] = json!(true);
+        assert!(validate_webview_tdlib_request(&for_everyone).is_ok());
+        let mut missing_scope = request.clone();
+        missing_scope.as_object_mut().unwrap().remove("revoke");
+        assert!(validate_webview_tdlib_request(&missing_scope).is_err());
         for (field, value) in [
-            ("revoke", json!(true)),
             ("revoke", Value::Null),
+            ("revoke", json!("true")),
+            ("revoke", json!(1)),
             ("remove_from_chat_list", json!(false)),
             ("chat_id", json!(0)),
         ] {

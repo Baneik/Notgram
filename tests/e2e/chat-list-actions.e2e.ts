@@ -2,7 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import type { MockTelegramTransport } from "../../src/telegram/mockTransport";
 
 declare global {
-  interface Window { __chatActionsTransport: MockTelegramTransport }
+  interface Window {
+    __chatActionsTransport: MockTelegramTransport;
+    __chatDeletionScopes: boolean[];
+    __finishChatDeletion?: () => void;
+  }
 }
 
 const prepare = async (page: Page) => {
@@ -52,14 +56,17 @@ test("private chat deletion supports cancel, visible failure, and retry", async 
   await (await openMenu(page, "chat-mia", "Mia Chen")).getByRole("menuitem", { name: "删除", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "删除“Mia Chen”？" });
   await expect(dialog).toContainText("将删除你的聊天记录，无法撤销。对方不受影响。");
+  await expect(dialog.getByRole("checkbox", { name: "为双方删除" })).not.toBeChecked();
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await expect(row(page, "chat-mia")).toBeVisible();
   await page.evaluate(() => {
     const original = window.__chatActionsTransport.deletePrivateChat.bind(window.__chatActionsTransport);
     let fail = true;
-    window.__chatActionsTransport.deletePrivateChat = async id => {
+    window.__chatDeletionScopes = [];
+    window.__chatActionsTransport.deletePrivateChat = async (id, forEveryone) => {
+      window.__chatDeletionScopes.push(forEveryone === true);
       if (fail) { fail = false; throw new Error("CHAT_DELETE_FAILED"); }
-      return original(id);
+      return original(id, forEveryone);
     };
   });
   await (await openMenu(page, "chat-mia", "Mia Chen")).getByRole("menuitem", { name: "删除", exact: true }).click();
@@ -70,6 +77,89 @@ test("private chat deletion supports cancel, visible failure, and retry", async 
   await expect(dialog).toBeHidden();
   await expect(row(page, "chat-mia")).toHaveCount(0);
   await expect(page.locator(".conversation-title strong")).not.toHaveText("Mia Chen");
+  expect(await page.evaluate(() => window.__chatDeletionScopes)).toEqual([false, false]);
+});
+
+test("both-sides deletion requires explicit selection and preserves scope through failure and retry", async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => {
+    const original = window.__chatActionsTransport.deletePrivateChat.bind(window.__chatActionsTransport);
+    window.__chatDeletionScopes = [];
+    window.__chatActionsTransport.deletePrivateChat = async (id, forEveryone) => {
+      window.__chatDeletionScopes.push(forEveryone === true);
+      if (window.__chatDeletionScopes.length === 1) {
+        await new Promise<void>(resolve => { window.__finishChatDeletion = resolve; });
+        throw new Error("CHAT_DELETE_FAILED");
+      }
+      return original(id, forEveryone);
+    };
+  });
+  const open = async () => (await openMenu(page, "chat-mia", "Mia Chen"))
+    .getByRole("menuitem", { name: "删除", exact: true }).click();
+  await open();
+  const dialog = page.getByRole("dialog", { name: "删除“Mia Chen”？" });
+  const both = dialog.getByRole("checkbox", { name: "为双方删除" });
+  const remove = dialog.getByRole("button", { name: "删除", exact: true });
+  await both.check();
+  await expect(dialog).toContainText("将删除双方的聊天记录，无法撤销。");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  expect(await page.evaluate(() => window.__chatDeletionScopes)).toEqual([]);
+  await open();
+  await expect(both).not.toBeChecked();
+  await both.check();
+  await remove.click();
+  await expect(both).toBeDisabled();
+  await expect(remove).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => window.__finishChatDeletion?.());
+  await expect(dialog.getByRole("alert")).toHaveText("CHAT_DELETE_FAILED");
+  await expect(both).toBeChecked();
+  await remove.click();
+  await expect(dialog).toBeHidden();
+  await expect(row(page, "chat-mia")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__chatDeletionScopes)).toEqual([true, true]);
+});
+
+test("chat deletion respects independent and changing scope permissions", async ({ page }) => {
+  await prepare(page);
+  const permissions = async (self: boolean, everyone: boolean) => page.evaluate(async ({ self, everyone }) => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const chats = new Map(telegramStore.getState().chats);
+    chats.set("chat-mia", { ...chats.get("chat-mia")!, canDeleteForSelf: self, canDeleteForAllUsers: everyone });
+    telegramStore.setState({ chats });
+  }, { self, everyone });
+  await permissions(true, false);
+  const open = async () => (await openMenu(page, "chat-mia", "Mia Chen"))
+    .getByRole("menuitem", { name: "删除", exact: true }).click();
+  await open();
+  const dialog = page.getByRole("dialog", { name: "删除“Mia Chen”？" });
+  await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await permissions(false, true);
+  await open();
+  const remove = dialog.getByRole("button", { name: "删除", exact: true });
+  const both = dialog.getByRole("checkbox", { name: "为双方删除" });
+  await expect(both).not.toBeChecked();
+  await expect(remove).toBeDisabled();
+  await both.check();
+  await expect(remove).toBeEnabled();
+  await permissions(true, false);
+  await expect(both).toBeChecked();
+  await expect(remove).toBeDisabled();
+  await expect(dialog).toContainText("将删除双方的聊天记录，无法撤销。");
+  await both.uncheck();
+  await expect(both).toBeDisabled();
+  await expect(remove).toBeEnabled();
+  await expect(dialog).toContainText("对方不受影响。");
+  await page.keyboard.press("Escape");
+  await permissions(false, true);
+  await open();
+  await both.check();
+  await remove.click();
+  await expect(dialog).toBeHidden();
+  await expect(row(page, "chat-mia")).toHaveCount(0);
 });
 
 test("bot menu stops notifications through the Telegram blacklist and keeps history until deletion", async ({ page }) => {
@@ -93,6 +183,7 @@ test("bot menu stops notifications through the Telegram blacklist and keeps hist
   menu = await openMenu(page, botId, "Notgram Bot");
   await expect(menu.getByRole("menuitem", { name: "停用", exact: true })).toBeEnabled();
   await menu.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "删除“Notgram Bot”？" }).getByRole("checkbox")).toHaveCount(0);
   await page.getByRole("dialog", { name: "删除“Notgram Bot”？" }).getByRole("button", { name: "删除", exact: true }).click();
   await expect(row(page, botId)).toHaveCount(0);
 });
@@ -112,7 +203,7 @@ test("unavailable deletion and left membership stay disabled, including keyboard
   await page.evaluate(async () => {
     const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
     const chats = new Map(telegramStore.getState().chats);
-    chats.set("chat-mia", { ...chats.get("chat-mia")!, canDeleteForSelf: false });
+    chats.set("chat-mia", { ...chats.get("chat-mia")!, canDeleteForSelf: false, canDeleteForAllUsers: false });
     chats.set("chat-release", { ...chats.get("chat-release")!, isMember: false });
     telegramStore.setState({ chats });
   });

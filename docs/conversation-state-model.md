@@ -421,6 +421,22 @@ jump-return navigation, interrupted renders, bounded recovery continuation, inde
 cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
 adequate assertion for this failure mode.
 
+## Private chat history deletion
+
+The confirmation defaults to deleting only the current user's history. Deleting for both sides
+requires an explicit checkbox selection and `chat.canDeleteForAllUsers === true`, mapped from TDLib's
+`can_be_deleted_for_all_users`. The self-only and both-sides capabilities are independent; missing
+capabilities authorize neither scope. An open confirmation retains its selected scope through
+permission changes and failed attempts. Losing permission disables confirmation without silently
+changing scope, and the user can still deselect the both-sides option.
+
+The store checks the selected scope, and the native transport refreshes `getChat` before sending
+`deleteChatHistory(remove_from_chat_list=true, revoke=forEveryone)`. The Rust request validator requires
+an explicit boolean `revoke`; group/channel destruction via `deleteChat` remains unavailable.
+Both scopes share the existing history-deletion boundary, retained-copy cleanup, account-generation
+checks and protection for messages newer than the deleted history. Mock deletion validates scope and
+local cleanup; another account's server history requires native integration verification.
+
 ## Cached message media identity
 
 TDLib numeric file IDs are runtime handles, not persistent media identities. Both snapshot writing

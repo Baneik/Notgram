@@ -1836,6 +1836,7 @@ export const mapTdChat = (
     canCreateTopics: management?.canManageTopics === true || asTdObject(raw.permissions)?.can_create_topics === true,
     management,
     canDeleteForSelf: raw.can_be_deleted_only_for_self === true,
+    canDeleteForAllUsers: raw.can_be_deleted_for_all_users === true,
     isBlocked: asTdObject(raw.block_list)?.["@type"] === "blockListMain",
     ...(kind === "group" || kind === "channel" ? {
       isBanned: statusType === "chatMemberStatusBanned",

@@ -503,6 +503,7 @@ export interface Chat {
   management?: ChatManagementCapabilities;
   /** Server capabilities; missing values must not authorize destructive actions. */
   canDeleteForSelf?: boolean;
+  canDeleteForAllUsers?: boolean;
   isMember?: boolean;
   isBanned?: boolean;
   joinByRequest?: boolean;

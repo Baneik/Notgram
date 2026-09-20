@@ -770,9 +770,11 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
-  async deletePrivateChat(chatId: string) {
+  async deletePrivateChat(chatId: string, forEveryone = false) {
     const chat = this.snapshot.chats.find((item) => item.id === chatId);
-    if (chat?.kind !== "direct" || chat.canDeleteForSelf !== true) throw new Error("此会话不支持仅为自己删除");
+    if (chat?.kind !== "direct" || (forEveryone ? chat.canDeleteForAllUsers : chat.canDeleteForSelf) !== true) {
+      throw new Error(forEveryone ? "此会话不支持为双方删除" : "此会话不支持仅为自己删除");
+    }
     this.snapshot.messages = this.snapshot.messages.filter(message => message.chatId !== chatId);
     Object.assign(chat, { folderIds: [], pinnedFolderIds: [], listOrderByFolder: {}, pinned: false,
       preview: "暂无消息", unreadCount: 0, unreadMentionCount: 0, unreadReactionCount: 0 });
@@ -1047,6 +1049,7 @@ export class MockTelegramTransport implements TelegramTransport {
       id: `chat-contact-${user.id}`,
       kind: "direct",
       canDeleteForSelf: true,
+      canDeleteForAllUsers: !user.isBot,
       isBlocked: this.blockedSenders.has(`user:${user.id}`),
       folderIds: ["main"],
       title: user.displayName,
@@ -1578,6 +1581,7 @@ export class MockTelegramTransport implements TelegramTransport {
           id: `chat:bot:${user.id}`,
           kind: "direct",
           canDeleteForSelf: true,
+          canDeleteForAllUsers: false,
           isBlocked: this.blockedSenders.has(`user:${user.id}`),
           folderIds: ["main"],
           title: user.displayName,

@@ -7,6 +7,13 @@ interface ConfirmActionDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
+  confirmDisabled?: boolean;
+  checkbox?: {
+    label: string;
+    checked: boolean;
+    disabled?: boolean;
+    onChange: (checked: boolean) => void;
+  };
   error?: string;
   onConfirm: () => Promise<boolean>;
   onClose: () => void;
@@ -16,6 +23,8 @@ export function ConfirmActionDialog({
   title,
   description,
   confirmLabel,
+  confirmDisabled = false,
+  checkbox,
   error,
   onConfirm,
   onClose,
@@ -25,7 +34,7 @@ export function ConfirmActionDialog({
   const dialogRef = useModalFocus<HTMLElement>(onClose, pending);
 
   const confirm = async () => {
-    if (pending) return;
+    if (pending || confirmDisabled) return;
     setPending(true);
     setFailed(false);
     try {
@@ -57,10 +66,21 @@ export function ConfirmActionDialog({
           <h3 id="confirm-action-title">{title}</h3>
           <p id="confirm-action-description">{description}</p>
         </div>
+        {checkbox && (
+          <label className="confirm-action-checkbox">
+            <input
+              type="checkbox"
+              checked={checkbox.checked}
+              disabled={pending || checkbox.disabled}
+              onChange={event => checkbox.onChange(event.target.checked)}
+            />
+            <span>{checkbox.label}</span>
+          </label>
+        )}
         {failed && error && <p role="alert">{error}</p>}
         <div className="message-delete-actions">
           <button className="dialog-secondary" type="button" disabled={pending} onClick={onClose}>{translate("取消")}</button>
-          <button className="dialog-danger" type="button" disabled={pending} onClick={() => void confirm()}>
+          <button className="dialog-danger" type="button" disabled={pending || confirmDisabled} onClick={() => void confirm()}>
             {pending && <LoaderCircle className="spin" size={16} />}
             <span>{confirmLabel}</span>
           </button>

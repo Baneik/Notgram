@@ -927,6 +927,7 @@ export const mockSnapshot: TelegramSnapshot = {
     { id: "archive", title: "归档", iconName: "Archive" },
   ],
   chats: chats.map(chat => ({ ...chat, canDeleteForSelf: chat.kind === "direct",
+    canDeleteForAllUsers: chat.kind === "direct" && !users.find(user => user.id === chat.peerId)?.isBot,
     isBlocked: false, ...((chat.kind === "group" || chat.kind === "channel") ? { isMember: true } : {}) })),
   messages,
 };

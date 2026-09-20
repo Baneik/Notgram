@@ -3199,15 +3199,15 @@ export const createTelegramStore = (
         if (succeeded) selectAfterChatRemoval(chatId);
         return succeeded;
       },
-      deletePrivateChat: async (chatId) => {
+      deletePrivateChat: async (chatId, forEveryone = false) => {
         const chat = get().chats.get(chatId);
-        if (chat?.kind !== "direct" || chat.canDeleteForSelf !== true) {
-          set({ operationError: translate("此会话不支持仅为自己删除") });
+        if (chat?.kind !== "direct" || (forEveryone ? chat.canDeleteForAllUsers : chat.canDeleteForSelf) !== true) {
+          set({ operationError: forEveryone ? translate("此会话不支持为双方删除") : translate("此会话不支持仅为自己删除") });
           return false;
         }
         const version = historyDeletionVersions.get(chatId) ?? 0;
         const succeeded = await manageChat(chatId, translate("无法删除会话"),
-          translate("Telegram 未确认会话删除"), () => transport.deletePrivateChat(chatId),
+          translate("Telegram 未确认会话删除"), () => transport.deletePrivateChat(chatId, forEveryone),
           () => (historyDeletionVersions.get(chatId) ?? 0) > version);
         if (succeeded) selectAfterChatRemoval(chatId);
         return succeeded;
