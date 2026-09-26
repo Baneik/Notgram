@@ -296,6 +296,43 @@ test("stacked reply, attachments and choosers fit a narrow offline composer", as
   })).toBe(true);
   await expect(page.getByRole("button", { name: "发送附件", exact: true })).toBeInViewport();
 
+  // Finish attachment entrance and consecutive resize-observer deliveries before
+  // attributing any geometry changes to connection feedback.
+  await page.locator(".composer-wrap").evaluate(async wrap => {
+    await Promise.all(wrap.querySelector(".composer-attachment-preview")!.getAnimations()
+      .map(animation => animation.finished));
+    let previous = "";
+    let stableFrames = 0;
+    for (let frame = 0; frame < 30; frame += 1) {
+      await new Promise(requestAnimationFrame);
+      const bounds = wrap.getBoundingClientRect();
+      const signature = `${bounds.top}:${bounds.height}`;
+      stableFrames = signature === previous ? stableFrames + 1 : 0;
+      if (stableFrames === 3) return;
+      previous = signature;
+    }
+    throw new Error("Composer panels did not settle after resizing");
+  });
+
+  const panelGeometry = () => page.locator(".composer-wrap").evaluate(wrap => {
+    const scope = wrap.closest("[data-composer-scope]")!;
+    return [scope.querySelector(".message-list")!, wrap,
+      wrap.querySelector(".composer-attachment-grid")!, wrap.querySelector(".composer")!]
+      .map(element => {
+        const box = element.getBoundingClientRect();
+        return { top: box.top, height: box.height };
+      });
+  });
+  const offlineGeometry = await panelGeometry();
+  for (const status of ["online", "waitingForNetwork"] as const) {
+    await page.evaluate(async ({ path, status }) => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      telegramStore.setState({ connectionStatus: status });
+    }, { path: "/src/store/telegramStore.ts", status });
+    await expect(page.locator(".composer-connection-status")).toHaveCount(status === "online" ? 0 : 1);
+    expect(await panelGeometry()).toEqual(offlineGeometry);
+  }
+
   const panelFits = async (selector: string) => {
     const panel = page.locator(selector);
     await expect(panel).toBeVisible();

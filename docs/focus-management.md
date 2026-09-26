@@ -117,7 +117,10 @@ editor document and is suppressed from composition start, including empty preedi
 updating that visibility must never replace the composing document.
 
 Composer surfaces follow the same order in ordinary chats and discussions:
-connection/outbox status, reply or edit context, staged attachments, then the editor.
+outbox status, reply or edit context, staged attachments, then the editor.
+Connection feedback floats above that stack, without consuming pointer input or
+changing timeline/editor geometry as the network recovers. Text can wrap within
+the conversation width; foreground choosers remain above this passive feedback.
 Editing temporarily hides staged attachments and preserves their draft; attachment
 sending cannot consume the edit text. Choosers anchor above the actual editor height
 and fit below the owning conversation header. Only the foreground chooser handles

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { TelegramState } from "../../src/store/telegramStore.types";
-import type { ChatHistoryPage, Message, TelegramEvent } from "../../src/telegram/types";
+import type { ChatHistoryPage, ConnectionStatus, Message, TelegramEvent } from "../../src/telegram/types";
 
 const exposeRecoveryTransport = (page: Page) => page.route("**/src/telegram/mockTransport.ts", async (route) => {
   const response = await route.fetch();
@@ -79,6 +79,69 @@ test("system discovery errors explain the limitation and preserve unsaved proxy 
   await expect(settings.getByRole("radio", { name: "自定义" })).toBeChecked();
   await expect(settings.getByLabel("服务器")).toHaveValue("edited.example.test");
 });
+
+for (const presentation of [
+  { language: "en", themeId: "notgram-dark", interfaceScale: 125, width: 390, forced: false },
+  { language: "ja", themeId: "notgram-light", interfaceScale: 100, width: 390, forced: false },
+  { language: "zh-CN", themeId: "notgram-light", interfaceScale: 100, width: 1280, forced: true },
+] as const) {
+  for (const discussion of [false, true]) {
+    test(`connection feedback keeps ${discussion ? "discussion" : "chat"} geometry in ${presentation.language} (${presentation.themeId})`, async ({ page }) => {
+      await page.emulateMedia({ forcedColors: presentation.forced ? "active" : "none", reducedMotion: "reduce" });
+      await page.addInitScript(preferences => {
+        localStorage.setItem("notgram:preferences:v1", JSON.stringify(preferences));
+      }, presentation);
+      await page.goto("/");
+      await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      await page.locator(`.chat-list[data-active=true] [data-chat-id="${discussion ? "chat-release" : "chat-mia"}"]`).click();
+      if (discussion) {
+        await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+        await expect(page.locator(".channel-discussion-messages [data-message-id]").first()).toBeVisible();
+      } else {
+        await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      }
+      await page.setViewportSize({ width: presentation.width, height: 700 });
+      const scope = page.locator(discussion ? ".channel-discussion-panel" : ".conversation");
+      const editor = scope.getByRole("textbox");
+      await editor.fill("connection draft");
+      const geometry = () => scope.evaluate(element => {
+        const composer = element.querySelector(".composer")!.getBoundingClientRect();
+        const list = element.querySelector(".channel-discussion-messages, .message-list")!.getBoundingClientRect();
+        return { composerTop: composer.top, composerHeight: composer.height, listTop: list.top, listHeight: list.height };
+      });
+      const before = await geometry();
+      for (const status of ["connecting", "recovering", "waitingForNetwork", "offline", "syncing", "online", "proxyError"] as ConnectionStatus[]) {
+        const label = await page.evaluate(async ({ storePath, connectionPath, status }) => {
+          const { telegramStore } = await import(storePath) as typeof import("../../src/store/telegramStore");
+          const { connectionPresentation } = await import(connectionPath) as typeof import("../../src/telegram/connectionState");
+          telegramStore.setState({ connectionStatus: status });
+          return connectionPresentation(status).label;
+        }, { storePath: "/src/store/telegramStore.ts", connectionPath: "/src/telegram/connectionState.ts", status });
+        const indicator = scope.locator(".composer-connection-status");
+        if (status === "online" || status === "syncing") {
+          await expect(indicator).toHaveCount(0);
+        } else {
+          await expect(indicator).toHaveText(label);
+          await expect(indicator).toHaveAttribute("role", "status");
+          await expect(indicator).toHaveAttribute("aria-live", "polite");
+          await expect(indicator).toBeInViewport();
+          expect(await indicator.evaluate(element => {
+            const box = element.getBoundingClientRect();
+            const wrap = element.closest(".composer-wrap")!.getBoundingClientRect();
+            const scope = element.closest("[data-composer-scope]")!;
+            const header = scope.querySelector(":scope > header")!.getBoundingClientRect();
+            return box.top >= header.bottom && box.bottom <= wrap.top &&
+              box.left >= wrap.left && box.right <= wrap.right &&
+              getComputedStyle(element).pointerEvents === "none" && element.scrollWidth <= element.clientWidth;
+          })).toBe(true);
+        }
+        expect(await geometry()).toEqual(before);
+        await expect(editor).toHaveJSProperty("value", "connection draft");
+        await expect(editor).toBeFocused();
+      }
+    });
+  }
+}
 
 for (const reason of ["reconnect", "wake"] as const) {
   test(`${reason} refreshes exhausted history and displays missed messages`, async ({ page }) => {

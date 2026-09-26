@@ -2156,7 +2156,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .media-progress button:hover { background: color-mix(in srgb, var(--color-on-media) 16%, transparent); }
 .messages-empty { margin: 42px auto; }
 .composer-wrap { position: relative; isolation: isolate; min-width: 0; min-height: 50px; padding: 0; display: flex; flex-direction: column; background: var(--chat-canvas); }
-.composer-wrap > .composer, .composer-wrap > .composer-context, .composer-wrap > .composer-outbox-status, .composer-wrap > .composer-connection-status { flex-shrink: 0; }
+.composer-wrap > .composer, .composer-wrap > .composer-context, .composer-wrap > .composer-outbox-status { flex-shrink: 0; }
 /* Reserve conversation space while the attachment grid absorbs height constraints. */
 .composer-wrap.has-attachments { max-height: calc(var(--composer-available-height, 80vh) * .8); }
 .composer-wrap.has-attachments .composer-input { max-height: min(290px, calc(var(--composer-available-height, 80vh) * .22)); }
@@ -2196,8 +2196,10 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .inline-query-loading { min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .inline-query-more { display: block; color: var(--accent); text-align: center; font-size: 11px; }
 .composer-connection-status {
-  width: 100%; min-height: 28px; padding: 5px 12px;
-  background: var(--color-bg-surface-hover); box-shadow: inset 0 1px var(--line);
+  /* Recovery feedback must not resize the timeline or move the reading anchor. */
+  position: absolute; bottom: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 24px); min-height: 28px; padding: 5px 12px; border-radius: 6px;
+  pointer-events: none; background: var(--color-bg-surface-hover); box-shadow: 0 1px 5px var(--color-shadow);
 }
 .composer-connection-status > span { white-space: normal; }
 .composer-outbox-status {

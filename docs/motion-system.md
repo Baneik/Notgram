@@ -85,6 +85,13 @@ acknowledgement but no retained React exit. Validate those boundaries in the nat
 
 ## Async stability
 
+Connection status changes must not resize the message viewport, shift its reading
+anchor, or move the composer. Keep passive connection feedback out of document
+flow above the composer stack, including replies, queued messages and attachments.
+Ordinary chats, forum topics and discussions share this presentation. Recovery
+tests retain zero height variation and at most 1px scroll variation while checking
+that the visible status still updates.
+
 `useStableVisibility` waits `140ms` before publishing loading feedback. Work that finishes before the
 delay produces no spinner; feedback that became visible remains for at least `320ms`, preventing a
 single-frame loading/empty/result swap. Existing results stay mounted while search and shared-media
