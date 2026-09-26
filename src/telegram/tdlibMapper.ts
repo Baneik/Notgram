@@ -1791,7 +1791,7 @@ export const mapTdChat = (
     }
   }
   // chat_lists describes membership even before a list has loaded a visible
-  // position. Positions still control ordering and visibility in that list.
+  // position. Position snapshots control ordering and pins, not membership.
   for (const list of asTdObjects(raw.chat_lists)) {
     const folderId = tdChatListId(list);
     if (folderId) folderIds.add(folderId);

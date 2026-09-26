@@ -125,19 +125,32 @@ describe("TDLib chat position synchronization", () => {
       chat_lists: [{ "@type": "chatListMain" }, { "@type": "chatListFolder", chat_folder_id: 12 }],
     });
     internal.handleUpdateBatch([{ "@type": type, chat_id: 7, positions: [position("12", "700")] }]);
-    expect(chats.get("7")).toMatchObject({ pinned: false, pinnedFolderIds: [], folderIds: ["folder:12"], listOrderByFolder: { "folder:12": "700" } });
+    expect(chats.get("7")).toMatchObject({ pinned: false, pinnedFolderIds: [], folderIds: ["folder:12", "main"], listOrderByFolder: { "folder:12": "700" } });
     internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position("main", "800", true) }]);
     expect(chats.get("7")?.listOrderByFolder).toEqual({ main: "800", "folder:12": "700" });
     internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position("12", "0") }]);
+    expect(chats.get("7")).toMatchObject({ folderIds: ["main", "folder:12"], pinnedFolderIds: ["main"], listOrderByFolder: { main: "800" } });
+    internal.handleUpdateBatch([{ "@type": "updateChatRemovedFromList", chat_id: 7,
+      chat_list: { "@type": "chatListFolder", chat_folder_id: 12 } }]);
     expect(chats.get("7")?.folderIds).toEqual(["main"]);
+    expect(filterAndSortChats(chats.values(), "folder:12", "")).toEqual([]);
   });
 
-  it("does not display list membership before its first visible position", () => {
+  it.each(["main", "archive", "12"])("preserves %s membership before positioning and removes it independently", (folder) => {
     const { internal, chats } = setup();
-    internal.upsertChat({ ...chat(7, []), chat_lists: [{ "@type": "chatListMain" }] });
+    const list = position(folder, "0").list;
+    const folderId = folder === "12" ? "folder:12" : folder;
+    internal.upsertChat({ ...chat(7, []), chat_lists: [list] });
     internal.finishInitialChatSync();
-    expect(filterAndSortChats(chats.values(), "main", "")).toEqual([]);
-    internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position("main", "900", true) }]);
-    expect(filterAndSortChats(chats.values(), "main", "")).toMatchObject([{ id: "7", pinned: true }]);
+    const visible = () => filterAndSortChats(chats.values(), folderId, "");
+    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
+    internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position(folder, "900", true) }]);
+    expect(visible()).toMatchObject([{ id: "7", pinned: true, listOrderByFolder: { [folderId]: "900" } }]);
+    internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position(folder, "0") }]);
+    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
+    internal.handleUpdateBatch([{ "@type": "updateChatRemovedFromList", chat_id: 7, chat_list: list }]);
+    expect(visible()).toEqual([]);
+    internal.handleUpdateBatch([{ "@type": "updateChatAddedToList", chat_id: 7, chat_list: list }]);
+    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
   });
 });
