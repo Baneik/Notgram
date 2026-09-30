@@ -11,6 +11,7 @@ import { cachedSnapshotFrom, migrateCachedSnapshot, recentMessagesForCache } fro
 import { DraftSyncController } from "./telegramStore.drafts";
 import {
   channelDiscussionProjection,
+  findIndexedMessage,
   pendingCachedIdsAfterConfirmation,
   replaceMessage,
   upsertMessage,
@@ -70,6 +71,51 @@ describe("telegram store message state", () => {
     );
 
     expect(result.map(({ id }) => id)).toEqual(["10", "11", "12", "13"]);
+  });
+
+  it("reuses positions without comparing unrelated timestamps for content updates", () => {
+    let timestampReads = 0;
+    const original = Array.from({ length: 1_000 }, (_, index) => {
+      const item = message(String(index + 1), new Date(1_700_000_000_000 + index * 1_000).toISOString());
+      const sentAt = item.sentAt;
+      Object.defineProperty(item, "sentAt", { enumerable: true, get: () => { timestampReads++; return sentAt; } });
+      return item;
+    });
+    let current = original;
+    for (let index = 0; index < 100; index++) {
+      const next = { ...current[index], content: { kind: "text" as const, text: `edited ${index}` } };
+      current = upsertMessage(current, next);
+      expect(findIndexedMessage(current, next.id)).toBe(next);
+    }
+    expect(timestampReads).toBeLessThan(1_000);
+    expect(current[100]).toBe(original[100]);
+    expect(original[0].content).toEqual({ kind: "text", text: "1" });
+    expect(upsertMessages(current, [structuredClone(current[0])])).toBe(current);
+  });
+
+  it("inserts new messages in order and repositions a changed timestamp", () => {
+    const original = [message("1"), message("3"), message("5")];
+    const inserted = upsertMessage(original, message("2"));
+    expect(inserted.map(item => item.id)).toEqual(["1", "2", "3", "5"]);
+    const changed = upsertMessages(inserted, [message("3", "2026-08-02T08:00:00Z"), message("4")]);
+    expect(changed.map(item => item.id)).toEqual(["3", "1", "2", "4", "5"]);
+    expect(findIndexedMessage(changed, "3")).toBe(changed[0]);
+    expect(original.map(item => item.id)).toEqual(["1", "3", "5"]);
+  });
+
+  it("merges repeated updates to one ID with retained and newer-edit protection", () => {
+    const retained = { ...message("1"), isLocallyDeleted: true, locallyDeletedAt: "2026-08-02T09:00:00Z" };
+    const edited = { ...message("2"), editedAt: "2026-08-02T10:00:00Z", renderKey: "pending-2" };
+    const result = upsertMessages([retained, edited], [
+      message("1"),
+      { ...message("2"), delivery: "read" },
+      message("3"),
+      { ...message("3"), content: { kind: "text", text: "final" } },
+    ]);
+    expect(result[0]).toBe(retained);
+    expect(result[1]).toMatchObject({ content: edited.content, editedAt: edited.editedAt, renderKey: "pending-2", delivery: "read" });
+    expect(result[2].content).toEqual({ kind: "text", text: "final" });
+    expect(result).toHaveLength(3);
   });
 
   it("atomically replaces a temporary outgoing id while preserving its render identity", () => {

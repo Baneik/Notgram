@@ -52,6 +52,7 @@ import {
 } from "./telegramStore.drafts";
 import {
   messageMapFrom,
+  findIndexedMessage,
   replaceMessage,
   upsertMessages as mergeMessages,
   withEmojiReaction,
@@ -328,17 +329,10 @@ export const createTelegramStore = (
       } else {
         // Publish the committed values to downstream indexes as well. History
         // may have lost a race to a deletion or a newer content revision.
-        const committed = new Map<string, Map<string, Message>>();
-        for (const message of event.messages) {
-          if (!committed.has(message.chatId)) {
-            committed.set(message.chatId, new Map((get().messages.get(message.chatId) ?? [])
-              .map(current => [current.id, current])));
-          }
-        }
         event = {
           ...event,
           messages: event.messages.filter(acceptsMessage).map(message =>
-            committed.get(message.chatId)?.get(message.id) ?? message),
+            findIndexedMessage(get().messages.get(message.chatId) ?? [], message.id) ?? message),
           liveMessages: event.liveMessages.filter(message => acceptsMessage(message) && !message.isLocallyDeleted &&
             !retainedMessages.get(message.chatId, message.id)),
         };
@@ -896,12 +890,28 @@ export const createTelegramStore = (
       await operation;
     };
 
+    let boundedMessages: TelegramState["messages"] | undefined;
+    let boundedMessageCount = 0;
+    const ordinaryMessageCounts = new WeakMap<Message[], number>();
+    const ordinaryMessageCount = (items: Message[]) => {
+      let count = ordinaryMessageCounts.get(items);
+      if (count === undefined) {
+        count = items.reduce((sum, message) => sum + Number(!message.isLocallyDeleted), 0);
+        ordinaryMessageCounts.set(items, count);
+      }
+      return count;
+    };
     const boundInactiveHistory = () => {
       const current = get();
-      let total = [...current.messages.values()].reduce(
-        (sum, items) => sum + items.filter((message) => !message.isLocallyDeleted).length,
-        0,
-      );
+      // Draft-only writes reuse the last count; unchanged immutable histories
+      // also reuse their counts when another chat receives a message.
+      if (boundedMessages !== current.messages) {
+        boundedMessageCount = [...current.messages.values()].reduce(
+          (sum, items) => sum + ordinaryMessageCount(items), 0,
+        );
+        boundedMessages = current.messages;
+      }
+      let total = boundedMessageCount;
       if (total <= 10_000 && current.messages.size <= 100) return;
       const messages = new Map(current.messages);
       const histories = new Map(current.histories);
@@ -916,11 +926,16 @@ export const createTelegramStore = (
           items.some((message) => message.isLocallyDeleted)
         ) continue;
         if (items.some((message) => message.delivery === "sending")) continue;
-        total -= items.filter((message) => !message.isLocallyDeleted).length;
+        total -= ordinaryMessageCount(items);
         messages.delete(chatId); histories.delete(chatId); history.discard(chatId);
+        messageFiles.remove(chatId, items.map(message => message.id));
         transport.discardChatHistoryCache?.(chatId);
       }
-      if (messages.size !== current.messages.size) set({ messages, histories });
+      if (messages.size !== current.messages.size) {
+        boundedMessages = messages;
+        boundedMessageCount = total;
+        set({ messages, histories });
+      }
     };
     const scheduleCacheWrite = () => {
       boundInactiveHistory();
@@ -1005,6 +1020,8 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      boundedMessages = undefined;
+      boundedMessageCount = 0;
       resetOutbox();
       chatJoinTargets.clear();
       history.clear();
@@ -1689,6 +1706,21 @@ export const createTelegramStore = (
       }
     };
 
+    const commitFileUpdates = (updated: Message[]) => {
+      const messages = new Map(get().messages);
+      const byChat = new Map<string, Message[]>();
+      for (const message of updated) {
+        const items = byChat.get(message.chatId) ?? [];
+        items.push(message);
+        byChat.set(message.chatId, items);
+      }
+      for (const [chatId, items] of byChat) {
+        messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], items));
+      }
+      set({ messages });
+      publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+    };
+
     const mediaFileRestorer = new MediaFileRestorer({
       canRestore: () => !accountTransition && get().authorization.kind === "ready" && get().connectionStatus === "online",
       messages: () => [...(get().messages.get(get().activeChatId ?? "") ?? []), ...retainedMessages.all()],
@@ -1710,12 +1742,7 @@ export const createTelegramStore = (
           return next === message ? [] : [next];
         });
         if (updated.length === 0) return;
-        const messages = new Map(get().messages);
-        for (const message of updated) {
-          messages.set(message.chatId, upsertMessage(messages.get(message.chatId) ?? [], message));
-        }
-        set({ messages });
-        publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+        commitFileUpdates(updated);
         for (const message of updated) maybeAutoCacheArchiveMedia(message);
         scheduleCacheWrite();
       },
@@ -1729,18 +1756,13 @@ export const createTelegramStore = (
       if (event.type === "file.updated") {
         emojiPickerController.updateFile(event.file);
         const updated = messageFiles.forFile(event.file.fileId).flatMap(message => {
-          const current = get().messages.get(message.chatId)?.find(candidate => candidate.id === message.id);
+          const current = findIndexedMessage(get().messages.get(message.chatId) ?? [], message.id);
           if (!current) return [];
           const next = updateMessageFile(current, event.file);
           return next === current ? [] : [next];
         });
         if (updated.length === 0) return;
-        const messages = new Map(get().messages);
-        for (const message of updated) {
-          messages.set(message.chatId, upsertMessage(messages.get(message.chatId) ?? [], message));
-        }
-        set({ messages });
-        publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+        commitFileUpdates(updated);
         if (event.file.isDownloaded || !event.file.isDownloading) scheduleCacheWrite();
         return;
       }

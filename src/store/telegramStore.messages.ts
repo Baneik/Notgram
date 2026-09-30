@@ -37,12 +37,30 @@ const equalMessageValue = (left: unknown, right: unknown): boolean => {
     equalMessageValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 };
 
+// Histories are immutable. Content-only replacements keep the same positions,
+// so their arrays can share an index without retaining evicted histories.
+const messagePositions = new WeakMap<Message[], ReadonlyMap<string, number>>();
+const positionsFor = (messages: Message[]) => {
+  let positions = messagePositions.get(messages);
+  if (!positions) {
+    positions = new Map(messages.map((message, index) => [message.id, index]));
+    messagePositions.set(messages, positions);
+  }
+  return positions;
+};
+
+export const findIndexedMessage = (messages: Message[], messageId: string) => {
+  const index = positionsFor(messages).get(messageId);
+  return index === undefined ? undefined : messages[index];
+};
+
 export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   if (incoming.length === 0) return messages;
-  const byId = new Map(messages.map((message) => [message.id, message]));
-  let changed = false;
+  const positions = positionsFor(messages);
+  const updates = new Map<string, Message>();
   for (let message of incoming) {
-    const existing = byId.get(message.id);
+    const index = positions.get(message.id);
+    const existing = updates.get(message.id) ?? (index === undefined ? undefined : messages[index]);
     // History/context responses started before deletion cannot replace a retained copy.
     // Its file state is updated explicitly through file.updated events.
     if (existing?.isLocallyDeleted && !message.isLocallyDeleted) continue;
@@ -57,10 +75,50 @@ export const upsertMessages = (messages: Message[], incoming: Message[]) => {
       ? { ...message, renderKey, discussionThread, isLocallyDeleted, locallyDeletedAt }
       : message;
     const next = existing && equalMessageValue(existing, candidate) ? existing : candidate;
-    changed ||= next !== existing;
-    byId.set(message.id, next);
+    if (next !== existing) updates.set(message.id, next);
   }
-  return changed ? [...byId.values()].sort(compareMessages) : messages;
+  if (updates.size === 0) return messages;
+  const result = messages.slice();
+  const added: Message[] = [];
+  let moved = false;
+  for (const [id, next] of updates) {
+    const index = positions.get(id);
+    if (index === undefined) added.push(next);
+    else {
+      moved ||= messages[index].sentAt !== next.sentAt;
+      result[index] = next;
+    }
+  }
+  // Only a changed timestamp requires reordering existing entries. Edits,
+  // reactions and file progress leave the chronological order untouched.
+  if (moved) return [...result, ...added].sort(compareMessages);
+  if (added.length === 0) {
+    messagePositions.set(result, positions);
+    return result;
+  }
+  if (added.length === 1) {
+    const message = added[0];
+    let start = 0;
+    let end = result.length;
+    while (start < end) {
+      const middle = (start + end) >>> 1;
+      if (compareMessages(result[middle], message) <= 0) start = middle + 1;
+      else end = middle;
+    }
+    result.splice(start, 0, message);
+    return result;
+  }
+  added.sort(compareMessages);
+  const merged: Message[] = [];
+  let index = 0;
+  for (const message of added) {
+    while (index < result.length && compareMessages(result[index], message) <= 0) {
+      merged.push(result[index++]);
+    }
+    merged.push(message);
+  }
+  while (index < result.length) merged.push(result[index++]);
+  return merged;
 };
 
 export const upsertMessage = (messages: Message[], next: Message) =>
