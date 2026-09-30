@@ -8,12 +8,17 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
-pub fn telegram_save_downloaded_file(
+pub async fn telegram_save_downloaded_file(
     app: AppHandle,
     source_path: String,
     file_name: String,
 ) -> Result<String, String> {
-    let result = save_downloaded_file(&app, source_path, file_name);
+    let worker_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        save_downloaded_file(&worker_app, source_path, file_name)
+    })
+    .await
+    .map_err(|error| format!("Unable to join download save worker: {error}"))?;
     if let Err(error) = &result {
         app.state::<crate::telegram::TelegramRuntime>()
             .log_download_save_failure(download_save_failure_kind(error));
@@ -82,7 +87,17 @@ pub async fn telegram_save_cached_file_as(
     source_path: String,
     file_name: String,
 ) -> Result<bool, String> {
-    let source = trusted_local_file(&app, &source_path)?;
+    tauri::async_runtime::spawn_blocking(move || save_cached_file_as(&app, source_path, file_name))
+        .await
+        .map_err(|error| format!("Unable to join save as worker: {error}"))?
+}
+
+fn save_cached_file_as(
+    app: &AppHandle,
+    source_path: String,
+    file_name: String,
+) -> Result<bool, String> {
+    let source = trusted_local_file(app, &source_path)?;
     app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
         .check_export(&source)?;
     let Some(selected) = app
@@ -106,7 +121,7 @@ pub async fn telegram_save_cached_file_as(
     if destination == source {
         return Ok(true);
     }
-    trusted_local_file(&app, &source.display().to_string())?;
+    trusted_local_file(app, &source.display().to_string())?;
     app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
         .check_export(&source)?;
     fs::copy(&source, &destination).map_err(|error| {

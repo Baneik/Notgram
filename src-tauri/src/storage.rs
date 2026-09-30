@@ -247,16 +247,28 @@ pub fn telegram_save_storage_settings(
 }
 
 #[tauri::command]
-pub fn telegram_cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
-    cache_usage(&trusted_tdlib_files_directory(&app)?)
+pub async fn telegram_cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
+    tauri::async_runtime::spawn_blocking(move || cache_usage(&trusted_tdlib_files_directory(&app)?))
+        .await
+        .map_err(|error| format!("Unable to join cache usage worker: {error}"))?
 }
 
 #[tauri::command]
-pub fn telegram_clear_media_cache(
+pub async fn telegram_clear_media_cache(
     app: AppHandle,
     request: CacheCleanupRequest,
-    registry: State<'_, crate::telegram::media_stream::MediaStreamRegistry>,
 ) -> Result<CacheCleanupResult, String> {
+    tauri::async_runtime::spawn_blocking(move || clear_media_cache(&app, request))
+        .await
+        .map_err(|error| format!("Unable to join cache cleanup worker: {error}"))?
+}
+
+fn clear_media_cache(
+    app: &AppHandle,
+    request: CacheCleanupRequest,
+) -> Result<CacheCleanupResult, String> {
+    use tauri::Manager;
+
     if request.categories.is_empty() {
         return Err("Select at least one cache category".to_string());
     }
@@ -267,16 +279,24 @@ pub fn telegram_clear_media_cache(
         return Err("Cache retention period is out of range".to_string());
     }
 
-    let root = trusted_tdlib_files_directory(&app)?;
+    // Resolve every cleanup path from one account before starting disk work.
+    // A concurrent account switch must not redirect deletion to another root.
+    let account_id = active_account_id(app)?;
+    let directory = account_cache_directory(paths::effective_cache_root(app)?, &account_id);
+    let root = trusted_tdlib_files_directory_at(&directory)?;
     let mut protected = protected_cache_paths(&root, &request.protected_paths);
-    if let Ok(Some(snapshot)) = read_snapshot_cache_value(&app) {
+    if let Ok(Some(snapshot)) =
+        read_snapshot_cache_value_at(app, &account_id, &directory.join("notgram-ui-cache.dat"))
+    {
         protected.extend(cached_asset_paths(&snapshot, std::slice::from_ref(&root)));
     }
     protected.extend(canonical_paths_within_root(
         &root,
-        registry.protected_paths().into_iter(),
+        app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
+            .protected_paths()
+            .into_iter(),
     ));
-    let sent_media = sent_media_directory(&app)?;
+    let sent_media = sent_media_directory_at(&root)?;
     let sent_media_cutoff = SystemTime::now().checked_sub(SENT_MEDIA_PROTECTION_DURATION);
     if let Some(cutoff) = sent_media_cutoff {
         protected.extend(cache_paths_modified_after(&sent_media, cutoff)?);
@@ -351,8 +371,17 @@ pub async fn telegram_read_snapshot_cache(app: AppHandle) -> Result<Option<Value
 
 fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
     let account_id = active_account_id(app)?;
-    let local = local_state::read(app, &account_id)?;
-    let cached = persistence::read_json::<Value>(&snapshot_cache_path(app)?, true);
+    let directory = account_cache_directory(paths::effective_cache_root(app)?, &account_id);
+    read_snapshot_cache_value_at(app, &account_id, &directory.join("notgram-ui-cache.dat"))
+}
+
+fn read_snapshot_cache_value_at(
+    app: &AppHandle,
+    account_id: &str,
+    path: &Path,
+) -> Result<Option<Value>, String> {
+    let local = local_state::read(app, account_id)?;
+    let cached = persistence::read_json::<Value>(path, true);
     let mut snapshot = match cached {
         Ok(value) => value,
         Err(error) if local.is_none() => return Err(error),
@@ -373,7 +402,7 @@ fn read_snapshot_cache_value(app: &AppHandle) -> Result<Option<Value>, String> {
             .iter()
             .all(|field| value.get(field).is_some_and(Value::is_array))
     {
-        local_state::write(app, &account_id, value)?;
+        local_state::write(app, account_id, value)?;
     }
     if let Some(value) = snapshot.as_mut() {
         paths::rebase_snapshot(app, value)?;
@@ -523,7 +552,11 @@ pub fn download_directory(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = tdlib_cache_directory(app)?.join("files");
+    trusted_tdlib_files_directory_at(&tdlib_cache_directory(app)?)
+}
+
+fn trusted_tdlib_files_directory_at(cache_directory: &Path) -> Result<PathBuf, String> {
+    let directory = cache_directory.join("files");
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create trusted TDLib files directory {}: {error}",
@@ -536,7 +569,11 @@ pub(crate) fn trusted_tdlib_files_directory(app: &AppHandle) -> Result<PathBuf, 
 }
 
 pub(crate) fn sent_media_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = trusted_tdlib_files_directory(app)?.join(".notgram-sent-media");
+    sent_media_directory_at(&trusted_tdlib_files_directory(app)?)
+}
+
+fn sent_media_directory_at(files_directory: &Path) -> Result<PathBuf, String> {
+    let directory = files_directory.join(".notgram-sent-media");
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Unable to create sent media directory {}: {error}",
