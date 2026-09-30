@@ -121,6 +121,7 @@ test("reconnect preserves the archive frontier and the reader's older cursor", a
 
 test("a reply can open a retained copy outside latest and return without exposing an archive-only gap", async ({ page }) => {
   await fixture(page);
+  const messageList = page.getByRole("log", { name: "消息列表" });
   await page.evaluate(async () => {
     const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
     const messages = new Map(telegramStore.getState().messages);
@@ -131,9 +132,9 @@ test("a reply can open a retained copy outside latest and return without exposin
   });
   await page.locator('[data-message-id="360"] .message-reply-preview').click();
   await expect(page.locator('[data-message-id="10"]')).toBeVisible();
-  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(messageList).toHaveAttribute("aria-busy", "false");
   expect((await snapshot(page)).archives).toBe(120);
-  await page.locator(".message-list").press("End");
+  await messageList.press("End");
   await expect(page.locator('[data-message-id="360"]')).toBeVisible();
   await expect(page.locator('[data-message-id="10"]')).toHaveCount(0);
   expect((await snapshot(page)).first).toBe(272);
