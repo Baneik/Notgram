@@ -10,6 +10,7 @@ import { MessageMetadata } from "./MessageMetadata";
 import { MessageReactions } from "./MessageReactions";
 import { MessageTextFlow } from "./MessageTextFlow";
 import { translate } from "../i18n";
+import { useShallow } from "zustand/react/shallow";
 import type { ComposerInputElement } from "./ComposerInput";
 import { useEditVisibleMessage } from "../hooks/useEditVisibleMessage";
 import { retainedMessageQuote } from "../telegram/retainedMessages";
@@ -553,7 +554,26 @@ export function Conversation({
     [messages],
   );
   const currentUserId = useTelegramStore((state) => state.currentUserId);
-  const storedMessages = useTelegramStore((state) => state.messages);
+  const [discussionPost, setDiscussionPost] = useState<Message>();
+  const replyChatIds = useMemo(() => [...new Set(chatMessages.flatMap(message =>
+    message.replyTo?.kind === "message" && message.replyTo.chatId ? [message.replyTo.chatId] : [],
+  ))], [chatMessages]);
+  const storedMessages = useTelegramStore(useShallow((state) => {
+    const chatIds = new Set(replyChatIds);
+    if (chat) chatIds.add(chat.id);
+    if (discussionPost) {
+      chatIds.add(discussionPost.chatId);
+      const post = state.messages.get(discussionPost.chatId)?.find(message => message.id === discussionPost.id)
+        ?? discussionPost;
+      if (post.discussionThread) chatIds.add(post.discussionThread.chatId);
+    }
+    const scoped = new Map<string, Message[]>();
+    for (const id of chatIds) {
+      const items = state.messages.get(id);
+      if (items) scoped.set(id, items);
+    }
+    return scoped;
+  }));
   const loadMessageThreadHistory = useTelegramStore((state) => state.loadMessageThreadHistory);
   const sendMessageToThread = useTelegramStore((state) => state.sendMessageToThread);
   const sendFilesToThread = useTelegramStore((state) => state.sendFilesToThread);
@@ -589,12 +609,9 @@ export function Conversation({
   const [replyingTo, setReplyingTo] = useState<Message>();
   const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
   const [editingMessage, setEditingMessage] = useState<Message>();
-  const [discussionPost, setDiscussionPost] = useState<Message>();
   const { states: discussionThreads, load: loadDiscussion } = useChannelDiscussionHistory(loadMessageThreadHistory, activeAccountId);
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
-  const storedMessagesRef = useRef(storedMessages);
-  storedMessagesRef.current = storedMessages;
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);

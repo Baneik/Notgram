@@ -5,6 +5,59 @@ import type { Message } from "../../src/telegram/types";
 test.use({ trace: "off", screenshot: "only-on-failure" });
 test.describe.configure({ retries: 0 });
 
+test("unrelated chat and history updates reuse the active timeline projection", { tag: "@performance" }, async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const result = await page.evaluate(async () => {
+    const storePath = "/src/store/telegramStore.ts";
+    const { telegramStore } = await import(storePath) as typeof import("../../src/store/telegramStore");
+    const original = telegramStore.getState();
+    const chatId = original.activeChatId!;
+    const base = original.messages.get(chatId)![0];
+    const otherId = [...original.chats.keys()].find(id => id !== chatId)!;
+    let reads = 0;
+    const items = Array.from({ length: 1_000 }, (_, index) => {
+      const item: Message = { ...base, id: `projection-${index}`, chatId, outgoing: true,
+        delivery: "sent", replyTo: undefined, mediaAlbumId: undefined,
+        content: { kind: "text", text: `Projection ${index}` } };
+      const sentAt = new Date(1_700_000_000_000 + index * 1_000).toISOString();
+      Object.defineProperty(item, "sentAt", { enumerable: true, get: () => { reads++; return sentAt; } });
+      return item;
+    });
+    const histories = new Map(original.histories);
+    histories.set(chatId, { loading: false, initialized: true, hasMore: false });
+    telegramStore.setState({ messages: new Map([[chatId, items]]), histories });
+    const frames = async (count: number) => {
+      for (let index = 0; index < count; index++) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    };
+    await frames(40);
+    const rows = [];
+    for (let index = 0; index < 3; index++) {
+      reads = 0;
+      telegramStore.setState({ operationError: `projection-${index}` });
+      await frames(2);
+      const controlReads = reads;
+      reads = 0;
+      const chats = new Map(telegramStore.getState().chats);
+      chats.set(otherId, { ...chats.get(otherId)!, unreadCount: index + 1 });
+      telegramStore.setState({ chats });
+      await frames(2);
+      const chatUpdateReads = reads;
+      reads = 0;
+      const messages = new Map(telegramStore.getState().messages);
+      messages.set(otherId, [{ ...base, id: `other-${index}`, chatId: otherId }]);
+      telegramStore.setState({ messages });
+      await frames(2);
+      rows.push({ controlReads, chatUpdateReads, historyUpdateReads: reads });
+    }
+    return rows;
+  });
+  for (const row of result) {
+    expect(row.chatUpdateReads, JSON.stringify(result)).toBeLessThanOrEqual(row.controlReads + 100);
+    expect(row.historyUpdateReads, JSON.stringify(result)).toBeLessThanOrEqual(row.controlReads + 100);
+  }
+});
+
 test("incoming messages do not wait for a bottom pin while reading away from latest", { tag: "@performance" }, async ({ page }) => {
   await page.goto("/");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();

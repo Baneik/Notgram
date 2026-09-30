@@ -677,11 +677,13 @@ export const useConversationScroll = ({
     return memory;
   }, [updateFollowingState, updateNewMessageNotice]);
 
-  const pinToBottom = useCallback(() => {
+  const pinToBottom = useCallback((geometry?: { scrollHeight: number; clientHeight: number }) => {
     const element = messageListRef.current;
     if (!element || !currentScrollKey || searchActive) return false;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest === false) return false;
-    const target = bottomScrollTop(element);
+    const target = geometry
+      ? Math.max(0, geometry.scrollHeight - geometry.clientHeight)
+      : bottomScrollTop(element);
     const previousTop = element.scrollTop;
     // scrollHeight/clientHeight are rounded; the browser can clamp scrollTop
     // one pixel short of their difference even at the reachable maximum.
@@ -791,10 +793,11 @@ export const useConversationScroll = ({
       if (mountedThisFrame) {
         request.mountCommitted = true;
       }
-      if (mountedThisFrame || request.mode !== "settle") pinToBottom();
+      const geometry = { scrollHeight: element.scrollHeight, clientHeight: element.clientHeight };
+      if (mountedThisFrame || request.mode !== "settle") pinToBottom(geometry);
       const signature = [
-        element.scrollHeight,
-        element.clientHeight,
+        geometry.scrollHeight,
+        geometry.clientHeight,
         element.scrollTop.toFixed(1),
       ].join(":");
       const step = advanceBottomReconcile(
@@ -805,7 +808,7 @@ export const useConversationScroll = ({
       request.state = step.state;
       if (step.settled) {
         const restart = restartBottomReconcileAfterWrite(
-          pinToBottom(),
+          pinToBottom(geometry),
           request.verificationPassCount,
           BOTTOM_RECONCILE_MAX_VERIFICATION_PASSES,
           request.maxFrames,
@@ -1346,8 +1349,11 @@ export const useConversationScroll = ({
       // Reconcile committed geometry before paint, without waiting for the
       // subsequent scroll/resize notification to start another transaction.
       if (element && (control.mode === "following" ||
-        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom")) &&
-        distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) scheduleBottomPin(undefined, "track");
+        (control.mode === "restoring" && initialLocationRef.current?.mode === "bottom"))) {
+        // The coordinator checks the committed endpoint itself. A separate
+        // distance guard duplicates its geometry read and pin decision.
+        scheduleBottomPin(undefined, "track");
+      }
       return;
     }
     if (request.mode === "settle" ||
@@ -2662,8 +2668,9 @@ export const useConversationScroll = ({
       // coordinator still yields to reading, navigation and active user input.
       if (distanceFromBottom(element) > BOTTOM_WHEEL_GUARD_PX) reconcileBottomViewport();
       const current = conversationScrollMemory.get(key);
+      const bottomDistance = distanceFromBottom(element);
       const followLatest = current?.followLatest ??
-        distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
+        bottomDistance <= BOTTOM_PROXIMITY_PX;
       const anchor = visibleAnchor(element);
       const layout = conversationLayouts.get(key);
       const listBounds = element.getBoundingClientRect();
@@ -2676,7 +2683,7 @@ export const useConversationScroll = ({
       const memory: ConversationScrollMemory = {
         scrollTop: element.scrollTop,
         followLatest,
-        atBottom: distanceFromBottom(element) <= BOTTOM_WHEEL_GUARD_PX,
+        atBottom: bottomDistance <= BOTTOM_WHEEL_GUARD_PX,
         lastKnownMessageId: layout?.lastMessageId,
         pendingNewCount: followLatest ? 0 : (current?.pendingNewCount ?? 0),
         anchorMessageId: anchor?.messageId,

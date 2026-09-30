@@ -1803,6 +1803,7 @@ export function App() {
   const changeFolder = useFolderNavigation(closeSearch);
   const resumeChatNavigation = useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder);
 
+  const activeChatKind = chats.get(activeChatId ?? "")?.kind;
   const activeMessages = useMemo(
     () => {
       const windowMessages = projectHistoryWindow(activeChatMessages, activeHistoryView);
@@ -1812,7 +1813,7 @@ export function App() {
       // Channel discussion replies can share the channel chat in TDLib. Keep
       // them available to the discussion panel, but never mix them into the
       // channel's post timeline.
-      const visible = chats.get(activeChatId ?? "")?.kind === "channel"
+      const visible = activeChatKind === "channel"
         ? scoped.filter((message) => message.isChannelPost === true || message.content.kind === "service")
         : scoped;
       return visible.filter((message) => !messageMatchesAdBlockingRules(message, {
@@ -1821,7 +1822,7 @@ export function App() {
         keywords: adBlockKeywords,
         regexRules: adBlockRegexRules,
       }));
-    }, [activeChatId, activeChatMessages, activeHistoryView, activeTopicId, chats, adBlockingEnabled, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules],
+    }, [activeChatMessages, activeHistoryView, activeTopicId, activeChatKind, adBlockingEnabled, customAdBlockingEnabled, adBlockKeywords, adBlockRegexRules],
   );
   const activeRemovingMessages = useMemo(
     () => activeTopicId
