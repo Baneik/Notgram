@@ -71,6 +71,7 @@ interface Refresh {
   detachedIds?: Set<string>;
   cursor?: string;
   pages: number;
+  pageBudget: number;
   failures: number;
   advancesReader: boolean;
   ownedCursor?: string;
@@ -198,7 +199,8 @@ export class ConversationHistory {
     for (const scope of this.scopes.values()) {
       scope.needsRefresh = true;
       const previous = scope.refresh;
-      scope.refresh = { boundary: previous?.boundary ?? this.refreshBoundary(scope), pages: 0, failures: 0,
+      scope.refresh = { boundary: previous?.boundary ?? this.refreshBoundary(scope), pages: 0,
+        pageBudget: HISTORY_REFRESH_PAGE_BUDGET, failures: 0,
         detachedIds: previous?.detachedIds,
         advancesReader: !scope.latest.cursor || Boolean(previous?.advancesReader && previous.ownedCursor === scope.latest.cursor),
         ownedCursor: scope.latest.cursor };
@@ -323,7 +325,11 @@ export class ConversationHistory {
     if (scope.selected === scope.latest && scope.refresh && recovery && recovery !== "complete") {
       const pending = this.pending.get(`${historyScopeKey(chatId, topicId)}:refresh`);
       if (pending) return pending;
+      this.retries.complete(`${historyScopeKey(chatId, topicId)}:refresh`);
       scope.refresh.pages = 0;
+      // A reader gesture owns one page, including any retry after a failure.
+      // It must not restart the initial background recovery's whole budget.
+      scope.refresh.pageBudget = 1;
       scope.refresh.failures = 0;
       return this.refresh(scope);
     }
@@ -414,14 +420,15 @@ export class ConversationHistory {
     const generation = this.generation;
     return this.run(key, async () => {
       if (!this.current(scope, generation)) return;
-      const refresh = scope.refresh ??= { boundary: this.refreshBoundary(scope), pages: 0, failures: 0,
+      const refresh = scope.refresh ??= { boundary: this.refreshBoundary(scope), pages: 0,
+        pageBudget: HISTORY_REFRESH_PAGE_BUDGET, failures: 0,
         advancesReader: !scope.latest.cursor, ownedCursor: scope.latest.cursor };
       const startedAt = performance.now();
       const beforeCount = this.host.messages(scope.chatId, scope.topicId).length;
       this.publish(scope, { loading: true, background: this.host.messages(scope.chatId, scope.topicId).length > 0, recovery: "refreshing" });
       let stopReason = 0;
       try {
-        while (refresh.pages < HISTORY_REFRESH_PAGE_BUDGET) {
+        while (refresh.pages < refresh.pageBudget) {
           const page = await this.host.request(scope.chatId, scope.topicId, { purpose: "refresh", fromMessageId: refresh.cursor });
           if (!this.current(scope, generation)) return;
           const previousCursor = refresh.cursor;
@@ -463,7 +470,9 @@ export class ConversationHistory {
           scope.firstPage?.resolve();
           if (complete) break;
           if (stopReason === 2) {
-            if (++refresh.failures < HISTORY_RETRY_BUDGET) this.retries.schedule(key, () => this.retry(scope, () => this.refresh(scope)));
+            if (++refresh.failures < HISTORY_RETRY_BUDGET && refresh.pages < refresh.pageBudget) {
+              this.retries.schedule(key, () => this.retry(scope, () => this.refresh(scope)));
+            }
             break;
           }
           if (!this.host.active(scope.chatId, scope.topicId)) { stopReason = 3; break; }

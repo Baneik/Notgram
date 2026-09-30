@@ -6,6 +6,7 @@ const fixture = async (page: Page, forum: boolean, count: number) => {
     const response = await route.fetch();
     await route.fulfill({ response, body: `${await response.text()}\n{
       const forum = ${forum}, count = ${count};
+      window.overnightHistoryReads = 0;
       const connect = MockTelegramTransport.prototype.connect;
       const read = MockTelegramTransport.prototype.loadChatHistory;
       const topicRead = MockTelegramTransport.prototype.loadForumTopicHistory;
@@ -38,6 +39,9 @@ const fixture = async (page: Page, forum: boolean, count: number) => {
       };
       for (const [name, original] of [["loadChatHistory", read], ["loadForumTopicHistory", topicRead]]) {
         MockTelegramTransport.prototype[name] = async function(...args) {
+          if (args[0] === "chat-product" && name === (forum ? "loadForumTopicHistory" : "loadChatHistory")) {
+            window.overnightHistoryReads++;
+          }
           await new Promise(resolve => setTimeout(resolve, 35));
           return original.apply(this, args);
         };
@@ -56,7 +60,8 @@ const snapshot = (page: Page) => page.evaluate(async () => {
   const history = state.activeTopicId ? state.topicHistories.get(`chat-product:topic:${state.activeTopicId}`) : state.histories.get("chat-product");
   const messages = state.messages.get("chat-product")!.filter(m => !state.activeTopicId || m.topicId === state.activeTopicId);
   return { ids: projectHistoryWindow(messages, history?.view).map(m => Number(m.id)), recovery: history?.recovery,
-    loading: history?.loading, hasMore: history?.hasMore };
+    loading: history?.loading, hasMore: history?.hasMore,
+    reads: (window as unknown as { overnightHistoryReads: number }).overnightHistoryReads };
 });
 
 for (const forum of [false, true]) {
@@ -85,18 +90,25 @@ for (const forum of [false, true]) {
     expect((await snapshot(page)).ids[0]).toBe(1);
   });
 
-  test(`upward scrolling resumes a gap larger than the background budget (forum: ${forum})`, async ({ page }) => {
+  test(`upward scrolling resumes a large gap one page at a time (forum: ${forum})`, async ({ page }) => {
     await fixture(page, forum, 1200);
     await expect.poll(async () => (await snapshot(page)).recovery).toBe("paused");
     expect((await snapshot(page)).ids).toEqual(Array.from({ length: 270 }, (_, i) => i + 931));
-    for (let turn = 0; turn < 7; turn++) {
+    for (let turn = 0; turn < 32; turn++) {
       const current = await snapshot(page);
       expect(current.ids).toEqual(Array.from({ length: 1201 - current.ids[0] }, (_, i) => i + current.ids[0]));
       if (current.ids[0] === 1) break;
       await page.locator(".message-list").hover();
       await page.mouse.wheel(0, -100000);
-      await expect.poll(async () => (await snapshot(page)).ids[0]).toBeLessThan(current.ids[0]);
+      await expect.poll(async () => (await snapshot(page)).ids[0]).toBe(current.ids[0] - 30);
       await expect.poll(async () => (await snapshot(page)).recovery).not.toBe("refreshing");
+      const loaded = await snapshot(page);
+      expect(loaded.ids.length).toBe(current.ids.length + 30);
+      expect(loaded.reads).toBe(current.reads + 1);
+      if (turn < 3) {
+        await page.waitForTimeout(600);
+        expect(await snapshot(page)).toEqual(loaded);
+      }
     }
     expect((await snapshot(page)).ids).toEqual(Array.from({ length: 1200 }, (_, i) => i + 1));
   });

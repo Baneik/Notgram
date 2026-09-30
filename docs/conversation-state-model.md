@@ -364,8 +364,12 @@ from the head until that boundary is returned/passed or the server confirms exha
 context membership is never a recovery target. Each recovery has a total nine-page budget (including
 the first page), rather than an eight-page limit that silently restarts every five seconds. A budget
 stop preserves the cursor and publishes `recovery: paused`; it neither deletes unconfirmed messages
-nor claims completion. Explicit older loading can continue that repair with a new budget. Request
-failures/stalls have a bounded three-attempt retry path using the existing retry queue. Switching
+nor claims completion. Explicit older loading continues that repair from its committed cursor with a
+one-page budget per gesture, including retries after a request failure. Taking manual ownership cancels
+a queued background retry, so it cannot resume a nine-page scan after the reader stops. Reconnect
+starts a new background budget while preserving the unfinished boundary. An accepted partial or
+stalled manual page stays paused until the next gesture. Request failures before page acceptance and
+background stalls have a bounded three-attempt retry path using the existing retry queue. Switching
 accounts clears all window and retry ownership. Reconnect retires requests but preserves reader
 windows and their cursors.
 
@@ -414,6 +418,11 @@ History diagnostics use `ui_history_data`: `purpose` 1 is recovery and 2 is read
 4 total budget reached and 5 request failure. `remainingBoundaryCount` is zero only when recovery
 completed. These numeric fields are accepted by the native logging boundary; no message identifiers
 or bodies are included.
+
+The native pager caps each window at the requested number of distinct older messages. A response
+may include the cursor message or omit it; the reserved boundary slot must never admit an extra older
+message. Overflow remains for the next request, whose cursor is the last emitted message, preserving
+continuity across short responses and both boundary conventions.
 
 Regression coverage must include disjoint cached context plus repeated reconnects while idle at the
 bottom, original visible DOM-node identity, every sampled frame's bottom distance, context/latest and

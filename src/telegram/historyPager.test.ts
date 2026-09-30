@@ -8,6 +8,39 @@ const load = (request: (query: TdObject) => Promise<TdObject>, cursor = 0) => lo
 });
 
 describe("history continuity", () => {
+  it.each([false, true])("keeps repeated pages at the requested size without skipping overflow (inclusive: %s)", async inclusive => {
+    const knownMessages = new Map<string, TdObject>([["1000", raw(1000)]]);
+    let cursor = 1000;
+    const emitted: number[] = [];
+    for (let turn = 0; turn < 5; turn++) {
+      const result = await loadHistoryWindow({
+        chatId: "7", targetCount: 30, cursor, knownMessages,
+        request: async query => {
+          const from = Number(query.from_message_id) - Number(!inclusive);
+          return { messages: Array.from({ length: Number(query.limit) }, (_, index) => raw(from - index)) };
+        },
+        emitMessage: message => emitted.push(Number(message.id)),
+      });
+      expect(result).toMatchObject({ loadedCount: 30, cursor: cursor - 30, exhausted: false, stalled: false });
+      expect(result.messageIds.filter(id => Number(id) < cursor)).toHaveLength(30);
+      cursor = result.cursor;
+    }
+    expect([...new Set(emitted)].filter(id => id < 1000).sort((left, right) => right - left))
+      .toEqual(Array.from({ length: 150 }, (_, index) => 999 - index));
+  });
+
+  it("bounds a window assembled from short strict-older responses", async () => {
+    const emitted: number[] = [];
+    const result = await loadHistoryWindow({
+      chatId: "7", targetCount: 30, cursor: 100, knownMessages: new Map(),
+      request: async query => ({ messages: Array.from({ length: Math.min(7, Number(query.limit)) },
+        (_, index) => raw(Number(query.from_message_id) - 1 - index)) }),
+      emitMessage: message => emitted.push(Number(message.id)),
+    });
+    expect(result).toMatchObject({ loadedCount: 30, cursor: 70, stalled: false });
+    expect(emitted).toEqual(Array.from({ length: 30 }, (_, index) => 99 - index));
+  });
+
   it("rechecks an empty page caused by a concurrent deletion before declaring the end", async () => {
     const request = vi.fn().mockResolvedValueOnce({ messages: [] })
       .mockResolvedValue({ messages: [raw(8), raw(7), raw(6)] });

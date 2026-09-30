@@ -66,6 +66,7 @@ export const loadHistoryWindow = async ({
     consecutiveEmptyPages = 0;
 
     let addedThisRequest = 0;
+    let nextCursor: number | undefined;
     for (const raw of rawPage) {
       const id = tdId(raw.id);
       if (id && !returnedIds.has(id)) {
@@ -79,10 +80,13 @@ export const loadHistoryWindow = async ({
       if (id && !knownMessages.has(id)) addedThisRequest += 1;
       emitMessage(raw);
       if (id) knownMessages.set(id, raw);
+      nextCursor = tdNumber(raw.id) ?? nextCursor;
+      // Some responses omit the boundary message reserved by limit + 1.
+      // Leave overflow for the next page and commit only the emitted cursor.
+      if (windowCount >= targetCount) break;
     }
     loadedCount += addedThisRequest;
 
-    const nextCursor = tdNumber(rawPage.at(-1)?.id);
     if (!nextCursor || (cursor !== 0 && nextCursor >= cursor)) {
       consecutiveStalls += 1;
       if (consecutiveStalls >= MAX_CONSECUTIVE_STALLS) break;

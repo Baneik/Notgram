@@ -59,7 +59,7 @@ describe("conversation history ownership", () => {
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
     expect(h.state().recovery).toBe("paused");
-    for (let i = 0; i < 4 && h.state().recovery !== "complete"; i++) await h.history.older("7");
+    for (let i = 0; i < 30 && h.state().recovery !== "complete"; i++) await h.history.older("7");
     expect(h.state().recovery).toBe("complete");
     expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 1000 }, (_, i) => i + 1));
     h.history.clear();
@@ -368,7 +368,65 @@ describe("conversation history ownership", () => {
     expect(h.messages().some(m => m.id === "1")).toBe(true);
     await h.history.older("7");
     expect(h.request.mock.calls[HISTORY_REFRESH_PAGE_BUDGET]?.[2]).toEqual({ purpose: "refresh", fromMessageId: "731" });
-    expect(h.request).toHaveBeenCalledTimes(HISTORY_REFRESH_PAGE_BUDGET * 2);
+    expect(h.request).toHaveBeenCalledTimes(HISTORY_REFRESH_PAGE_BUDGET + 1);
+    expect(h.visible()).toHaveLength(300);
+    for (let turn = 0; turn < 3; turn++) {
+      const before = h.visible().length;
+      await h.history.older("7");
+      expect(h.visible()).toHaveLength(before + 30);
+      expect(h.state()).toMatchObject({ recovery: "paused", loading: false });
+    }
+    const calls = h.request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(calls);
+    h.history.clear();
+  });
+
+  it("keeps a failed manual recovery retry within one page and cancels the old background retry", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    h.request.mockResolvedValueOnce(page(Array.from({ length: 30 }, (_, index) => 1000 - index)))
+      .mockRejectedValueOnce(new Error("background timeout"));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("failed");
+    h.request.mockRejectedValueOnce(new Error("manual timeout"));
+    await h.history.older("7");
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = Number(request.fromMessageId) - 1;
+      return page(Array.from({ length: 30 }, (_, index) => from - index));
+    });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(4);
+    expect(h.visible()).toHaveLength(60);
+    expect(h.state()).toMatchObject({ recovery: "paused", loading: false });
+    h.history.clear();
+  });
+
+  it("leaves a stalled manual page paused and restores the background budget on reconnect", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    const read = async (_chat: string, _topic: string | undefined, request: HistoryPageRequest) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 1000;
+      return page(Array.from({ length: 30 }, (_, index) => from - index));
+    };
+    h.request.mockImplementation(read);
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    h.request.mockResolvedValueOnce({ messages: [], messageIds: [], loadedCount: 0,
+      nextFromMessageId: "731", hasMore: true, stalled: true });
+    await h.history.older("7");
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(10);
+    expect(h.visible()).toHaveLength(270);
+    await h.history.older("7");
+    expect(h.visible()).toHaveLength(300);
+    h.history.invalidate();
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.request).toHaveBeenCalledTimes(11 + HISTORY_REFRESH_PAGE_BUDGET);
+    expect(h.state()).toMatchObject({ recovery: "paused", hasMore: true });
+    h.history.clear();
   });
 
   it("keeps the older reader cursor across reconnect and rejects late pre-recovery pages", async () => {
