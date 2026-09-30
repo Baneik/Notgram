@@ -43,6 +43,7 @@ import { TgsSticker } from "./TgsSticker";
 import { StickerPlaceholder } from "./StickerPlaceholder";
 import { AutoplayVideo } from "./AutoplayVideo";
 import { StableImage } from "./StableImage";
+import { ConversationPhoto } from "./ConversationPhoto";
 import { VideoPreview } from "./VideoPreview";
 import { MessageRichText } from "./MessageRichText";
 import { RichMessageContent } from "./RichMessageContent";
@@ -956,21 +957,26 @@ function MessageBubbleComponent({
                       onOpenMedia(message.id, message.chatId);
                     }}
                   >
-                    <StableImage
-                      retainWhileLoading
-                      src={imageMediaSource}
+                    <ConversationPhoto
+                      source={imageMediaSource}
+                      fallback={usablePreviewSource}
+                      cover={albumItem}
                       alt={content.caption || content.fileName}
-                      loading="lazy"
-                      decoding="async"
                       onReady={() => markMediaSourceReady(imageMediaSource)}
-                      onLoad={(event) => rememberMediaSize(
+                      onDimensions={(width, height) => rememberMediaSize(
                         imageMediaSource,
-                        event.currentTarget.naturalWidth,
-                        event.currentTarget.naturalHeight,
+                        width,
+                        height,
                       )}
                       onError={() => markMediaSourceFailed(imageMediaSource)}
                     />
                   </button>
+                ) : imageMediaSource && content.mediaType === "photo" ? (
+                  <ConversationPhoto source={imageMediaSource} fallback={usablePreviewSource}
+                    cover={albumItem} alt={content.caption || content.fileName}
+                    onReady={() => markMediaSourceReady(imageMediaSource)}
+                    onDimensions={(width, height) => rememberMediaSize(imageMediaSource, width, height)}
+                    onError={() => markMediaSourceFailed(imageMediaSource)} />
                 ) : imageMediaSource ? (
                   <StableImage
                     retainWhileLoading

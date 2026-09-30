@@ -196,6 +196,7 @@ const eventMetadata: Record<string, EventMetadata> = {
   video_window_initialized: { get label() { return translate("视频窗口初始化"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   ui_media_viewer_initialized: { get label() { return translate("图片窗口初始化"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   ui_media_viewer_image: { get label() { return translate("图片显示"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
+  ui_photo_preview: { get label() { return translate("图片显示"); }, category: "media", warningMs: 250, criticalMs: 1_000 },
   video_window_open_failed: { get label() { return translate("视频窗口失败"); }, category: "media", warningMs: 0, criticalMs: 1 },
   media_first_frame: { get label() { return translate("媒体首帧提交"); }, category: "media", warningMs: 500, criticalMs: 1_500 },
   media_seek_completed: { get label() { return translate("媒体拖动恢复"); }, category: "media", warningMs: 500, criticalMs: 1_500 },

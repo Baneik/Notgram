@@ -16,6 +16,7 @@ use tauri::{
 pub struct AccountAssets {
     allowed: Mutex<HashSet<PathBuf>>,
     avatars: Mutex<HashSet<PathBuf>>,
+    previews: super::photo_preview::PhotoPreviews,
 }
 
 pub(crate) fn allow(app: &AppHandle, path: &Path) -> Result<(), String> {
@@ -37,9 +38,14 @@ pub(crate) fn set_account_avatars(app: &AppHandle, paths: HashSet<PathBuf>) -> R
 }
 
 pub(crate) fn reset_session(app: &AppHandle) {
+    clear_photo_previews(app);
     if let Ok(mut allowed) = app.state::<AccountAssets>().allowed.lock() {
         allowed.clear();
     }
+}
+
+pub(crate) fn clear_photo_previews(app: &AppHandle) {
+    app.state::<AccountAssets>().previews.clear();
 }
 
 fn decode_path(encoded: &str) -> Result<PathBuf, String> {
@@ -99,6 +105,36 @@ pub(crate) fn respond(app: &AppHandle, request: Request<Vec<u8>>) -> Response<Ve
         }
         app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
             .check_expiry(&path)?;
+        if let Some(query) = request.uri().query() {
+            let size = super::photo_preview::parse_size(query)?;
+            let (preview, cached) = assets.previews.get(&path, size, generation, || {
+                generation
+                    == app
+                        .state::<crate::telegram::media_stream::MediaStreamRegistry>()
+                        .generation()
+            })?;
+            if generation
+                != app
+                    .state::<crate::telegram::media_stream::MediaStreamRegistry>()
+                    .generation()
+            {
+                return Err("Asset session expired".into());
+            }
+            return Response::builder()
+                .status(200)
+                .header("Content-Type", "image/png")
+                .header("Content-Length", preview.png.len().to_string())
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "X-Source-Width, X-Source-Height, X-Preview-Cached, X-Preview-Width, X-Preview-Height")
+                .header("X-Source-Width", preview.source_width.to_string())
+                .header("X-Source-Height", preview.source_height.to_string())
+                .header("X-Preview-Width", preview.width.to_string())
+                .header("X-Preview-Height", preview.height.to_string())
+                .header("X-Preview-Cached", if cached { "1" } else { "0" })
+                .header("Cache-Control", "no-store")
+                .body(preview.png.clone())
+                .map_err(|error| error.to_string());
+        }
         let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
         let size = file.metadata().map_err(|e| e.to_string())?.len();
         let range = request

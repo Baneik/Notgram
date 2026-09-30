@@ -9,6 +9,7 @@ pub(crate) mod local_state;
 pub(crate) mod metadata;
 pub(crate) mod paths;
 pub(crate) mod persistence;
+mod photo_preview;
 
 use account::{account_cache_directory, account_database_directory, active_account_id};
 use cache::{
@@ -314,6 +315,7 @@ fn clear_media_cache(
         remove_empty_sent_media_directories(&sent_media, cutoff);
     }
     result.usage = cache_usage(&root)?;
+    assets::clear_photo_previews(app);
     Ok(result)
 }
 

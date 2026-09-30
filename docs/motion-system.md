@@ -117,6 +117,25 @@ does not encode frames, and is cleared by account reset or media cleanup. Genera
 reject late writes after cleanup, and source errors invalidate their preview. SVG copies
 receive independent clip/gradient IDs. These previews never own navigation or row geometry.
 
+Conversation photos use display-sized previews instead of attaching downloaded originals to each
+virtual row. Measure the actual card/tile bounds including app zoom and device pixel ratio. Native
+asset requests generate PNG previews on a blocking worker with footprint-aware Triangle resampling;
+album tiles crop centrally before resizing, while individual cards preserve the original ratio.
+The original dimensions continue to own geometry and the viewer still requests the original file.
+Non-native fixtures and local browser sources use a cancellable OffscreenCanvas worker with staged
+downsampling. Unsupported codecs fall back to the existing original/error recovery path.
+
+Prepare only visible photos and their 120px margin, share identical requests, and allow at most two
+frontend loads. Native cold decodes run one at a time. Virtual unmount cancels unused pending loads;
+warm remounts restore a prepared source synchronously and reuse the existing still-frame cache.
+Prepared previews are account-local, capped at 128 entries/48 MiB estimated frontend pixels plus
+encoded bytes, and 128 entries/32 MiB natively. Live frontend leases are protected from eviction.
+Preview edges are capped at 1600 physical pixels; neither cache retains an original bitmap. Native
+keys include file size/mtime, session and display dimensions; reset generations reject late results.
+Account reset and media cleanup clear both caches. Asset requests continue to check account scope
+and expiry and retain no-store. Numeric-only `ui_photo_preview` records report generation duration,
+queue time, source/display dimensions, output bytes and cache hits (phase 1 generation, 2 reuse).
+
 The image viewer keeps its transform on a positioned surface outside the decoded-image lifecycle.
 Upgrading one photo must retain both its painted preview and its zoom/pan; selecting another photo
 resets the viewport before paint. Pointer moves coalesce into one transform write per animation frame,

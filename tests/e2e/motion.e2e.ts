@@ -247,7 +247,9 @@ test("a stale media decode cannot hide or acknowledge a newer source", async ({ 
     const current = telegramStore.getState().messages.get("chat-product")!;
     telegramStore.setState({ messages: new Map(telegramStore.getState().messages).set("chat-product", [...current, {
       ...current.at(-1)!, id: "decode-generation", mediaAlbumId: undefined, sentAt: "2027-01-01T00:00:00Z",
-      content: { kind: "media", mediaType: "photo", fileName: "decode.jpg", sizeLabel: "18 KB",
+      // This targets StableImage's replaced decode, independently of the
+      // conversation photo worker and its separate cancellation protocol.
+      content: { kind: "media", mediaType: "animation", fileName: "decode.jpg", sizeLabel: "18 KB",
         localPath: "/mock-video-poster.jpg?decode-obsolete", width: 480, height: 240,
         isDownloaded: true, canDownload: false },
     }]) });

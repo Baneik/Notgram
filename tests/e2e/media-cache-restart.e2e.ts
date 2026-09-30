@@ -65,11 +65,20 @@ const prepare = async (page: Page, automatic: boolean) => {
 const requests = (page: Page) => page.evaluate(() =>
   (window as unknown as { __mediaRequests: Array<{ type: string; fileId?: number }> }).__mediaRequests);
 const photoRow = (page: Page) => page.locator('[data-message-id="900001"]');
+const expectCachedPhoto = async (page: Page) => {
+  const image = photoRow(page).locator('img[data-photo-preview="true"][data-image-state="ready"]');
+  await expect(image).toBeVisible();
+  expect(await image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    return telegramStore.getState().messages.get("chat-product")?.find(message => message.id === "900001")?.content;
+  })).toMatchObject({ localPath: "/mock-video-poster.jpg", isDownloaded: true });
+};
 
 test("cached historical photos automatically load with newly bound file IDs after each restart", async ({ page }) => {
   await prepare(page, true);
   await page.goto("/");
-  await expect(photoRow(page).locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+  await expectCachedPhoto(page);
   expect((await requests(page)).filter(request => request.type === "download").map(request => request.fileId)).toEqual([191]);
   await expect.poll(() => page.evaluate(() => {
     const snapshot = (window as unknown as { __mediaSavedSnapshot?: { messages: Array<{ id: string; content: { fileId?: number; isDownloaded?: boolean } }> } }).__mediaSavedSnapshot;
@@ -78,7 +87,7 @@ test("cached historical photos automatically load with newly bound file IDs afte
   }), { timeout: 15_000 }).toBe(true);
   await page.reload();
   await expect.poll(async () => (await requests(page)).filter(request => request.type === "download").map(request => request.fileId)).toEqual([291]);
-  await expect(photoRow(page).locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+  await expectCachedPhoto(page);
   await expect(photoRow(page).getByRole("button", { name: "下载 cached-photo.jpg", exact: true })).toHaveCount(0);
 });
 
@@ -89,7 +98,7 @@ test("manual download updates an ordinary cached photo when automatic download i
   await expect(button).toBeVisible();
   expect((await requests(page)).filter(request => request.type === "download")).toEqual([]);
   await button.click();
-  await expect(photoRow(page).locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+  await expectCachedPhoto(page);
   await expect(button).toHaveCount(0);
   expect((await requests(page)).filter(request => request.type === "download").map(request => request.fileId)).toEqual([191]);
 });
@@ -99,5 +108,5 @@ test("manual save failures retain the concrete error and the successfully cached
   await page.goto("/?saveError=1");
   await photoRow(page).getByRole("button", { name: "下载 cached-photo.jpg", exact: true }).click();
   await expect(page.getByText("This message cannot be saved or has expired", { exact: true })).toBeVisible();
-  await expect(photoRow(page).locator('img[src*="mock-video-poster.jpg"]')).toBeVisible();
+  await expectCachedPhoto(page);
 });
