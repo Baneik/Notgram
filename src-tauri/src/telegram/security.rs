@@ -19,6 +19,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "cancelDownloadFile",
     "changeStickerSet",
     "clickChatSponsoredMessage",
+    "closeChat",
     "setChatMemberStatus",
     "setChatMemberTag",
     "addMessageReaction",
@@ -97,6 +98,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "leaveChat",
     "loadChats",
     "logOut",
+    "openChat",
     "parseMarkdown",
     "pinChatMessage",
     "pingProxy",
@@ -204,7 +206,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         return Err("Local files cannot be sent through the generic TDLib bridge".to_string());
     }
     match request_type {
-        "joinChat" => {
+        "joinChat" | "openChat" | "closeChat" => {
             validate_nonzero_identifier(request, "chat_id")?;
         }
         "checkChatInviteLink" | "joinChatByInviteLink" => {
@@ -1927,6 +1929,26 @@ mod tests {
     use super::*;
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
+
+    #[test]
+    fn chat_view_subscriptions_require_a_valid_chat_identifier() {
+        for kind in ["openChat", "closeChat"] {
+            assert!(
+                validate_webview_tdlib_request(
+                    &json!({ "@type": kind, "chat_id": -10072, "@extra": EXTRA })
+                )
+                .is_ok()
+            );
+            for id in [json!(0), json!("-10072"), json!(null)] {
+                assert!(
+                    validate_webview_tdlib_request(
+                        &json!({ "@type": kind, "chat_id": id, "@extra": EXTRA })
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
 
     #[test]
     fn accepts_bounded_chat_join_requests_and_rejects_malformed_invites() {

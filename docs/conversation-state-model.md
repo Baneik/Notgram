@@ -61,6 +61,17 @@ must not run separate whole-list transforms.
 
 ## Reentering a conversation
 
+The native transport synchronizes TDLib `openChat`/`closeChat` with selection so
+channel and supergroup updates remain subscribed. These requests serialize in
+the background and never delay the synchronous selection transaction. Session
+reset invalidates pending transitions before another account can take ownership.
+Channel posts in the actual viewport are reported through `viewMessages` once
+per visit, including each reentry and connection recovery. Overscan only warms
+media and does not report views. Interaction updates continue through the
+existing message update path; failures retry while the post remains visible.
+Pin service events remain in stored history but are excluded from conversation
+and discussion projections, independently of pinned-post metadata and banners.
+
 Ordinary entry preserves the reading viewport from departure, including a viewport that was at
 the bottom. Current-view following is not an instruction to follow messages that arrive while
 the conversation is closed. Save the visible message anchor and offset even while following,

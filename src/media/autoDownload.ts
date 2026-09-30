@@ -16,13 +16,13 @@ const categoryEnabled = (content: MessageContent, policy: AutoDownloadPolicy) =>
   return policy.audio;
 };
 
-export const shouldAutoDownload = (content: MessageContent, policy: AutoDownloadPolicy) => {
+export const shouldAutoDownload = (content: MessageContent, policy: AutoDownloadPolicy, retainInProgress = false) => {
   if (
     (content.kind !== "file" && content.kind !== "media") ||
     content.fileId === undefined ||
     content.canDownload !== true ||
     content.isDownloaded === true ||
-    content.isDownloading === true ||
+    (content.isDownloading === true && !retainInProgress) ||
     !categoryEnabled(content, policy) ||
     !content.size
   ) {

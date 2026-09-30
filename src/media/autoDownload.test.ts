@@ -26,6 +26,12 @@ const media = (overrides: Partial<Extract<MessageContent, { kind: "media" }>> = 
 });
 
 describe("automatic media downloads", () => {
+  it("retains a mounted prefetch through progress updates while preserving policy limits", () => {
+    expect(shouldAutoDownload(media({ isDownloading: true }), policy, true)).toBe(true);
+    expect(shouldAutoDownload(media({ isDownloading: true, isDownloaded: true }), policy, true)).toBe(false);
+    expect(shouldAutoDownload(media({ isDownloading: true }), { ...policy, images: false }, true)).toBe(false);
+    expect(shouldAutoDownload(media({ isDownloading: true, size: 11 * 1024 * 1024 }), policy, true)).toBe(false);
+  });
   it("honors media type switches and the size limit", () => {
     expect(shouldAutoDownload(media(), policy)).toBe(true);
     expect(shouldAutoDownload(media({ mediaType: "video" }), policy)).toBe(false);

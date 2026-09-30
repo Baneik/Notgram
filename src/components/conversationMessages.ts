@@ -25,6 +25,9 @@ export interface ForwardSource {
 export const senderChatId = (senderId: string) =>
   senderId.startsWith("chat:") ? senderId.slice("chat:".length) : undefined;
 
+export const isVisibleConversationMessage = (message: Message) =>
+  message.content.kind !== "service" || message.content.event?.type !== "messagePinMessage";
+
 export const senderNameForMessage = (
   message: Message,
   users: Map<string, User>,

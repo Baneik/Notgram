@@ -2,6 +2,14 @@
 
 ## Ownership
 
+Conversation photo preparation uses the message scroller as its visibility root.
+Virtual mounting, automatic downloads, and display preview generation share the
+same bounded region (1600 CSS pixels before and 1000 after the viewport). A
+window-root margin cannot extend beyond the nested scroller's clipping edge.
+Downloads keep their mounted owner through progress updates; completion,
+policy changes, or virtual unmount release that owner. Preserve download queue
+limits and the bounded preview caches instead of warming an entire history.
+
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message
@@ -78,6 +86,14 @@ Range validation, downloaded-interval checks, content expiry,
 account invalidation and restricted file access remain enforced.
 
 ## Viewer interaction
+
+Conversation albums render reactions once in a shared footer below the entire
+mosaic, including ordinary chats and forwarded channel media. Each reaction group
+keeps its own source message ID for toggles and sender queries; caption and metadata
+ownership must not replace that identity. When reactions exist, the footer also
+owns the shared timestamp and delivery state, so individual tiles do not duplicate
+metadata or place reactions over photos. Removing all reactions restores the
+existing caption metadata or tile hover metadata presentation.
 
 Photos and ordinary videos open with one click in the same viewer. A chat's
 mixed media list shares captions, metadata, thumbnails, download feedback and

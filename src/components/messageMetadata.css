@@ -1,11 +1,11 @@
 /* Metadata owns meaning and color. Parent message layouts own its geometry. */
 .message-meta {
-  min-height: 15px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 2px;
-  color: var(--subtle); font-size: 10px; line-height: 1; user-select: none; -webkit-user-select: none;
+  min-height: 16px; margin: 1px 0 0 10px; display: flex; align-items: center; justify-content: flex-end; gap: 3px;
+  color: var(--subtle); font-size: 12px; line-height: 1.2; user-select: none; -webkit-user-select: none;
 }
 .message-meta[data-context="outgoing"] { color: var(--color-status-success); }
 .message-meta[data-context="channel"] { min-height: 18px; gap: 8px; flex-wrap: wrap; color: var(--muted); }
-.message-meta-stats, .message-meta-status { min-width: 0; display: inline-flex; align-items: center; gap: 3px; }
+.message-meta-stats, .message-meta-status { min-width: 0; display: inline-flex; align-items: center; gap: 4px; }
 .message-meta-stats { flex: 1 1 auto; flex-wrap: wrap; }
 .message-meta-status { flex: 0 0 auto; white-space: nowrap; }
 .message-meta[data-context="channel"] .message-meta-stats { flex: 0 1 auto; justify-content: flex-end; overflow: hidden; }

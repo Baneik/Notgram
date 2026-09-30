@@ -1,4 +1,5 @@
 import { chatReportRequest, mapChatReportResult } from "./chatReport";
+import { ChatViewSession } from "./chatViewSession";
 import { mapChatInvitePreview, mapChatJoinResult } from "./chatJoin";
 import { telegramInviteLink } from "./telegramLinks";
 import type { JoinChatInput, JoinChatResult } from "./types";
@@ -401,6 +402,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   private activeHydrations = 0;
   private hydrationGeneration = 0;
   private hydrationFocusChatId: string | undefined;
+  private readonly chatViewSession = new ChatViewSession(request => this.request(request));
   private hydrationDrainScheduled = false;
   private readonly maxHydrationConcurrency = 4;
   private richMessageHydrationTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
@@ -2347,6 +2349,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     });
   }
 
+  async viewChannelMessages(chatId: string, messageIds: string[]) {
+    await this.chatViewSession.view(this.canonicalChatId(chatId), messageIds.map(numericId));
+  }
+
   async markMessageAttentionRead(chatId: string, messageIds: string[]) {
     chatId = this.canonicalChatId(chatId);
     const uniqueMessageIds = [...new Set(messageIds.map(numericId))];
@@ -3455,6 +3461,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   setConversationFocus(chatId?: string) {
+    if (!this.settingsOnly) this.chatViewSession.focus(chatId ? this.canonicalChatId(chatId) : undefined);
     if (!this.settingsOnly) void invoke("telegram_set_media_focus", { chatId: chatId ? Number(chatId) : undefined }).catch(() => undefined);
     if (this.hydrationFocusChatId === chatId) return;
     this.hydrationFocusChatId = chatId;
@@ -3957,6 +3964,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.unavailableRichMessageHydrations.clear();
     this.hydrationGeneration += 1;
     this.hydrationFocusChatId = undefined;
+    this.chatViewSession.reset();
     this.hydrationQueue = [];
     this.hydrationDrainScheduled = false;
     for (const timer of this.richMessageHydrationTimers.values()) globalThis.clearTimeout(timer);

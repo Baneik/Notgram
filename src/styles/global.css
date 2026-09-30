@@ -1191,8 +1191,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .is-channel-post-bubble, .is-channel-album { --channel-post-inline-padding: 13px; }
 .media-album.is-channel-album { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: 10px; }
 .is-channel-album .media-album-caption { padding: 0 var(--channel-post-inline-padding) 10px; }
-.media-album-footer { min-width: 0; padding: 8px var(--channel-post-inline-padding) 9px; border-top: 1px solid var(--color-border-subtle); }
+.media-album-footer { min-width: 0; padding: 7px 9px 6px; }
+.is-channel-album .media-album-footer { padding: 8px var(--channel-post-inline-padding) 9px; }
 .media-album-footer .message-meta { margin: 0; }
+.media-album > .message-reaction-footer { margin-top: 0; flex-wrap: wrap; }
 .is-channel-album .media-album-grid .message-bubble { border: 0; }
 .media-album-caption { min-width: 0; padding: 7px 9px; }
 .media-album-caption p { margin: 0; }
@@ -1210,21 +1212,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .media-album-grid .photo-preview img, .media-album-grid .photo-preview video { object-fit: cover; }
 .media-album-grid .message-bubble.has-caption .message-meta:not(.is-channel-meta),
 .media-album-grid .message-meta:not(.is-channel-meta) { position: absolute; right: 5px; bottom: 5px; min-height: 17px; margin: 0; padding: 2px 5px; color: var(--color-on-media); background: var(--color-overlay); border-radius: 8px; }
-.media-album-grid .message-bubble.is-photo > .message-reaction-footer {
-  position: absolute; z-index: 4; left: 5px; right: 5px; bottom: 5px; margin: 0;
-  padding: 0; align-items: flex-end; gap: 4px; background: transparent; pointer-events: none;
-}
-.media-album-grid .message-reaction-footer .message-reactions {
-  min-width: 0; flex-wrap: nowrap; overflow: hidden; pointer-events: auto;
-}
-.media-album-grid .message-bubble .message-reaction-footer > .message-meta:not(.is-channel-meta) {
-  position: static; min-height: 17px; margin: 0 0 0 auto !important; padding: 2px 5px;
-  flex: 0 0 auto; color: var(--color-on-media); background: var(--color-overlay); border-radius: 8px;
-}
-.media-album-grid .message-reaction-footer .message-reactions > button {
-  color: var(--color-on-media); background: var(--color-overlay);
-  border-color: color-mix(in srgb, var(--color-on-media) 34%, transparent);
-}
 @media (hover: hover) and (pointer: fine) {
   .media-album-grid .message-meta:not(.is-channel-meta),
   .message-bubble.is-photo.media-bubble-photo:not(.has-caption):not(.is-channel-post-bubble) .message-meta:not(.is-channel-meta) {
@@ -1297,7 +1284,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .message-bubble.is-channel-post-bubble .attachment-message { min-width: 0; padding-inline: var(--channel-post-inline-padding); }
 .message-bubble.is-channel-post-bubble > .message-meta.is-channel-meta {
-  min-height: 34px; margin: 0 !important; padding: 8px var(--channel-post-inline-padding) 9px; border-top: 1px solid var(--color-border-subtle);
+  min-height: 34px; margin: 0 !important; padding: 8px var(--channel-post-inline-padding) 9px;
 }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer > .message-meta.is-channel-meta {
   width: auto; min-height: 18px; margin: 0 0 0 auto !important; padding: 0; flex: 0 1 auto;
@@ -1928,7 +1915,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .audio-floating-transfer .media-progress-ring { position: absolute; inset: 0; }
 .audio-floating-transfer > svg:last-child { position: relative; z-index: 1; }
 .message-reactions {
-  min-width: 0; min-height: 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  min-width: 0; min-height: 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
 }
 .message-reaction-footer {
   min-width: 0; margin-top: 4px; display: flex; align-items: flex-end; justify-content: flex-start; gap: 7px;
@@ -1946,8 +1933,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 }
 .message-reactions > button {
   --reaction-chip-bg: color-mix(in srgb, var(--color-bg-elevated) 76%, transparent);
-  min-width: 30px; height: 24px; padding: 2px 5px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; flex: 0 0 auto;
-  color: var(--color-text-secondary); background: var(--reaction-chip-bg); border: 1px solid var(--color-border-default); border-radius: 12px; cursor: pointer;
+  min-width: 34px; height: 28px; padding: 3px 7px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto;
+  color: var(--color-text-secondary); background: var(--reaction-chip-bg); border: 1px solid var(--color-border-default); border-radius: 14px; cursor: pointer;
   font-size: 13px; line-height: 1;
 }
 .message-reactions > button:hover, .message-reactions > button:focus-visible {
@@ -1959,14 +1946,14 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   color: var(--accent); background: var(--reaction-chip-bg); border-color: var(--color-border-focus);
   animation: motion-feedback-pop var(--motion-duration-fast) var(--motion-ease-enter);
 }
-.message-reaction-emoji { width: 17px; height: 17px; display: inline-grid; place-items: center; flex: 0 0 17px; font-size: 14px; }
-.message-reaction-avatars { height: 18px; display: inline-flex; align-items: center; padding-right: 1px; }
+.message-reaction-emoji { width: 20px; height: 20px; display: inline-grid; place-items: center; flex: 0 0 20px; font-size: 17px; }
+.message-reaction-avatars { height: 20px; display: inline-flex; align-items: center; padding-right: 1px; }
 .message-reaction-avatars .avatar {
-  width: 17px; height: 17px; margin-left: -4px; overflow: hidden; font-size: 6px;
+  width: 19px; height: 19px; margin-left: -4px; overflow: hidden; font-size: 7px;
   box-shadow: 0 0 0 1.5px var(--reaction-chip-bg);
 }
 .message-reaction-avatars .avatar:first-child { margin-left: 0; }
-.message-reaction-count { min-width: 10px; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.message-reaction-count { min-width: 10px; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .message-bubble.is-photo > .message-reaction-footer { margin-top: 0; padding: 5px 7px 6px; background: inherit; }
 .message-bubble-shell.is-sticker-shell .message-reactions {
   width: fit-content; max-width: 100%; margin-top: 3px; padding: 0; border: 0;
@@ -2125,7 +2112,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   position: static; z-index: auto; width: 100%; max-width: 100%; min-height: 34px;
   margin: 0 !important; padding: 8px var(--channel-post-inline-padding) 9px; display: flex; align-items: center;
   justify-content: flex-end; gap: 8px; flex-wrap: wrap; overflow: hidden; float: none !important;
-  background: var(--color-bg-surface); border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
   border-radius: 0; transform: none; opacity: 1; pointer-events: auto;
 }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer,
@@ -2134,11 +2121,11 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   flex-wrap: wrap; background: var(--color-bg-surface);
 }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer > .message-reactions,
-.is-channel-album > .message-reaction-footer > .media-album-reactions {
+.media-album > .message-reaction-footer > .media-album-reactions {
   min-width: 0; flex: 1 1 120px;
 }
 .message-bubble.is-channel-post-bubble > .message-reaction-footer > .message-meta.is-channel-meta,
-.is-channel-album > .message-reaction-footer > .message-meta.is-channel-meta {
+.media-album > .message-reaction-footer > .message-meta {
   width: auto; max-width: 100%; min-height: 18px; margin: 0 !important; padding: 0;
   flex: 0 1 auto; align-items: center; justify-content: flex-end; background: transparent;
 }

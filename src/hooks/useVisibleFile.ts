@@ -8,6 +8,7 @@ export const useVisibleFile = <T extends Element>(
   priority: number,
   rootMargin: string,
   eager = false,
+  scrollRootSelector?: string,
 ) => {
   const targetRef = useRef<T>(null);
   const retryStateRef = useRef({ fileId: undefined as number | undefined, failures: 0, notBefore: 0 });
@@ -45,13 +46,13 @@ export const useVisibleFile = <T extends Element>(
 
     const observer = new IntersectionObserver((entries) => {
       request.setVisible(entries.some((entry) => entry.isIntersecting));
-    }, { rootMargin });
+    }, { root: scrollRootSelector ? target.closest(scrollRootSelector) : null, rootMargin });
     observer.observe(target);
     return () => {
       dispose();
       observer.disconnect();
     };
-  }, [eager, enabled, fileId, priority, rootMargin]);
+  }, [eager, enabled, fileId, priority, rootMargin, scrollRootSelector]);
 
   return targetRef;
 };

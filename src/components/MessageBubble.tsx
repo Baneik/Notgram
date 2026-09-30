@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
+import { MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR } from "../utils/mediaPrefetch";
 import type { ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import type {
   Chat,
@@ -72,8 +73,6 @@ import { MessageReactions } from "./MessageReactions";
 import { writeClipboardText } from "../utils/clipboard";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { visibleMessageReactions } from "../utils/localBlockedReactions";
-
-const MEDIA_PREFETCH_ROOT_MARGIN = "1200px 0px 360px 0px";
 
 export interface ReplyPreview {
   author: string;
@@ -372,7 +371,7 @@ function MessageBubbleComponent({
       )
     : undefined;
   const reactions = visibleMessageReactions(message, blockedReactionSenderIds);
-  const showReactionFooter = !selectionMode && !isService && !(albumItem && channelPost) && reactions.length > 0;
+  const showReactionFooter = !selectionMode && !isService && !albumItem && reactions.length > 0;
 
   const visualShellStyle = mediaLayout
     ? {
@@ -538,10 +537,11 @@ function MessageBubbleComponent({
     }
   };
   const previewFileId = content.kind === "media" && content.thumbnailFileId !== undefined &&
-    content.thumbnailCanDownload === true && !content.thumbnailPath && !content.thumbnailIsDownloading
+    content.thumbnailCanDownload === true && !content.thumbnailPath
     ? content.thumbnailFileId
     : undefined;
-  const automaticFileId = shouldAutoDownload(content, autoDownloadPolicy) &&
+  // A progress update must not release the queue owner of an automatic request.
+  const automaticFileId = shouldAutoDownload(content, autoDownloadPolicy, true) &&
     (content.kind === "file" || content.kind === "media")
     ? content.fileId
     : undefined;
@@ -563,6 +563,8 @@ function MessageBubbleComponent({
     // conversation unmounts so a rapid switch cannot strand old prefetches.
     18,
     MEDIA_PREFETCH_ROOT_MARGIN,
+    false,
+    MESSAGE_SCROLL_ROOT_SELECTOR,
   );
   const setMessageRowRef = useCallback((element: HTMLElement | null) => {
     const previousElement = rowRef.current;

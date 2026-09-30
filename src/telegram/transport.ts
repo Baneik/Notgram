@@ -235,6 +235,7 @@ export interface TelegramTransport {
   cancelFileUpload(chatId: string, messageId: string): Promise<void>;
   markChatRead(chatId: string): Promise<void>;
   markMessageThreadRead(chatId: string, messageIds: string[]): Promise<void>;
+  viewChannelMessages(chatId: string, messageIds: string[]): Promise<void>;
   markForumTopicRead(chatId: string, topicId: string, messageId: string): Promise<void>;
   markMessageAttentionRead(chatId: string, messageIds: string[]): Promise<void>;
   markAllChatReactionsRead(chatId: string): Promise<void>;

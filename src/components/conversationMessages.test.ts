@@ -6,6 +6,7 @@ import {
   forwardLabelFor,
   forwardSourceFor,
   isAutomaticChannelForward,
+  isVisibleConversationMessage,
   replyPreviewFor,
 } from "./conversationMessages";
 
@@ -27,6 +28,15 @@ const linkedChannelPost = (overrides: Partial<Message> = {}): Message => ({
   },
   content: { kind: "text", text: "Linked channel post" },
   ...overrides,
+});
+
+describe("conversation message visibility", () => {
+  it("hides pin service notices while preserving pinned posts and other services", () => {
+    const message = linkedChannelPost();
+    expect(isVisibleConversationMessage({ ...message, content: { kind: "service", text: "Pinned", event: { type: "messagePinMessage" } } })).toBe(false);
+    expect(isVisibleConversationMessage({ ...message, isPinned: true })).toBe(true);
+    expect(isVisibleConversationMessage({ ...message, content: { kind: "service", text: "Joined", event: { type: "messageChatJoinByLink" } } })).toBe(true);
+  });
 });
 
 describe("reply preview authors", () => {

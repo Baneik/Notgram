@@ -120,8 +120,17 @@ test("service details preserve identities, language changes and related-message 
     const { preferencesStore } = await import(path) as typeof import("../../src/store/preferencesStore");
     preferencesStore.getState().setPreference("language", "zh-CN");
   });
-  const pin = await revealVirtualMessage(page, "notice-pin");
-  await pin.getByRole("button", { name: /置顶了一条消息/ }).click();
+  await expect(page.locator('[data-message-id="notice-pin"]')).toHaveCount(0);
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "notice-gift" && message.content.kind === "service"
+      ? { ...message, content: { ...message.content, event: { ...message.content.event!, target: { messageId: "p-2" } } } } : message));
+    telegramStore.setState({ messages });
+  });
+  const related = await revealVirtualMessage(page, "notice-gift");
+  await related.locator("details").evaluate(element => { (element as HTMLDetailsElement).open = true; });
+  await related.getByRole("button", { name: /^查看相关消息/ }).click();
   await expect(page.locator('[data-message-id="p-2"]')).toBeVisible();
   await expect(page.locator('[data-message-id="p-2"]')).toHaveClass(/is-notification-target/);
 });
@@ -151,9 +160,8 @@ test("member aliases stay private in service notices and linked summaries", asyn
   await expect(gift).toContainText(`接收人：${alias}`);
   await expect(gift).not.toContainText("Bob");
   await expect(gift.locator("strong").filter({ hasText: alias })).toBeVisible();
-  const pin = await revealVirtualMessage(page, "notice-pin");
-  await expect(pin).not.toContainText("Private blocked message");
-  await expect(pin.getByRole("button", { name: "置顶了一条消息", exact: true })).toBeVisible();
+  await expect(page.locator('[data-message-id="notice-pin"]')).toHaveCount(0);
+  await expect(gift).not.toContainText("Private blocked message");
 });
 
 test("long names wrap, missing users stay bold and service photos fall back safely", async ({ page }) => {

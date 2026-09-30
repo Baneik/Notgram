@@ -1352,6 +1352,7 @@ export const createTelegramStore = (
       void loadChats();
       const { activeChatId, activeTopicId, chats } = get();
       if (!activeChatId) return;
+      transport.setConversationFocus?.(activeChatId);
       if (chats.get(activeChatId)?.isForum) {
         if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
         void refreshForumConversation(activeChatId, true);
@@ -1780,6 +1781,7 @@ export const createTelegramStore = (
           void flushOutbox();
           const activeChatId = get().activeChatId;
           if (activeChatId && get().connectionStatus === "online") {
+            transport.setConversationFocus?.(activeChatId);
             const activeTopicId = get().activeTopicId;
             if (get().chats.get(activeChatId)?.isForum) {
               if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
@@ -2720,6 +2722,7 @@ export const createTelegramStore = (
           if (settingsOnly) return;
           loadInitialVisibleFolder();
           const refreshChatId = get().activeChatId ?? firstChat?.id;
+          if (refreshChatId && authorization.kind === "ready") transport.setConversationFocus?.(refreshChatId);
           if (
             authorization.kind === "ready" &&
             get().connectionStatus === "online" &&
@@ -3556,6 +3559,22 @@ export const createTelegramStore = (
         if (!visibleIds.length) return true;
         try {
           await transport.markMessageThreadRead(chatId, visibleIds);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      viewChannelMessages: async (chatId, messageIds) => {
+        const state = get();
+        if (state.activeChatId !== chatId || state.chats.get(chatId)?.kind !== "channel" ||
+            state.authorization.kind !== "ready" || state.connectionStatus !== "online" || !documentIsVisible()) return false;
+        const requested = new Set(messageIds);
+        const ids = (state.messages.get(chatId) ?? []).filter(message => requested.has(message.id) &&
+          message.isChannelPost && !message.isLocallyDeleted && !message.isRemoving &&
+          !outboxItemId(message.id) && message.delivery !== "sending" && message.delivery !== "failed").map(message => message.id);
+        if (!ids.length) return true;
+        try {
+          await transport.viewChannelMessages(chatId, ids);
           return true;
         } catch {
           return false;

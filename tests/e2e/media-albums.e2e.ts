@@ -2,6 +2,102 @@ import { expect, test } from "@playwright/test";
 import type { Message } from "../../src/telegram/types";
 import { horizontalOverflow, revealVirtualMessage, chooseMessageMenuItem } from "./helpers";
 
+for (const forwarded of [false, true]) {
+  test(`${forwarded ? "forwarded" : "group"} album reactions stay below all tiles and target their original message`, async ({ page }, testInfo) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /产品讨论/ }).first().click();
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+    const album = page.locator('[data-media-album-id="chat-reaction-album"]');
+    const footer = album.locator(".media-album-footer");
+
+    for (const placement of ["below", "above", "none"] as const) {
+      await page.evaluate(async ({ forwarded, placement }) => {
+        const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+        const state = telegramStore.getState();
+        const source = state.messages.get("chat-product")!.find(message => message.content.kind === "media")!;
+        const photo = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="400" height="240" fill="#647d90"/></svg>');
+        const messages = new Map(state.messages);
+        messages.set("chat-product", Array.from({ length: 6 }, (_, index): Message => ({ ...source,
+          id: `chat-album-${index}`, renderKey: `chat-album-${index}`, mediaAlbumId: "chat-reaction-album",
+          outgoing: placement === "above", isChannelPost: false,
+          senderId: forwarded ? "chat:chat-release" : source.senderId,
+          forwardInfo: forwarded ? { origin: { kind: "channel", chatId: "chat-release", messageId: "release-post-1" },
+            sentAt: source.sentAt, source: { chatId: "chat-release", messageId: "release-post-1", outgoing: false } } : undefined,
+          sentAt: new Date(Date.parse(source.sentAt) + index * 1000).toISOString(),
+          editedAt: index === 5 ? source.sentAt : undefined,
+          interaction: { viewCount: 0, forwardCount: 0, replyCount: 0, canGetAddedReactions: true,
+            reactions: index === 0 || index === 5 ? [{ type: { kind: "emoji", emoji: "👍" },
+              totalCount: index === 0 ? 50 : 7, chosen: false, recentSenderIds: [] }] : [] },
+          content: { kind: "media", mediaType: "photo", fileName: `photo-${index}.jpg`, sizeLabel: "1 KB",
+            width: 400, height: 240, previewDataUrl: photo, hasSpoiler: true,
+            caption: index === (placement === "below" ? 0 : 5) && placement !== "none" ? "整组媒体说明" : undefined,
+            showCaptionAboveMedia: placement === "above" },
+        })));
+        const calls: string[][] = [];
+        (window as unknown as { chatAlbumReactionCalls: string[][] }).chatAlbumReactionCalls = calls;
+        telegramStore.setState({ messages,
+          setMessageReaction: async (id, emoji, chosen, chatId) => { calls.push(["toggle", id, emoji, String(chosen), chatId!]); },
+          getMessageReactionSenders: async (id, _type, _offset, chatId) => {
+            calls.push(["details", id, chatId!]);
+            return { senders: [], totalCount: 7 };
+          },
+        });
+      }, { forwarded, placement });
+
+      await expect(footer.locator(".message-reactions > button")).toHaveCount(2);
+      await expect(album.locator(".media-album-grid .message-reactions")).toHaveCount(0);
+      await expect(album.locator("time")).toHaveCount(1);
+      await expect(footer).toContainText("已编辑");
+      for (const { width, theme } of [{ width: 1100, theme: "notgram-light" }, { width: 390, theme: "notgram-dark" }] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate(async theme => {
+          const { preferencesStore } = await (0, eval)('import("/src/store/preferencesStore.ts")') as typeof import("../../src/store/preferencesStore");
+          preferencesStore.getState().setPreference("themeId", theme);
+        }, theme);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        await expect.poll(() => album.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          const grid = element.querySelector(".media-album-grid")!.getBoundingClientRect();
+          const footer = element.querySelector(".media-album-footer")!.getBoundingClientRect();
+          const meta = element.querySelector(".media-album-footer .message-meta")!.getBoundingClientRect();
+          return footer.bottom <= bounds.bottom + 1 && meta.bottom <= footer.bottom &&
+            [...element.querySelectorAll(".message-reactions > button")].every(button => {
+            const chip = button.getBoundingClientRect();
+            const overlapsMeta = chip.left < meta.right && chip.right > meta.left && chip.top < meta.bottom && chip.bottom > meta.top;
+            return chip.top >= grid.bottom && chip.top >= footer.top && chip.bottom <= footer.bottom &&
+              chip.left >= footer.left && chip.right <= footer.right && !overlapsMeta;
+          });
+        })).toBe(true);
+        if (placement === "below" && width === 1100) {
+          await album.screenshot({ path: testInfo.outputPath("album-reaction-caption.png") });
+        }
+      }
+      const reaction = footer.getByRole("button", { name: /👍，7 个回应/ });
+      await reaction.click();
+      await reaction.click({ button: "right" });
+      await expect(page.getByRole("menu", { name: "👍 的回应者" })).toBeVisible();
+      expect(await page.evaluate(() => (window as unknown as { chatAlbumReactionCalls: string[][] }).chatAlbumReactionCalls))
+        .toEqual([["toggle", "chat-album-5", "👍", "true", "chat-product"], ["details", "chat-album-5", "chat-product"]]);
+      await page.locator(".conversation-header").click({ position: { x: 120, y: 30 } });
+      await expect(page.getByRole("menu", { name: "👍 的回应者" })).toBeHidden();
+    }
+    await album.screenshot({ path: testInfo.outputPath("album-reaction-footer.png") });
+    await page.evaluate(async () => {
+      const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+      const state = telegramStore.getState();
+      const messages = new Map(state.messages);
+      messages.set("chat-product", state.messages.get("chat-product")!.map(message => ({ ...message,
+        interaction: { ...message.interaction!, reactions: [] },
+        content: message.content.kind === "media" ? { ...message.content, caption: message.id === "chat-album-5" ? "移除回应后的说明" : undefined } : message.content,
+      })));
+      telegramStore.setState({ messages });
+    });
+    await expect(footer).toHaveCount(0);
+    await expect(album.locator(".media-album-caption time")).toBeVisible();
+    await expect(album.locator(".media-album-grid time")).toHaveCount(0);
+  });
+}
+
 test("album captions follow the sole owner, placement, and live content updates", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /产品讨论/ }).first().click();

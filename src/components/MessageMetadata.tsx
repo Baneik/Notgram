@@ -23,10 +23,10 @@ export function MessageMetadata({ message, channelPost, showChannelMetadata, cha
       <span className="message-meta-stats">
         {showChannelMetadata && message.interaction && <>
           <span className="message-meta-stat" aria-label={translate("转发 {{value0}} 次", { value0: message.interaction.forwardCount })}>
-            <Forward size={12} strokeWidth={2} />{formatCompactCount(message.interaction.forwardCount)}
+            <Forward size={14} strokeWidth={2} />{formatCompactCount(message.interaction.forwardCount)}
           </span>
           <span className="message-meta-stat" aria-label={translate("{{value0}} 次观看", { value0: message.interaction.viewCount })}>
-            <Eye size={13} strokeWidth={2} />{formatCompactCount(message.interaction.viewCount)}
+            <Eye size={14} strokeWidth={2} />{formatCompactCount(message.interaction.viewCount)}
           </span>
         </>}
         {showChannelMetadata && channelAuthor && (onOpenAuthor ? (

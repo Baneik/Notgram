@@ -246,6 +246,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markActiveChatRead: () => Promise<void>;
   markMessageThreadRead: (chatId: string, messageIds: string[]) => Promise<boolean>;
+  viewChannelMessages: (chatId: string, messageIds: string[]) => Promise<boolean>;
   markLocalBlockedUserReactionsRead: (userId?: string) => Promise<void>;
   dismissMessageAttention: (chatId: string, messageIds: string[]) => void;
   refreshUnreadMentions: (chatId: string) => Promise<void>;

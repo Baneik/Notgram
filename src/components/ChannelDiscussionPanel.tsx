@@ -68,6 +68,7 @@ import {
   messageSummary,
   replyPreviewFor,
   serviceTargetSummary,
+  isVisibleConversationMessage,
 } from "./conversationMessages";
 import { ForwardMessagesDialog } from "./ForwardMessagesDialog";
 import { MessageBubblePreview, type MessageBubblePreviewProps } from "./MessageBubble";
@@ -186,7 +187,7 @@ const avatarFor = (
 export function ChannelDiscussionPanel({
   post,
   channel,
-  comments,
+  comments: allComments,
   users,
   knownNonBotUsernames = new Set(),
   forwardTargets,
@@ -220,6 +221,7 @@ export function ChannelDiscussionPanel({
   onUnpinMessage,
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
+  const comments = useMemo(() => allComments.filter(isVisibleConversationMessage), [allComments]);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const captureScroll = useCallback((structuralChange: boolean) => {
     const element = scrollerRef.current;

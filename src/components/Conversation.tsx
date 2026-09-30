@@ -1,4 +1,6 @@
 import { observeConversationNoticeAlignment } from "../utils/conversationNoticeAlignment";
+import { MESSAGE_VIEWPORT_PREFETCH } from "../utils/mediaPrefetch";
+import { useChannelMessageViews } from "../hooks/useChannelMessageViews";
 import { servicePersonIds } from "../telegram/serviceMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { ChatMembershipBar, needsMembershipBar } from "./ChatMembershipBar";
@@ -94,6 +96,7 @@ import {
   senderChatId,
   senderNameForMessage,
   serviceTargetSummary,
+  isVisibleConversationMessage,
 } from "./conversationMessages";
 import { channelDiscussionProjection, compareMessages } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
@@ -164,9 +167,6 @@ import {
 
 const EMPTY_ATTENTION_MESSAGE_IDS: string[] = [];
 const MESSAGE_TARGET_HIGHLIGHT_INSET_PX = 4;
-// Keep the first frame responsive on cold conversations while retaining enough
-// nearby rows for smooth short scrolls and anchor correction.
-const MESSAGE_VIEWPORT_PREFETCH = { top: 640, bottom: 192 } as const;
 
 type MessageNavigationOptions = Pick<
   MessageConversationScrollRequest,
@@ -584,6 +584,7 @@ export function Conversation({
     (state) => state.dismissMessageAttention,
   );
   const refreshUnreadMentions = useTelegramStore(state => state.refreshUnreadMentions);
+  const viewChannelMessages = useTelegramStore(state => state.viewChannelMessages);
   const authorizationReady = useTelegramStore(state => state.authorization.kind === "ready");
   const attentionNavigationRef = useRef(0);
   const [actionMenu, setActionMenu] = useState<{
@@ -761,7 +762,7 @@ export function Conversation({
                 Boolean(message.mediaAlbumId) ||
                 message.content.kind === "service" || message.content.kind === "unsupported")
           : displayMessages;
-      return source;
+      return source.filter(isVisibleConversationMessage);
     },
     [allPinnedMessages, chat?.kind, displayMessages, pinnedViewOpen],
   );
@@ -1227,6 +1228,9 @@ export function Conversation({
     onUserScroll: handleConversationUserScroll,
   });
   const messageTargetHighlightRef = useRef<HTMLDivElement>(null);
+  useChannelMessageViews(messageListElement, `${activeAccountId}:${conversationIdentity}`, chat?.id,
+    renderedMessages, chat?.kind === "channel" && authorizationReady && connectionStatus === "online" &&
+      !positioning && !mobileViewHidden && !pinnedViewOpen && !discussionPost, viewChannelMessages);
   const messageListContext = useMemo(() => ({ onLayoutCommitted: onListLayoutCommitted }), [onListLayoutCommitted]);
   useLayoutEffect(() => {
     const highlight = messageTargetHighlightRef.current;
@@ -2861,10 +2865,11 @@ export function Conversation({
                     const captionMessage = mediaAlbumCaptionMessage(segment.messages);
                     const albumMetadataMessage = mediaAlbumMetadataMessage(segment.messages)!;
                     // Keep each reaction tied to its source message, independently of the metadata owner.
-                    const albumReactions = isChannelConversation ? segment.messages.flatMap(message => {
+                    const albumReactions = segment.messages.flatMap(message => {
                       const reactions = visibleMessageReactions(message, localBlockedReactionUserIds);
                       return reactions.length > 0 ? [{ message, reactions }] : [];
-                    }) : [];
+                    });
+                    const hasAlbumReactionFooter = albumReactions.length > 0;
                     const albumDiscussionPost = channelDiscussionAvailable(albumMetadataMessage) ? albumMetadataMessage : undefined;
                     const captionBlock = captionMessage && localBlockGroupByMessageId.get(captionMessage.id);
                     const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
@@ -2895,7 +2900,7 @@ export function Conversation({
                             collapseExpandedQuote(captionMessage.id, collapse, pointerY, anchor)}
                           onExpandQuote={expandCollapsedQuote}
                         />
-                        {!isChannelConversation && (
+                        {!isChannelConversation && !hasAlbumReactionFooter && (
                           <MessageMetadata message={albumMetadataMessage}
                             deliveryMessages={segment.messages} onRetry={onRetryMessage} />
                         )}
@@ -2947,16 +2952,16 @@ export function Conversation({
                                     "--media-album-tile-weight": item.weight,
                                   } as CSSProperties}
                                 >
-                                  {renderBubble(item.message, true, Boolean(albumCaption))}
+                                  {renderBubble(item.message, true, Boolean(albumCaption) || hasAlbumReactionFooter)}
                                 </div>
                               ))}
                             </div>
                           ))}
                         </div>
                         {!captionMessage?.content.showCaptionAboveMedia ? albumCaption : null}
-                        {isChannelConversation && <>
-                          <div className={`media-album-footer ${albumReactions.length > 0 ? "message-reaction-footer" : ""}`} data-message-meta-id={albumMetadataMessage.id}>
-                            {albumReactions.length > 0 && (
+                        {(isChannelConversation || hasAlbumReactionFooter) && (
+                          <div className={`media-album-footer ${hasAlbumReactionFooter ? "message-reaction-footer" : ""}`} data-message-meta-id={albumMetadataMessage.id}>
+                            {hasAlbumReactionFooter && (
                               <div className="media-album-reactions">
                                 {albumReactions.map(({ message, reactions }) => (
                                   <MessageReactions
@@ -2975,12 +2980,12 @@ export function Conversation({
                                 ))}
                               </div>
                             )}
-                            <MessageMetadata message={albumMetadataMessage} channelPost showChannelMetadata
+                            <MessageMetadata message={albumMetadataMessage} channelPost={isChannelConversation} showChannelMetadata={isChannelConversation}
                               deliveryMessages={segment.messages}
                               channelAuthor={channelAuthorFor(albumMetadataMessage)} onRetry={onRetryMessage} />
                           </div>
-                          {albumDiscussionPost ? renderDiscussionAction(albumDiscussionPost) : null}
-                        </>}
+                        )}
+                        {isChannelConversation && albumDiscussionPost ? renderDiscussionAction(albumDiscussionPost) : null}
                       </div>
                     );
                   })}

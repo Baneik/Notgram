@@ -2653,6 +2653,8 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
+  async viewChannelMessages(_chatId: string, _messageIds: string[]) {}
+
   async markAllChatReactionsRead(chatId: string) {
     const readMessages = this.snapshot.messages.filter(
       (message) => message.chatId === chatId && message.containsUnreadReaction,

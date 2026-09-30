@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useElementVisibility } from "../hooks/useElementVisibility";
 import { getPhotoPreview, invalidatePhotoPreview, latestPhotoPreview, photoPreviewSize, retainPhotoPreview, type PhotoPreviewSize } from "../media/photoPreview";
 import { StableImage } from "./StableImage";
+import { MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR } from "../utils/mediaPrefetch";
 
 interface Props {
   source: string;
@@ -16,7 +17,7 @@ interface Props {
 /** The surrounding card owns geometry; a preview's pixel size never changes it. */
 export function ConversationPhoto({ source, fallback, alt, cover, onReady, onDimensions, onError }: Props) {
   const elementRef = useRef<HTMLSpanElement | null>(null);
-  const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>("120px");
+  const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>(MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR);
   const [size, setSize] = useState<PhotoPreviewSize | undefined>(() => latestPhotoPreview(source, cover)?.size);
   const [loaded, setLoaded] = useState<{ source: string; size: PhotoPreviewSize; url: string } | undefined>(() => {
     const previous = latestPhotoPreview(source, cover);
