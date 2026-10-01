@@ -21,7 +21,7 @@ import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption 
 import { ChatContextMenu } from "./SidebarContextMenus";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { usePreferencesStore } from "../store/preferencesStore";
-import { useLocalUserBlocks } from "../store/localUserBlocks";
+import { useLocalUserBlocks, useLocalHiddenUserIds } from "../store/localUserBlocks";
 import { useFolderListWarmup } from "../hooks/useFolderListWarmup";
 import { ChatFolderList } from "./ChatFolderList";
 
@@ -122,6 +122,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const unreadBadgePosition = usePreferencesStore((state) => state.unreadBadgePosition);
   const localBlockedUsers = useLocalUserBlocks((state) => state.users);
+  const localHiddenUserIds = useLocalHiddenUserIds(accountId);
   const localBlockedUserIds = useMemo(() => new Set(
     localBlockedUsers
       .filter((user) => user.accountId === accountId)
@@ -342,6 +343,7 @@ export function ChatSidebar({
           activeChatId={activeChatId}
           unreadBadgePosition={unreadBadgePosition}
           localBlockedUserIds={localBlockedUserIds}
+          localHiddenUserIds={localHiddenUserIds}
           initialScrollTop={chatListScrollTopByFolderRef.current.get(folder.id)}
           onScrollPosition={saveScrollPosition}
           onSelect={onSelect}

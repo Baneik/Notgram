@@ -44,4 +44,46 @@ describe("account metadata initialization", () => {
     expect(localStorage.getItem(key)).toBeNull();
     expect(invoke).toHaveBeenCalledWith("telegram_write_account_metadata", { key, records: [] });
   });
+
+  it("notifies other windows after durable writes and reloads changed records for subscribers", async () => {
+    const channel = { postMessage: vi.fn(), onmessage: undefined as ((event: { data: unknown }) => Promise<void>) | undefined };
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("BroadcastChannel", class { constructor() { return channel; } });
+    const metadata = await import("./accountMetadata");
+    await metadata.initializeAccountMetadata();
+    const key = "notgram:local-user-blocks:v1";
+    metadata.writeAccountMetadata(key, '[{"accountId":"one","userId":"alice","mode":"hide"}]');
+    expect(channel.postMessage).not.toHaveBeenCalled();
+    await metadata.flushAccountMetadata();
+    expect(channel.postMessage).toHaveBeenCalledWith({ key });
+    const changed = vi.fn();
+    metadata.subscribeAccountMetadata(key, changed);
+    invoke.mockResolvedValueOnce([{ accountId: "one", userId: "alice", mode: "mask" }]);
+    await channel.onmessage!({ data: { key } });
+    expect(metadata.readAccountMetadata(key)).toBe('[{"accountId":"one","userId":"alice","mode":"mask"}]');
+    expect(changed).toHaveBeenCalledOnce();
+    expect(channel.postMessage).toHaveBeenCalledTimes(1);
+    invoke.mockClear();
+    await channel.onmessage!({ data: { key: "unrecognized" } });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a newer local mode with a delayed reload from another window", async () => {
+    const channel = { postMessage: vi.fn(), onmessage: undefined as ((event: { data: unknown }) => Promise<void>) | undefined };
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("BroadcastChannel", class { constructor() { return channel; } });
+    const metadata = await import("./accountMetadata");
+    await metadata.initializeAccountMetadata();
+    const key = "notgram:local-user-blocks:v1";
+    let finish: (value: unknown[]) => void;
+    invoke.mockClear();
+    invoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const reload = channel.onmessage!({ data: { key } });
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("telegram_read_account_metadata", { key }));
+    metadata.writeAccountMetadata(key, '[{"accountId":"one","userId":"alice","mode":"hide"}]');
+    finish!([{ accountId: "one", userId: "alice", mode: "mask" }]);
+    await reload;
+    await metadata.flushAccountMetadata();
+    expect(metadata.readAccountMetadata(key)).toContain('"mode":"hide"');
+  });
 });

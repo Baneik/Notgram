@@ -90,6 +90,8 @@ export interface MessageBubbleProps {
   entrance?: MessageEntrance;
   senderName: string;
   senderLabel?: string;
+  senderLabelConcealed?: boolean;
+  senderLayoutName?: string;
   senderIsAdministrator?: boolean;
   senderProfileAvailable: boolean;
   channelAuthor?: string;
@@ -173,6 +175,8 @@ function MessageBubbleComponent({
   entrance,
   senderName,
   senderLabel,
+  senderLabelConcealed = false,
+  senderLayoutName,
   senderIsAdministrator = false,
   senderProfileAvailable,
   channelAuthor,
@@ -773,15 +777,20 @@ function MessageBubbleComponent({
             <div className="message-sender-row">
               {senderProfileAvailable ? (
                 <button
-                  className={`message-sender ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}
+                  className={`message-sender ${senderLayoutName ? "has-layout-name" : ""} ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}
                   type="button"
                   onClick={() => onOpenSenderProfile(message.senderId)}
                 >
+                  {senderLayoutName && <span className="message-sender-size" aria-hidden="true">{senderLayoutName}</span>}
                   <span>{senderName}</span>
                 </button>
-              ) : <span className={`message-sender ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}><span>{senderName}</span></span>}
+              ) : <span className={`message-sender ${senderLayoutName ? "has-layout-name" : ""} ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}>
+                {senderLayoutName && <span className="message-sender-size" aria-hidden="true">{senderLayoutName}</span>}
+                <span>{senderName}</span>
+              </span>}
               {senderLabel && (
-                <small className={`message-sender-label ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}>
+                <small className={`message-sender-label ${senderLabelConcealed ? "is-concealed" : ""} ${senderIsAdministrator ? "is-administrator" : ""}`.trim()}
+                  aria-hidden={senderLabelConcealed || undefined}>
                   {senderLabel}
                 </small>
               )}
@@ -1238,6 +1247,8 @@ export interface MessageBubblePreviewProps {
   users: ReadonlyMap<string, User>;
   senderChats?: ReadonlyMap<string, Chat>;
   senderLabel?: string;
+  senderLabelConcealed?: boolean;
+  senderLayoutName?: string;
   senderIsAdministrator?: boolean;
   senderProfileAvailable?: boolean;
   channelAuthor?: string;
@@ -1292,6 +1303,8 @@ export function MessageBubblePreview({
   users,
   senderChats = new Map(),
   senderLabel,
+  senderLabelConcealed,
+  senderLayoutName,
   senderIsAdministrator = false,
   senderProfileAvailable = false,
   channelAuthor,
@@ -1344,6 +1357,8 @@ export function MessageBubblePreview({
       message={message}
       senderName={senderName}
       senderLabel={senderLabel}
+      senderLabelConcealed={senderLabelConcealed}
+      senderLayoutName={senderLayoutName}
       senderIsAdministrator={senderIsAdministrator}
       senderProfileAvailable={senderProfileAvailable}
       channelAuthor={channelAuthor}

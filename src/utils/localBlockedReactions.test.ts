@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
 import {
   messageHasUnreadLocalBlockedReaction,
+  messageHasVisibleUnreadReaction,
   visibleMessageReactions,
 } from "./localBlockedReactions";
 
@@ -65,5 +66,28 @@ describe("local blocked reactions", () => {
       unreadReactions: [{ senderId: "visible", type: { kind: "emoji", emoji: "🔥" } }],
     });
     expect(messageHasUnreadLocalBlockedReaction(value, new Set(["blocked"]))).toBe(false);
+  });
+
+  it("suppresses blocked unread attention while retaining mixed and unknown senders", () => {
+    const blocked = new Set(["blocked"]);
+    const value = message({ containsUnreadReaction: true, unreadReactions: [
+      { senderId: "blocked", type: { kind: "emoji", emoji: "👍" } },
+    ] });
+    expect(messageHasVisibleUnreadReaction(value, blocked)).toBe(false);
+    value.unreadReactions!.push({ senderId: "visible", type: { kind: "emoji", emoji: "🔥" } });
+    expect(messageHasVisibleUnreadReaction(value, blocked)).toBe(true);
+    value.unreadReactions = [{ type: { kind: "emoji", emoji: "👍" } }];
+    expect(messageHasVisibleUnreadReaction(value, blocked)).toBe(true);
+  });
+
+  it("uses aggregates only without precise unread metadata", () => {
+    const value = message({ containsUnreadReaction: true, interaction: {
+      viewCount: 0, forwardCount: 0, replyCount: 0, reactions: [
+        { type: { kind: "emoji", emoji: "👍" }, totalCount: 1, chosen: false, recentSenderIds: ["blocked"] },
+      ],
+    } });
+    expect(messageHasVisibleUnreadReaction(value, new Set(["blocked"]))).toBe(false);
+    value.unreadReactions = [{ senderId: "visible", type: { kind: "emoji", emoji: "👍" } }];
+    expect(messageHasVisibleUnreadReaction(value, new Set(["blocked"]))).toBe(true);
   });
 });

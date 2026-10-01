@@ -133,7 +133,7 @@ import {
   type SelectionPointerPosition,
 } from "../utils/messageTextSelection";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
-import { useLocalUserBlocks } from "../store/localUserBlocks";
+import { useLocalUserBlocks, useLocalHiddenUserIds } from "../store/localUserBlocks";
 import {
   isConversationSwitchActive,
   logPerformance,
@@ -158,12 +158,13 @@ import {
 } from "../utils/composerInsertion";
 import { layoutMediaAlbum } from "../utils/mediaAlbumLayout";
 import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor } from "../utils/mediaAlbums";
-import { visibleMessageReactions } from "../utils/localBlockedReactions";
+import { messageHasUnreadLocalBlockedReaction, messageHasVisibleUnreadReaction, visibleMessageReactions } from "../utils/localBlockedReactions";
 import { isEditableMessageContent, messageContentText } from "../telegram/messageContent";
 import { MessageRichText } from "./MessageRichText";
 import { openExternalLink } from "../utils/externalLinks";
 import {
   localBlockedMessageGroups,
+  isLocalHiddenMessage,
   replySenderId,
 } from "../utils/localBlockedMessages";
 
@@ -508,6 +509,7 @@ export function Conversation({
     : undefined;
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
   const localBlockedUsers = useLocalUserBlocks((state) => state.users);
+  const localHiddenUserIds = useLocalHiddenUserIds(activeAccountId);
   const localBlockedUsersById = useMemo(() => new Map(
     chat?.kind === "group"
       ? localBlockedUsers
@@ -669,7 +671,7 @@ export function Conversation({
     autoDownloadVideos,
   ]);
   const {
-    messages: allPinnedMessages,
+    messages: loadedPinnedMessages,
     loading: pinnedMessagesLoading,
     viewOpen: pinnedViewOpen,
     openView: openPinnedView,
@@ -680,6 +682,8 @@ export function Conversation({
     chatMessages,
     onLoadPinnedMessages,
   });
+  const allPinnedMessages = useMemo(() => loadedPinnedMessages.filter((message) =>
+    !isLocalHiddenMessage(message, localHiddenUserIds)), [loadedPinnedMessages, localHiddenUserIds]);
   const [visiblePinnedMessageIds, setVisiblePinnedMessageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -768,9 +772,10 @@ export function Conversation({
                 Boolean(message.mediaAlbumId) ||
                 message.content.kind === "service" || message.content.kind === "unsupported")
           : displayMessages;
-      return source.filter(isVisibleConversationMessage);
+      return source.filter((message) => isVisibleConversationMessage(message) &&
+        !isLocalHiddenMessage(message, localHiddenUserIds));
     },
-    [allPinnedMessages, chat?.kind, displayMessages, pinnedViewOpen],
+    [allPinnedMessages, chat?.kind, displayMessages, localHiddenUserIds, pinnedViewOpen],
   );
   const renderedMessagesRef = useRef(renderedMessages);
   renderedMessagesRef.current = renderedMessages;
@@ -868,10 +873,11 @@ export function Conversation({
       : [...displayMessages, ...discussionViewerMessages];
     const uniqueMessages = new Map<string, Message>();
     for (const message of source) {
+      if (isLocalHiddenMessage(message, localHiddenUserIds)) continue;
       uniqueMessages.set(`${message.chatId}:${message.id}`, message);
     }
     return viewerMessages([...uniqueMessages.values()]);
-  }, [allPinnedMessages, discussionViewerMessages, displayMessages, pinnedViewOpen]);
+  }, [allPinnedMessages, discussionViewerMessages, displayMessages, localHiddenUserIds, pinnedViewOpen]);
   const openMediaViewer = useCallback((messageId: string, chatId?: string, windowed = false) => {
     const activeIndex = viewerPhotos.findIndex((message) =>
       message.id === messageId && (!chatId || message.chatId === chatId),
@@ -960,30 +966,42 @@ export function Conversation({
     () => new Map(forwardTargets.map((target) => [target.id, target])),
     [forwardTargets],
   );
-  const messagesById = useMemo(() => new Map(
+  const sourceMessagesById = useMemo(() => new Map(
     [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
   ), [allPinnedMessages, displayMessages, renderedMessages]);
+  const messagesById = useMemo(() => localHiddenUserIds.size === 0 ? sourceMessagesById
+    : new Map([...sourceMessagesById].filter(([, message]) =>
+      !isLocalHiddenMessage(message, localHiddenUserIds))), [sourceMessagesById, localHiddenUserIds]);
   const messagesByIdRef = useRef(messagesById);
   messagesByIdRef.current = messagesById;
   const attentionMessagesById = useMemo(() => new Map(
     (chat ? storedMessages.get(chat.id) ?? [] : []).map((message) => [message.id, message]),
   ), [chat, storedMessages]);
-  const hasPrimaryAttention = (chat?.unreadMentionCount ?? 0) > 0 || attentionMessageIds.some((messageId) => {
-    const message = attentionMessagesById.get(messageId);
-    if (!message || message.containsUnreadMention) return Boolean(message);
+  const messageHasPrimaryAttention = (message: Message) => {
+    if (message.containsUnreadMention) return true;
     const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
-    if (!reply) return false;
-    return reply.outgoing === true || Boolean(
-      reply.messageId && storedMessages.get(reply.chatId ?? message.chatId)
-        ?.some((candidate) => candidate.id === reply.messageId && candidate.outgoing),
-    );
+    return Boolean(reply && (reply.outgoing === true || (reply.messageId &&
+      storedMessages.get(reply.chatId ?? message.chatId)?.some(candidate =>
+        candidate.id === reply.messageId && candidate.outgoing))));
+  };
+  const visibleAttentionMessageIds = attentionMessageIds.filter((messageId) => {
+    const message = attentionMessagesById.get(messageId);
+    if (!message) return true;
+    if (isLocalHiddenMessage(message, localHiddenUserIds)) return false;
+    return messageHasPrimaryAttention(message) ||
+      !messageHasUnreadLocalBlockedReaction(message, localBlockedReactionUserIds) ||
+      messageHasVisibleUnreadReaction(message, localBlockedReactionUserIds);
   });
   // The server count includes mentions outside the loaded history window. Keep their entry point
   // available while recovering IDs, including after a failed request or a cached/offline entry.
   const indexedMentionCount = attentionMessageIds.filter(id =>
     attentionMessagesById.get(id)?.containsUnreadMention).length;
-  const attentionCount = attentionMessageIds.length + Math.max(0,
-    (chat?.unreadMentionCount ?? 0) - indexedMentionCount);
+  const unindexedMentionCount = Math.max(0, (chat?.unreadMentionCount ?? 0) - indexedMentionCount);
+  const hasPrimaryAttention = unindexedMentionCount > 0 || visibleAttentionMessageIds.some(messageId => {
+    const message = attentionMessagesById.get(messageId);
+    return Boolean(message && messageHasPrimaryAttention(message));
+  });
+  const attentionCount = visibleAttentionMessageIds.length + unindexedMentionCount;
   useLayoutEffect(() => {
     attentionNavigationRef.current += 1;
     return () => { attentionNavigationRef.current += 1; };
@@ -1003,8 +1021,16 @@ export function Conversation({
     if (request !== attentionNavigationRef.current) return;
     const state = telegramStore.getState();
     const candidates = new Set(state.unreadAttentionMessageIds.get(chat.id));
-    const messageId = (state.messages.get(chat.id) ?? []).filter(message => candidates.has(message.id))
-      .sort(compareMessages).at(-1)?.id ?? [...candidates].at(-1);
+    const candidateMessages = new Map((state.messages.get(chat.id) ?? []).map(message => [message.id, message]));
+    const visibleCandidates = new Set([...candidates].filter(id => {
+      const message = candidateMessages.get(id);
+      if (!message) return true;
+      return !isLocalHiddenMessage(message, localHiddenUserIds) && (messageHasPrimaryAttention(message) ||
+        !messageHasUnreadLocalBlockedReaction(message, localBlockedReactionUserIds) ||
+        messageHasVisibleUnreadReaction(message, localBlockedReactionUserIds));
+    }));
+    const messageId = (state.messages.get(chat.id) ?? []).filter(message => visibleCandidates.has(message.id))
+      .sort(compareMessages).at(-1)?.id ?? [...visibleCandidates].at(-1);
     if (messageId) {
       onOpenMessage(chat.id, messageId, {
         behavior: "smooth", highlight: true, loadContext: true,
@@ -1022,7 +1048,8 @@ export function Conversation({
       currentUserId,
     );
     if (!preview) return undefined;
-    const repliedSenderId = replySenderId(message, messagesById);
+    const repliedSenderId = replySenderId(message, sourceMessagesById);
+    if (repliedSenderId && localHiddenUserIds.has(repliedSenderId)) return undefined;
     const blockedReplyUser = localBlockedUsersById.get(repliedSenderId ?? "");
     return blockedReplyUser
       ? {
@@ -1034,7 +1061,7 @@ export function Conversation({
           ...preview,
           isAdministrator: Boolean(repliedSenderId && memberLabels.has(repliedSenderId)),
         };
-  }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, memberLabels, messagesById, users]);
+  }, [chat, currentUserId, forwardTargetsById, localBlockedUsersById, localHiddenUserIds, memberLabels, messagesById, sourceMessagesById, users]);
   const audioPlaybackNeighborsByMessage = useMemo(() => audioMessageNeighbors(renderedMessages), [renderedMessages]);
   const audioTrackQueue = useMemo<AudioTrackDescriptor[]>(() => renderedMessages.flatMap((message) => {
     const content = message.content;
@@ -2110,18 +2137,19 @@ export function Conversation({
     !localBlockedUsersById.has(replyingTo.senderId) &&
     memberLabels.has(replyingTo.senderId),
   );
-  const typingNames = typingUserIds.map((userId) =>
+  const visibleTypingUserIds = typingUserIds.filter(userId => !localHiddenUserIds.has(userId));
+  const typingNames = visibleTypingUserIds.map((userId) =>
     localBlockedUsersById.get(userId)?.alias ?? users.get(userId)?.displayName ?? translate("成员")
   );
-  const typingStatus = typingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
+  const typingStatus = visibleTypingUserIds.length === 0 || chat.kind === "saved" || chat.kind === "channel"
     ? undefined
     : chat.kind === "direct"
       ? translate("正在输入...")
-      : typingUserIds.length === 1
+      : visibleTypingUserIds.length === 1
         ? translate("{{value0}} 正在输入...", { value0: typingNames[0] })
-        : typingUserIds.length === 2
+        : visibleTypingUserIds.length === 2
           ? translate("{{value0}} 正在输入...", { value0: typingNames.join("、") })
-          : translate("{{value0}} 等 {{value1}} 人正在输入...", { value0: typingNames.slice(0, 2).join("、"), value1: typingUserIds.length });
+          : translate("{{value0}} 等 {{value1}} 人正在输入...", { value0: typingNames.slice(0, 2).join("、"), value1: visibleTypingUserIds.length });
   const headerStatus = conversationHeaderStatus({
     chat,
     peer: chat.peerId ? users.get(chat.peerId) : undefined,
@@ -2794,9 +2822,9 @@ export function Conversation({
                         message={message}
                         entrance={entrance}
                         senderName={isChannelConversation ? chat.title : displayedSenderName}
-                        senderLabel={blockedUser && !blockedGroupRevealed
-                          ? undefined
-                          : message.senderTag || memberLabels.get(message.senderId)}
+                        senderLabel={message.senderTag || memberLabels.get(message.senderId)}
+                        senderLabelConcealed={Boolean(blockedUser && !blockedGroupRevealed)}
+                        senderLayoutName={blockedUser ? senderNameForMessage(message, users, chat, forwardTargetsById) : undefined}
                         senderIsAdministrator={senderIsAdministrator}
                         senderProfileAvailable={
                           !message.outgoing &&
@@ -2904,13 +2932,14 @@ export function Conversation({
                     const captionConcealed = captionMessage && localBlockedUsersById.has(captionMessage.senderId) &&
                       !(captionBlock && revealedLocalBlockGroups.has(captionBlock.id)) &&
                       !revealedLocalBlockMessages.has(captionMessage.id);
-                    const albumCaption = captionMessage && !captionConcealed ? (
+                    const albumCaption = captionMessage ? (
                       <MessageTextFlow
-                        className="media-album-caption"
+                        className={`media-album-caption ${captionConcealed ? "is-local-block-concealed" : ""}`}
+                        aria-hidden={captionConcealed || undefined}
                         layoutSource={captionMessage.content}
                         layoutVersion={`${albumMetadataMessage.sentAt}:${albumMetadataMessage.editedAt}:${albumMetadataMessage.delivery}:${hasAlbumReactionFooter}`}
                         data-caption-message-id={captionMessage.id}
-                        tabIndex={0}
+                        tabIndex={captionConcealed ? -1 : 0}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           void openActionMenu(captionMessage, event.clientX, event.clientY, event.currentTarget);

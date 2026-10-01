@@ -642,6 +642,32 @@ without consuming unrelated local replies or reactions. Late searches cannot ove
 message state, restore deleted messages, or cross account generations; a reduced aggregate count
 also invalidates a search snapshot that could contain a remotely read, uncached message.
 
+## Local user blocking
+
+Each account stores a per-user display mode with the existing local block record. Missing or
+unknown modes retain the original `mask` behavior. Masking uses animal identities in groups and
+discussions and supports the existing temporary reveal scopes. Sender tags and album captions
+remain in layout while concealed; revealing a message or sender must not resize those surfaces.
+An invisible real-name sizing span keeps a short animal alias from changing the bubble width.
+Successful native metadata writes broadcast only the changed key; other windows reload the
+durable records and notify their existing subscribers. A delayed reload cannot replace a newer
+local edit. This keeps mode changes in the independent settings window visible in the chat window.
+
+The `hide` mode excludes incoming messages before timeline grouping and virtualization, including
+private chats, topics, discussion threads and the pinned view. It has no placeholder or reveal
+override. Search results, shared media, media-viewer navigation, reply previews, draft/action
+targets and chat-list previews must apply the same exclusion. Keep source messages available for
+history synchronization and reply-sender resolution; display filtering must not delete server or
+cached history. Changing back to masking or unblocking restores the original records.
+
+Blocked unread reactions are filtered synchronously before attention indexing and rendering,
+independently of remote read completion or failure. Precise unread sender metadata takes
+precedence over older aggregate participants. Mixed or unknown unread senders preserve their
+attention entry. Since TDLib's reaction read command is chat-wide, automatically issue it only
+when all known unread reactions belong to blocked senders and the known message count covers the
+server count; otherwise retain unrelated unread reactions until the existing visibility read path
+can acknowledge them.
+
 ## Centered conversation notices
 
 TDLib service events retain a small, whitelisted display model in `MessageContent.event`:

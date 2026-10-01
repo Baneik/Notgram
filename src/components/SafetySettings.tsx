@@ -1,7 +1,7 @@
 import { currentLanguage, translate } from "../i18n";
 import { Ban, Check, EyeOff, LoaderCircle, LogOut, MonitorSmartphone, ShieldAlert, UserRoundX } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useLocalUserBlocks } from "../store/localUserBlocks";
+import { useLocalUserBlocks, type LocalUserBlockMode } from "../store/localUserBlocks";
 import { useTelegramStore } from "../store/telegramStore";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { DeviceSession, PrivacyRule, PrivacySettingKey } from "../telegram/types";
@@ -12,6 +12,7 @@ export function SafetySettings() {
   const localBlockedUsers = useLocalUserBlocks((state) => state.users)
     .filter((user) => user.accountId === activeAccountId);
   const unblockLocalUser = useLocalUserBlocks((state) => state.unblockUser);
+  const setLocalUserMode = useLocalUserBlocks((state) => state.setUserMode);
   const blockedSenders = useTelegramStore((state) => state.blockedSenders);
   const loading = useTelegramStore((state) => state.blockedSendersLoading);
   const showLoading = useStableVisibility(loading);
@@ -57,7 +58,7 @@ export function SafetySettings() {
           <EyeOff size={18} />
           <div>
             <h4 id="local-blocked-users-heading">{translate("屏蔽管理")}</h4>
-            <span>{translate("在所有群聊中用动物身份遮罩这些用户")}</span>
+            <span>{translate("为每个用户选择特殊遮罩或完全隐藏")}</span>
           </div>
         </div>
         <div className="blocked-sender-list local-blocked-user-list">
@@ -68,8 +69,17 @@ export function SafetySettings() {
               <Avatar avatar={user.realAvatar} size="small" />
               <span>
                 <strong>{user.realName}</strong>
-                <small>{translate("群聊中显示为 {{value0}} {{value1}}", { value0: user.alias, value1: user.aliasAvatar.label })}</small>
+                <small>{user.mode === "hide" ? translate("完全隐藏此用户的消息")
+                  : translate("群聊中显示为 {{value0}} {{value1}}", { value0: user.alias, value1: user.aliasAvatar.label })}</small>
               </span>
+              <select
+                aria-label={translate("{{value0}} 的屏蔽模式", { value0: user.realName })}
+                value={user.mode ?? "mask"}
+                onChange={(event) => setLocalUserMode(activeAccountId, user.userId, event.target.value as LocalUserBlockMode)}
+              >
+                <option value="mask">{translate("特殊遮罩")}</option>
+                <option value="hide">{translate("完全隐藏")}</option>
+              </select>
               <button
                 className="dialog-secondary"
                 type="button"

@@ -96,7 +96,7 @@ import {
 import { inspectOutgoingAttachment } from "../media/outgoingAttachments";
 import { recordConversationSentMessages } from "./conversationActivity";
 import { localUserBlocksStore } from "./localUserBlocks";
-import { messageHasUnreadLocalBlockedReaction } from "../utils/localBlockedReactions";
+import { messageHasUnreadLocalBlockedReaction, messageHasVisibleUnreadReaction } from "../utils/localBlockedReactions";
 import { preferencesStore } from "./preferencesStore";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import { recordConversationMessage, conversationTraceKind } from "../utils/conversationTrace";
@@ -450,10 +450,11 @@ export const createTelegramStore = (
     };
     const addUnreadServerAttention = (messages: Message[]) => {
       const unreadAttentionMessageIds = new Map(get().unreadAttentionMessageIds);
+      const blockedSenderIds = localBlockedReactionUserIds();
       let changed = false;
       for (const message of messages) {
         if (message.isLocallyDeleted || message.isRemoving) continue;
-        if (!message.containsUnreadMention && !message.containsUnreadReaction) continue;
+        if (!message.containsUnreadMention && !messageHasVisibleUnreadReaction(message, blockedSenderIds)) continue;
         const current = unreadAttentionMessageIds.get(message.chatId) ?? [];
         if (current.includes(message.id)) continue;
         unreadAttentionMessageIds.set(message.chatId, [...current, message.id]);
@@ -513,11 +514,16 @@ export const createTelegramStore = (
       }
       set({ chats, forumTopics });
     };
-    const markBlockedChatReactionsRead = (chatId: string): Promise<void> => {
+    const markBlockedChatReactionsRead = (chatId: string, pendingMessages: readonly Message[] = []): Promise<void> => {
+      if (get().authorization.kind !== "ready" || blockedReactionReadRequests.has(chatId) ||
+        reactionReadRequests.has(chatId)) return Promise.resolve();
+      const blockedSenderIds = localBlockedReactionUserIds();
+      const currentMessages = new Map((get().messages.get(chatId) ?? []).map(message => [message.id, message]));
+      for (const message of pendingMessages) currentMessages.set(message.id, message);
+      const unreadMessages = [...currentMessages.values()].filter(message => message.containsUnreadReaction);
       if (
-        get().authorization.kind !== "ready" ||
-        blockedReactionReadRequests.has(chatId) ||
-        reactionReadRequests.has(chatId)
+        unreadMessages.length < expectedUnreadReactionCount(chatId) ||
+        unreadMessages.some(message => messageHasVisibleUnreadReaction(message, blockedSenderIds))
       ) return Promise.resolve();
       const requestGeneration = attentionReadGeneration;
       blockedReactionReadRequests.add(chatId);
@@ -542,11 +548,15 @@ export const createTelegramStore = (
     const queueBlockedReactionReads = (messages: readonly Message[]) => {
       const blockedSenderIds = localBlockedReactionUserIds();
       if (blockedSenderIds.size === 0) return;
+      const pendingByChat = new Map<string, Message[]>();
       for (const message of messages) {
         if (messageHasUnreadLocalBlockedReaction(message, blockedSenderIds)) {
-          void markBlockedChatReactionsRead(message.chatId);
+          if (!pendingByChat.has(message.chatId)) pendingByChat.set(message.chatId, []);
         }
       }
+      if (pendingByChat.size === 0) return;
+      for (const message of messages) pendingByChat.get(message.chatId)?.push(message);
+      for (const [chatId, pending] of pendingByChat) void markBlockedChatReactionsRead(chatId, pending);
     };
     const reconcileMessageAttention = (
       message: Message,
@@ -559,7 +569,7 @@ export const createTelegramStore = (
         liveAttentionCandidates.delete(key);
         return;
       }
-      const hasUnreadReaction = message.containsUnreadReaction === true;
+      const hasUnreadReaction = messageHasVisibleUnreadReaction(message, localBlockedReactionUserIds());
       const needsAttention = hasUnreadReaction || messageHasPrimaryAttention(message);
       if (
         previous && (

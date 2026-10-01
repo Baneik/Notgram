@@ -498,9 +498,9 @@ export function App() {
         regexRules: preferences.adBlockRegexRules,
       })) return;
       if (
-        chat?.kind === "group" &&
         localUserBlocksStore.getState().users.some((user) =>
-          user.accountId === accountId && user.userId === message.senderId
+          user.accountId === accountId && user.userId === message.senderId &&
+          (chat?.kind === "group" || user.mode === "hide")
         )
       ) return;
       if (!shouldNotifyMessage({

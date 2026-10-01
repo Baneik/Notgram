@@ -67,3 +67,18 @@ export const messageHasUnreadLocalBlockedReaction = (
     reaction.recentSenderIds.some((senderId) => blockedSenderIds.has(senderId))
   )
 );
+
+export const messageHasVisibleUnreadReaction = (
+  message: Message,
+  blockedSenderIds: ReadonlySet<string>,
+) => {
+  if (!message.containsUnreadReaction) return false;
+  if (blockedSenderIds.size === 0) return true;
+  const unread = message.unreadReactions ?? [];
+  // Precise unread senders take precedence over older aggregate participants.
+  if (unread.length > 0) return unread.some((reaction) =>
+    reaction.senderId === undefined || !blockedSenderIds.has(reaction.senderId));
+  const reactions = message.interaction?.reactions ?? [];
+  if (reactions.length === 0) return true;
+  return visibleMessageReactions(message, blockedSenderIds).length > 0;
+};

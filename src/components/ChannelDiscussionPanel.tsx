@@ -1,6 +1,6 @@
 import { servicePersonIds } from "../telegram/serviceMessages";
-import { useLocalUserBlocks } from "../store/localUserBlocks";
-import { replySenderId } from "../utils/localBlockedMessages";
+import { useLocalUserBlocks, useLocalHiddenUserIds } from "../store/localUserBlocks";
+import { isLocalHiddenMessage, replySenderId } from "../utils/localBlockedMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
 import { useDiscussionRead } from "../hooks/useDiscussionRead";
@@ -221,7 +221,10 @@ export function ChannelDiscussionPanel({
   onUnpinMessage,
   messagePreviewOptions,
 }: ChannelDiscussionPanelProps) {
-  const comments = useMemo(() => allComments.filter(isVisibleConversationMessage), [allComments]);
+  const activeAccountId = useTelegramStore(state => state.activeAccountId);
+  const hiddenUserIds = useLocalHiddenUserIds(activeAccountId);
+  const comments = useMemo(() => allComments.filter(message => isVisibleConversationMessage(message) &&
+    !isLocalHiddenMessage(message, hiddenUserIds)), [allComments, hiddenUserIds]);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const captureScroll = useCallback((structuralChange: boolean) => {
     const element = scrollerRef.current;
@@ -232,7 +235,6 @@ export function ChannelDiscussionPanel({
   const inputRef = useRef<ComposerInputElement>(null);
   const insertionIdRef = useRef(0);
   const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
-  const activeAccountId = useTelegramStore(state => state.activeAccountId);
   const registerHistoryRetentionViewport = useTelegramStore(state => state.registerHistoryRetentionViewport);
   useEffect(() => registerHistoryRetentionViewport(discussionChatId, () => ({
     following: false, protectedIds: [], busy: true,
@@ -261,10 +263,11 @@ export function ChannelDiscussionPanel({
   const audioNeighbors = useMemo(() => audioMessageNeighbors(comments.filter(message =>
     !blockedById.has(message.senderId) || revealedMessages.has(message.id))), [comments, blockedById, revealedMessages]);
   const usersById = useMemo(() => new Map(users), [users]);
-  const messagesById = useMemo(
-    () => new Map(comments.map((comment) => [comment.id, comment])),
-    [comments],
+  const sourceMessagesById = useMemo(
+    () => new Map(allComments.map((comment) => [comment.id, comment])),
+    [allComments],
   );
+  const messagesById = useMemo(() => new Map(comments.map(comment => [comment.id, comment])), [comments]);
   const discussionChat = useMemo<Chat>(() => storedDiscussionChat ?? (discussionChatId === channel.id
     ? channel
     : {
@@ -585,8 +588,10 @@ export function ChannelDiscussionPanel({
             const blocked = !comment.outgoing ? blockedById.get(comment.senderId) : undefined;
             const concealed = Boolean(blocked && !revealedMessages.has(comment.id));
             const senderName = blocked?.alias ?? senderFor(comment, users, targetChatsById, currentUserId);
-            const preview = replyPreviewFor(comment, messagesById, usersById, discussionChat, targetChatsById, currentUserId);
-            const blockedReply = blockedById.get(replySenderId(comment, messagesById) ?? "");
+            const repliedSenderId = replySenderId(comment, sourceMessagesById);
+            const preview = repliedSenderId && hiddenUserIds.has(repliedSenderId) ? undefined
+              : replyPreviewFor(comment, messagesById, usersById, discussionChat, targetChatsById, currentUserId);
+            const blockedReply = blockedById.get(repliedSenderId ?? "");
             const profileAvailable = !blocked && !comment.outgoing &&
               comment.senderId !== "unknown" &&
               (comment.senderId.startsWith("chat:") || users.has(comment.senderId));
@@ -621,7 +626,9 @@ export function ChannelDiscussionPanel({
                     senderName={senderName}
                     users={users}
                     senderChats={targetChatsById}
-                    senderLabel={blocked ? undefined : comment.senderTag || memberLabels.get(comment.senderId)}
+                    senderLabel={comment.senderTag || memberLabels.get(comment.senderId)}
+                    senderLabelConcealed={Boolean(blocked)}
+                    senderLayoutName={blocked ? senderFor(comment, users, targetChatsById, currentUserId) : undefined}
                     senderIsAdministrator={!blocked && memberLabels.has(comment.senderId)}
                     senderProfileAvailable={profileAvailable}
                     channelAuthor={channelAuthorFor(comment)}

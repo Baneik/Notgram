@@ -1,5 +1,10 @@
 import type { Message } from "../telegram/types";
 
+export const isLocalHiddenMessage = (
+  message: Pick<Message, "senderId" | "outgoing">,
+  hiddenUserIds: ReadonlySet<string>,
+) => !message.outgoing && hiddenUserIds.has(message.senderId);
+
 export interface LocalBlockedMessageGroup {
   id: string;
   senderId: string;
@@ -41,5 +46,6 @@ export const replySenderId = (
   const target = message.replyTo.messageId
     ? messagesById.get(message.replyTo.messageId)
     : undefined;
-  return target?.senderId ?? message.replyTo.senderId;
+  const origin = message.replyTo.origin;
+  return target?.senderId ?? message.replyTo.senderId ?? (origin?.kind === "user" ? origin.userId : undefined);
 };

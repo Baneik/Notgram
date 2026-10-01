@@ -24,6 +24,8 @@ import type {
 import { messageContentText } from "../telegram/messageContent";
 import { formatChatTime } from "../utils/formatters";
 import { useTelegramStore } from "../store/telegramStore";
+import { useLocalHiddenUserIds } from "../store/localUserBlocks";
+import { isLocalHiddenMessage } from "../utils/localBlockedMessages";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
 import { DeleteMessagesDialog } from "./ConversationOverlays";
@@ -79,6 +81,8 @@ export function SharedMediaBrowser({
   onDelete,
   onForward,
 }: SharedMediaBrowserProps) {
+  const accountId = useTelegramStore(state => state.activeAccountId);
+  const hiddenUserIds = useLocalHiddenUserIds(accountId);
   const recoverFile = useTelegramStore((state) => state.recoverFile);
   const generationRef = useRef(0);
   const attemptedRecoveryRef = useRef(new Set<string>());
@@ -116,15 +120,23 @@ export function SharedMediaBrowser({
   }, [chatId, category, appliedQuery]);
 
   const visibleMessages = useMemo(() => page.messages.filter((message) => {
+    if (isLocalHiddenMessage(message, hiddenUserIds)) return false;
     const date = message.sentAt.slice(0, 10);
     return (!fromDate || date >= fromDate) && (!toDate || date <= toDate);
-  }), [fromDate, page.messages, toDate]);
+  }), [fromDate, hiddenUserIds, page.messages, toDate]);
   useFlipListMotion({
     containerRef: resultsRef,
     itemSelector: ".shared-media-item[data-motion-key]",
     dependencies: [visibleMessages, category, showLoading],
   });
-  const selectedMessages = page.messages.filter((message) => selected.has(message.id));
+  const selectedMessages = visibleMessages.filter((message) => selected.has(message.id));
+  useEffect(() => {
+    setSelected(current => {
+      const visibleIds = new Set(visibleMessages.map(message => message.id));
+      const next = new Set([...current].filter(id => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleMessages]);
   const permissionsReady = selectedMessages.length > 0 && selectedMessages.every((message) => Boolean(message.permissions));
   const canDeleteOnlyForSelf = permissionsReady && selectedMessages.every((message) => message.permissions?.canDeleteOnlyForSelf === true);
   const canDeleteForAllUsers = permissionsReady && selectedMessages.every((message) => message.permissions?.canDeleteForAllUsers === true);
@@ -180,16 +192,16 @@ export function SharedMediaBrowser({
   };
 
   const forwardSelected = async () => {
-    if (!forwardTargetId || selected.size === 0 || actionPending) return;
+    if (!forwardTargetId || selectedMessages.length === 0 || actionPending) return;
     setActionPending(true);
-    const result = await onForward(chatId, [...selected], forwardTargetId);
+    const result = await onForward(chatId, selectedMessages.map(message => message.id), forwardTargetId);
     if (result && result.failedMessageIds.length === 0) setSelected(new Set());
     setActionPending(false);
   };
 
   const deleteSelected = async (revoke: boolean) => {
-    if (selected.size === 0) return false;
-    const ids = [...selected];
+    if (selectedMessages.length === 0) return false;
+    const ids = selectedMessages.map(message => message.id);
     const succeeded = await onDelete(chatId, ids, revoke);
     if (succeeded) {
       const removed = new Set(ids);
@@ -289,7 +301,7 @@ export function SharedMediaBrowser({
         </MotionPresence>
       </div>
       {!loading && page.hasMore && <button className="shared-media-more" type="button" disabled={loadingMore} onClick={() => void loadMore()}>{showLoadingMore && <LoaderCircle className="spin" size={15} />}{loadingMore ? translate("正在加载") : translate("加载更多")}</button>}
-      <div className="shared-media-count">{translate("{{value0}} 项", { value0: page.totalCount ?? page.messages.length })}</div>
+      <div className="shared-media-count">{translate("{{value0}} 项", { value0: hiddenUserIds.size > 0 ? visibleMessages.length : page.totalCount ?? page.messages.length })}</div>
       <MotionPresence present={deleteDialogOpen}>
         {deleteDialogOpen ? <DeleteMessagesDialog
           count={selectedMessages.length}

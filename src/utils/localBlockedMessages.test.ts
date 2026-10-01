@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "../telegram/types";
-import { localBlockedMessageGroups, replySenderId } from "./localBlockedMessages";
+import { isLocalHiddenMessage, localBlockedMessageGroups, replySenderId } from "./localBlockedMessages";
 
 const message = (id: string, senderId: string, overrides: Partial<Message> = {}): Message => ({
   id,
@@ -14,6 +14,12 @@ const message = (id: string, senderId: string, overrides: Partial<Message> = {})
 });
 
 describe("local blocked message groups", () => {
+  it("hides incoming messages without hiding outgoing messages or other senders", () => {
+    const hidden = new Set(["blocked"]);
+    expect(isLocalHiddenMessage(message("1", "blocked"), hidden)).toBe(true);
+    expect(isLocalHiddenMessage(message("2", "blocked", { outgoing: true }), hidden)).toBe(false);
+    expect(isLocalHiddenMessage(message("3", "visible"), hidden)).toBe(false);
+  });
   it("keeps every uninterrupted message from one sender in the same product group", () => {
     const messages = Array.from({ length: 9 }, (_, index) => message(String(index + 1), "blocked"));
     const groups = localBlockedMessageGroups(messages, new Set(["blocked"]));
@@ -41,5 +47,8 @@ describe("local blocked message groups", () => {
     expect(replySenderId(message("remote", "visible", {
       replyTo: { kind: "message", messageId: "outside", senderId: "embedded" },
     }), new Map())).toBe("embedded");
+    expect(replySenderId(message("forwarded-reply", "visible", {
+      replyTo: { kind: "message", origin: { kind: "user", userId: "blocked" } },
+    }), new Map())).toBe("blocked");
   });
 });

@@ -8,6 +8,26 @@ const values = new Map<string, string>();
 const subscribers = new Map<string, Set<() => void>>();
 let writes: Promise<unknown> = Promise.resolve();
 let initialization: Promise<void> | undefined;
+const metadataChannel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("notgram:account-metadata") : undefined;
+
+if (metadataChannel) metadataChannel.onmessage = async ({ data }: MessageEvent<unknown>) => {
+  if (!isTauri() || !data || typeof data !== "object") return;
+  const key = (data as { key?: unknown }).key;
+  if (typeof key !== "string" || !ACCOUNT_METADATA_KEYS.includes(key as MetadataKey)) return;
+  try {
+    await writes.catch(() => undefined);
+    const previous = values.get(key);
+    if (previous === undefined) return;
+    const records = await invoke<unknown[] | null>("telegram_read_account_metadata", { key });
+    // A delayed reload must not replace a newer local edit in this window.
+    if (values.get(key) !== previous || (records !== null && !Array.isArray(records))) return;
+    values.set(key, JSON.stringify(records ?? []));
+    for (const callback of subscribers.get(key) ?? []) callback();
+  } catch {
+    globalThis.dispatchEvent(new Event("notgram:local-save-failed"));
+  }
+};
 
 export const readAccountMetadata = (key: MetadataKey) => isTauri()
   ? values.get(key) ?? null : globalThis.localStorage?.getItem(key) ?? null;
@@ -16,7 +36,9 @@ export const writeAccountMetadata = (key: MetadataKey, value: string) => {
   if (!isTauri()) { globalThis.localStorage?.setItem(key, value); return; }
   if (!values.has(key)) return; // Ignore mount-time projections until durable metadata has loaded.
   values.set(key, value);
-  writes = writes.catch(() => undefined).then(() => invoke("telegram_write_account_metadata", { key, records: JSON.parse(value) }));
+  writes = writes.catch(() => undefined)
+    .then(() => invoke("telegram_write_account_metadata", { key, records: JSON.parse(value) }))
+    .then(() => metadataChannel?.postMessage({ key }));
   void writes.catch(() => globalThis.dispatchEvent(new Event("notgram:local-save-failed")));
 };
 

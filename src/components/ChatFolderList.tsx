@@ -12,6 +12,8 @@ import { formatChatTime, formatUnreadCount } from "../utils/formatters";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { Avatar } from "./Avatar";
+import { messagePreviewText } from "../telegram/messageContent";
+import { isLocalHiddenMessage } from "../utils/localBlockedMessages";
 
 const listDraft = (draft?: ChatDraft) => hasChatDraftContent(draft) ? draft : undefined;
 
@@ -24,6 +26,7 @@ interface ChatFolderListProps {
   activeChatId?: string;
   unreadBadgePosition: UnreadBadgePosition;
   localBlockedUserIds: Set<string>;
+  localHiddenUserIds: ReadonlySet<string>;
   initialScrollTop?: number;
   onScrollPosition: (folderId: string, top: number) => void;
   onSelect: (chatId: string) => void;
@@ -35,7 +38,7 @@ interface ChatFolderListProps {
 
 export const ChatFolderList = memo(function ChatFolderList({
   chats, allChats, users, folderId, active, activeChatId, unreadBadgePosition,
-  localBlockedUserIds, initialScrollTop = 0, onScrollPosition, onSelect,
+  localBlockedUserIds, localHiddenUserIds, initialScrollTop = 0, onScrollPosition, onSelect,
   onOpenLatest, onOpenContextMenu, onLoadMore, onReorderPinned,
 }: ChatFolderListProps) {
   const loadingMore = useTelegramStore((state) => state.chatLists.get(folderId)?.loading ?? false);
@@ -274,6 +277,7 @@ export const ChatFolderList = memo(function ChatFolderList({
               (chat.previewSenderId && localBlockedUserIds.has(chat.previewSenderId)) ||
               (chat.kind === "direct" && chat.peerId && localBlockedUserIds.has(chat.peerId)),
             )}
+            localHiddenUserIds={localHiddenUserIds}
             folderId={folderId}
             active={activeChatId === chat.id}
             onOpenContextMenu={openContextMenu}
@@ -310,6 +314,7 @@ const ChatRow = memo(function ChatRow({
   unreadBadgePosition,
   previewSenderName,
   previewConcealed,
+  localHiddenUserIds,
   folderId,
   active,
   onSelectChat,
@@ -330,6 +335,7 @@ const ChatRow = memo(function ChatRow({
   unreadBadgePosition: UnreadBadgePosition;
   previewSenderName?: string;
   previewConcealed?: boolean;
+  localHiddenUserIds: ReadonlySet<string>;
   folderId: string;
   active: boolean;
   onSelectChat: (chatId: string) => void;
@@ -353,6 +359,11 @@ const ChatRow = memo(function ChatRow({
   const firstClickWasActiveRef = useRef(active);
   const draft = useTelegramStore((state) => state.drafts.get(chat.id));
   const localAttachmentDraft = useTelegramStore((state) => state.localAttachmentDrafts.get(chat.id));
+  const previewHidden = Boolean(chat.previewSenderId && localHiddenUserIds.has(chat.previewSenderId));
+  const fallbackPreview = useTelegramStore(state => previewHidden
+    ? state.messages.get(chat.id)?.filter(message => !isLocalHiddenMessage(message, localHiddenUserIds) &&
+        !message.isLocallyDeleted && !message.isRemoving).at(-1)
+    : undefined);
   const visibleDraft = active ? undefined : listDraft(draft);
   const visibleAttachmentDraft = active ? undefined : localAttachmentDraft;
   const draftPreview = visibleDraft?.text || (visibleDraft?.replyToMessageId ? translate("回复消息") : undefined) ||
@@ -443,7 +454,8 @@ const ChatRow = memo(function ChatRow({
                   {!previewConcealed && previewSenderName && chat.kind === "group" && (
                     <span className="chat-preview-sender">{`${previewSenderName}: `}</span>
                   )}
-                  {previewConcealed ? translate("消息已屏蔽") : chat.preview}
+                  {previewHidden ? fallbackPreview ? messagePreviewText(fallbackPreview.content) : ""
+                    : previewConcealed ? translate("消息已屏蔽") : chat.preview}
                 </span>
               </>
             )}

@@ -2,7 +2,10 @@ import { readAccountMetadata, writeAccountMetadata, subscribeAccountMetadata } f
 import { translate } from "../i18n";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import { useMemo } from "react";
 import type { Avatar, User } from "../telegram/types";
+
+export type LocalUserBlockMode = "mask" | "hide";
 
 export interface LocalBlockedUser {
   accountId: string;
@@ -13,6 +16,7 @@ export interface LocalBlockedUser {
   aliasAvatar: Avatar;
   identityId: string;
   blockedAt: string;
+  mode?: LocalUserBlockMode;
 }
 
 interface AnimalIdentity {
@@ -26,6 +30,7 @@ interface LocalUserBlocksState {
   users: LocalBlockedUser[];
   blockUser: (accountId: string, user: Pick<User, "id" | "displayName" | "avatar">) => void;
   unblockUser: (accountId: string, userId: string) => void;
+  setUserMode: (accountId: string, userId: string, mode: LocalUserBlockMode) => void;
 }
 
 const STORAGE_KEY = "notgram:local-user-blocks:v1";
@@ -81,7 +86,9 @@ const readUsers = () => {
     const serialized = readAccountMetadata(STORAGE_KEY);
     if (!serialized) return [];
     const parsed = JSON.parse(serialized) as unknown;
-    return Array.isArray(parsed) ? parsed.filter(isLocalBlockedUser) : [];
+    return Array.isArray(parsed) ? parsed.filter(isLocalBlockedUser).map((user) => ({
+      ...user, mode: user.mode === "hide" ? "hide" as const : "mask" as const,
+    })) : [];
   } catch {
     return [];
   }
@@ -132,6 +139,7 @@ export const localUserBlocksStore = createStore<LocalUserBlocksState>((set, get)
       },
       identityId: identity.id,
       blockedAt: new Date().toISOString(),
+      mode: "mask",
     } satisfies LocalBlockedUser];
     writeUsers(next);
     set({ users: next });
@@ -142,6 +150,16 @@ export const localUserBlocksStore = createStore<LocalUserBlocksState>((set, get)
       user.accountId !== accountId || user.userId !== userId
     );
     if (next.length === current.length) return;
+    writeUsers(next);
+    set({ users: next });
+  },
+  setUserMode: (accountId, userId, mode) => {
+    if (mode !== "mask" && mode !== "hide") return;
+    const current = get().users;
+    if (!current.some((user) => user.accountId === accountId && user.userId === userId &&
+      (user.mode ?? "mask") !== mode)) return;
+    const next = current.map((user) => user.accountId === accountId && user.userId === userId
+      ? { ...user, mode } : user);
     writeUsers(next);
     set({ users: next });
   },
@@ -156,6 +174,12 @@ if (typeof window !== "undefined") {
 
 export const useLocalUserBlocks = <T,>(selector: (state: LocalUserBlocksState) => T) =>
   useStore(localUserBlocksStore, selector);
+
+export const useLocalHiddenUserIds = (accountId: string | undefined) => {
+  const users = useLocalUserBlocks((state) => state.users);
+  return useMemo(() => new Set(users.filter((user) =>
+    user.accountId === accountId && user.mode === "hide").map((user) => user.userId)), [accountId, users]);
+};
 
 export const removeAccountLocalBlocks = (accountId: string) => {
   const users = localUserBlocksStore.getState().users.filter((user) => user.accountId !== accountId);

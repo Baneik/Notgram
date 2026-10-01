@@ -18,6 +18,9 @@ import { useStableVisibility } from "../hooks/useStableVisibility";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { messageSearchSender, messageSearchSource } from "./searchMessagePresentation";
+import { useTelegramStore } from "../store/telegramStore";
+import { useLocalHiddenUserIds } from "../store/localUserBlocks";
+import { isLocalHiddenMessage } from "../utils/localBlockedMessages";
 
 interface GlobalSearchResultsProps {
   query: string;
@@ -220,12 +223,15 @@ export function ChatSearchResults({
   onLoadMore,
   onOpenMessage,
 }: ChatSearchResultsProps) {
-  const total = state.totalCount ?? state.messages.length;
+  const accountId = useTelegramStore(state => state.activeAccountId);
+  const hiddenUserIds = useLocalHiddenUserIds(accountId);
+  const messages = state.messages.filter(message => !isLocalHiddenMessage(message, hiddenUserIds));
+  const total = hiddenUserIds.size > 0 ? messages.length : state.totalCount ?? messages.length;
   const primaryLoading = !stateMatchesInput || (state.loading && state.messages.length === 0);
   const showLoading = useStableVisibility(primaryLoading);
   const showLoadingMore = useStableVisibility(state.loadingMore, { minimumVisible: 220 });
   const prompt = stateMatchesInput && !state.loading && !state.error && query.trim() === "" && !senderId;
-  const empty = stateMatchesInput && !state.loading && !state.error && state.messages.length === 0 && Boolean(query.trim() || senderId);
+  const empty = stateMatchesInput && !state.loading && !state.error && messages.length === 0 && Boolean(query.trim() || senderId);
   const statusKind = showLoading ? "loading" : state.error && stateMatchesInput
     ? "error"
     : prompt ? "prompt" : empty ? "empty" : undefined;
@@ -235,11 +241,11 @@ export function ChatSearchResults({
         <ChatSearchSenderPicker senderId={senderId} options={senderOptions} onChange={onSenderChange} />
       </div>
       <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
-        {stateMatchesInput && !showLoading && state.messages.length > 0 && (
+        {stateMatchesInput && !showLoading && messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="chat-message-results">
             <h2 id="chat-message-results">{translate("{{value0}} 中的消息", { value0: chat.title })}<span>{total}</span></h2>
             <div className="global-message-results">
-              {state.messages.map((message) => (
+              {messages.map((message) => (
                 <MessageSearchResult
                   key={`${message.chatId}:${message.id}`}
                   message={message}
@@ -284,17 +290,21 @@ export function GlobalSearchResults({
   onOpenChat,
   onOpenMessage,
 }: GlobalSearchResultsProps) {
+  const accountId = useTelegramStore(state => state.activeAccountId);
+  const hiddenUserIds = useLocalHiddenUserIds(accountId);
   const [filter, setFilter] = useState<GlobalSearchFilter>(state.filter);
   const normalizedQuery = query.trim();
   const current = state.query === normalizedQuery && state.filter === filter;
   const chats = current ? state.chats : [];
-  const messages = current ? state.messages : [];
+  const messages = current ? state.messages.filter(message => !isLocalHiddenMessage(message, hiddenUserIds)) : [];
+  const chatPreview = (chat: Chat) => chat.previewSenderId && hiddenUserIds.has(chat.previewSenderId)
+    ? "" : chat.preview;
   const matchingChats = filter === "all"
     ? [...new Map([
         ...knownChats,
         ...chats.map((chat) => [chat.id, chat] as const),
       ]).values()].filter((chat) =>
-      `${chat.title} ${chat.preview}`.toLocaleLowerCase().includes(
+      `${chat.title} ${chatPreview(chat)}`.toLocaleLowerCase().includes(
         normalizedQuery.toLocaleLowerCase(),
       )
     )
@@ -356,7 +366,7 @@ export function GlobalSearchResults({
                   <Avatar avatar={chat.avatar} />
                   <span>
                     <strong>{chat.title}</strong>
-                    <small>{chat.preview}</small>
+                    <small>{chatPreview(chat)}</small>
                   </span>
                 </button>
               ))}
@@ -365,7 +375,7 @@ export function GlobalSearchResults({
         )}
         {current && !showLoading && messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-message-results">
-            <h2 id="global-message-results">{translate("消息")}<span>{state.totalCount > messages.length ? state.totalCount : messages.length}</span>
+            <h2 id="global-message-results">{translate("消息")}<span>{hiddenUserIds.size === 0 && state.totalCount > messages.length ? state.totalCount : messages.length}</span>
             </h2>
             <div className="global-message-results">
               {messages.map((message) => (
