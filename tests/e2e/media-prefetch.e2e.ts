@@ -3,6 +3,68 @@ import { readFileSync } from "node:fs";
 import type { Message } from "../../src/telegram/types";
 
 for (const chatId of ["chat-product", "chat-release"]) {
+  for (const mediaType of ["video", "videoNote"] as const) {
+    test(`${mediaType} posters bypass slow full downloads in ${chatId} without hovering`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto("/");
+      await page.locator(`.chat-list[data-active=true] [data-chat-id="${chatId}"]`).click();
+      await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      await page.evaluate(async ({ chatId, mediaType }) => {
+        const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+        const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+        const { FileDownloadQueue } = await import("/src/telegram/fileDownloadQueue.ts" as string) as typeof import("../../src/telegram/fileDownloadQueue");
+        const state = telegramStore.getState();
+        const base = state.messages.get(chatId)![0];
+        const requests: Array<{ fileId: number; priority: number }> = [];
+        const releases: number[] = [];
+        const queue = new FileDownloadQueue(async request => {
+          const fileId = Number(request.file_id);
+          requests.push({ fileId, priority: Number(request.priority) });
+          const thumbnail = fileId >= 940 && fileId < 944;
+          return { "@type": "file", id: fileId, local: {
+            is_downloading_active: !thumbnail, is_downloading_completed: thumbnail,
+            path: thumbnail ? "/mock-video-poster.jpg" : "",
+          } };
+        }, file => {
+          const fileId = Number(file.id);
+          if (fileId < 940 || fileId >= 944) return;
+          const current = telegramStore.getState();
+          telegramStore.setState({ messages: new Map(current.messages).set(chatId,
+            current.messages.get(chatId)!.map(message => {
+              if (message.content.kind !== "media" || message.content.thumbnailFileId !== fileId) return message;
+              return { ...message, content: { ...message.content, thumbnailPath: "/mock-video-poster.jpg" } };
+            })) });
+        });
+        // Fill the three background slots with downloads that never complete.
+        for (const fileId of [930, 931, 932]) void queue.cache(fileId, 18).catch(() => undefined);
+        Object.assign(window, { videoPosterRequests: requests, videoPosterReleases: releases });
+        preferencesStore.setState({ autoDownloadVideos: true });
+        const rows: Message[] = Array.from({ length: 4 }, (_, index) => ({
+          ...base, id: `poster-${index}`, isChannelPost: chatId === "chat-release",
+          mediaAlbumId: undefined, replyTo: undefined, isPinned: false, outgoing: false,
+          sentAt: new Date(Date.UTC(2026, 8, 30, 10, index)).toISOString(),
+          content: { kind: "media", mediaType, fileName: `poster-${index}.mp4`, sizeLabel: "1 MB",
+            size: 1_000_000, fileId: 950 + index, canDownload: true,
+            thumbnailFileId: 940 + index, thumbnailCanDownload: true,
+            previewDataUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='gray'/%3E%3C/svg%3E",
+            width: 240, height: 160, duration: 11 },
+        }));
+        telegramStore.setState({ messages: new Map(state.messages).set(chatId, rows),
+          cacheFile: (fileId, priority) => queue.cache(fileId, priority),
+          releaseFile: fileId => { releases.push(fileId); queue.release(fileId); },
+        });
+      }, { chatId, mediaType });
+      await expect(page.locator('.message-list .video-preview img[src="/mock-video-poster.jpg"][data-image-state="ready"]')).toHaveCount(4);
+      const requests = await page.evaluate(() => (window as unknown as {
+        videoPosterRequests: Array<{ fileId: number; priority: number }>;
+      }).videoPosterRequests);
+      expect(requests.map(request => request.fileId).sort((a, b) => a - b)).toEqual([930, 931, 932, 940, 941, 942, 943]);
+      expect(requests.filter(request => request.fileId >= 940).every(request => request.priority === 19)).toBe(true);
+    });
+  }
+}
+
+for (const chatId of ["chat-product", "chat-release"]) {
   test(`photos finish download and decode before scrolling into ${chatId}`, async ({ page }) => {
     const image = readFileSync("tests/fixtures/public/mock-video-poster.jpg");
     await page.route("**/prefetch-photo-*", async route => {

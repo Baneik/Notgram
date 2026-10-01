@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { useVisibleFile } from "../hooks/useVisibleFile";
+import { FILE_PREVIEW_PRIORITY } from "../telegram/fileDownloadQueue";
 import { MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR } from "../utils/mediaPrefetch";
 import type { ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import type {
@@ -559,9 +560,9 @@ function MessageBubbleComponent({
     lazyMediaFileId,
     lazyMediaFileId !== undefined &&
       (lazyMediaIsThumbnail || automaticFileId !== undefined),
-    // Visible media is still interactive, but remains reclaimable when the
-    // conversation unmounts so a rapid switch cannot strand old prefetches.
-    18,
+    // Small posters must not wait for full-file prefetches. Both priorities
+    // remain reclaimable when the conversation unmounts.
+    lazyMediaIsThumbnail ? FILE_PREVIEW_PRIORITY : 18,
     MEDIA_PREFETCH_ROOT_MARGIN,
     false,
     MESSAGE_SCROLL_ROOT_SELECTOR,

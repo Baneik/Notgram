@@ -15,6 +15,8 @@ type RequestFile = (request: TdObject) => Promise<TdObject>;
 // reservation for low-priority prefetch work.
 const MAX_ACTIVE_DOWNLOADS = 12;
 const MAX_BACKGROUND_DOWNLOADS = 3;
+// Small display assets bypass full-file prefetch slots but remain reclaimable.
+export const FILE_PREVIEW_PRIORITY = 19;
 const INTERACTIVE_PRIORITY = 20;
 const DOWNLOAD_STALL_MS = 45_000;
 
@@ -70,6 +72,7 @@ export class FileDownloadQueue {
       if (nextPriority <= active.priority) return;
       active.priority = nextPriority;
       void this.requestFile(active);
+      this.pump();
       return;
     }
 
@@ -144,17 +147,17 @@ export class FileDownloadQueue {
 
   private pump() {
     let backgroundActive = [...this.active.values()].filter(
-      (download) => download.priority < INTERACTIVE_PRIORITY,
+      (download) => download.priority < FILE_PREVIEW_PRIORITY,
     ).length;
     while (this.active.size < MAX_ACTIVE_DOWNLOADS && this.queue.length > 0) {
       const nextIndex = this.queue.findIndex((download) =>
-        download.priority >= INTERACTIVE_PRIORITY ||
+        download.priority >= FILE_PREVIEW_PRIORITY ||
         backgroundActive < MAX_BACKGROUND_DOWNLOADS
       );
       if (nextIndex < 0) return;
       const [download] = this.queue.splice(nextIndex, 1);
       this.active.set(download.fileId, download);
-      if (download.priority < INTERACTIVE_PRIORITY) backgroundActive += 1;
+      if (download.priority < FILE_PREVIEW_PRIORITY) backgroundActive += 1;
       this.armStallTimer(download);
       void this.requestFile(download);
     }

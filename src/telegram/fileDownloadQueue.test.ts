@@ -3,6 +3,69 @@ import { FileDownloadQueue } from "./fileDownloadQueue";
 import type { TdObject } from "./tdlibMapper";
 
 describe("FileDownloadQueue cancellation", () => {
+  it("starts small previews while all three full-file prefetch slots are occupied", async () => {
+    const request = vi.fn(async (_request: TdObject) => ({ "@type": "file", local: { is_downloading_active: true } }));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    const downloads = [1, 2, 3, 4].map(fileId => queue.cache(fileId, 18).catch(() => undefined));
+    downloads.push(queue.cache(20, 19).catch(() => undefined));
+    try {
+      expect(request.mock.calls.map(([value]) => value.file_id)).toEqual([1, 2, 3, 20]);
+    } finally {
+      queue.reset();
+      await Promise.all(downloads);
+    }
+  });
+
+  it("bounds preview concurrency and schedules explicit downloads first when a slot opens", async () => {
+    const request = vi.fn(async (_request: TdObject) => ({ "@type": "file", local: { is_downloading_active: true } }));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    const downloads = [1, 2, 3, 4].map(fileId => queue.cache(fileId, 18).catch(() => undefined));
+    for (let fileId = 20; fileId <= 30; fileId += 1) downloads.push(queue.cache(fileId, 19).catch(() => undefined));
+    downloads.push(queue.cache(40, 24).catch(() => undefined));
+    try {
+      expect(request).toHaveBeenCalledTimes(12);
+      expect(request.mock.calls.map(([value]) => value.file_id)).toEqual([1, 2, 3, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+      queue.handleFile(20, true, false, 1024);
+      expect(request.mock.calls.at(-1)?.[0].file_id).toBe(40);
+      expect(request).toHaveBeenCalledTimes(13);
+    } finally {
+      queue.reset();
+      await Promise.all(downloads);
+    }
+  });
+
+  it("releases automatic previews on unmount while keeping an explicit download", async () => {
+    const request = vi.fn(async (_request: TdObject) => ({ "@type": "file", local: { is_downloading_active: true } }));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    const downloads = [queue.cache(20, 19), queue.cache(40, 24)].map(download => download.catch(() => undefined));
+    try {
+      expect(queue.release(20)).toBe(true);
+      expect(queue.get(20)).toBeUndefined();
+      expect(queue.release(40)).toBe(false);
+      expect(queue.get(40)).toBeDefined();
+    } finally {
+      queue.reset();
+      await Promise.all(downloads);
+    }
+  });
+
+  it("promotes previews without duplicating ownership and refills freed background capacity", async () => {
+    const request = vi.fn(async (_request: TdObject) => ({ "@type": "file", local: { is_downloading_active: true } }));
+    const queue = new FileDownloadQueue(request, () => undefined);
+    const downloads = [1, 2, 3, 4, 5].map(fileId => queue.cache(fileId, 18).catch(() => undefined));
+    const queued = queue.get(4);
+    try {
+      expect(queue.cache(4, 19)).toBe(queued);
+      expect(request.mock.calls.at(-1)?.[0].file_id).toBe(4);
+      const active = queue.get(1);
+      expect(queue.cache(1, 19)).toBe(active);
+      expect(request.mock.calls.map(([value]) => value.file_id)).toEqual([1, 2, 3, 4, 1, 5]);
+    } finally {
+      queue.reset();
+      await Promise.all(downloads);
+    }
+  });
+
   it("clears native full-download intent when TDLib rejects the request", async () => {
     const stop = vi.fn();
     const queue = new FileDownloadQueue(async () => { throw new Error("network unavailable"); }, () => undefined, stop);

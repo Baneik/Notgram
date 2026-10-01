@@ -9,6 +9,11 @@ window-root margin cannot extend beyond the nested scroller's clipping edge.
 Downloads keep their mounted owner through progress updates; completion,
 policy changes, or virtual unmount release that owner. Preserve download queue
 limits and the bounded preview caches instead of warming an entire history.
+Small conversation thumbnails use priority 19 and can use the queue's remaining
+capacity while three full-file prefetches are active. They remain automatic
+requests: virtual unmount can reclaim them, explicit downloads have higher
+priority, and the total limit stays at twelve. A video's thumbnail completes
+before its full-file automatic download is enqueued.
 
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
