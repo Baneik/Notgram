@@ -629,11 +629,7 @@ impl TelegramRuntime {
             .as_ref()
             .ok_or_else(|| "tdjson 动态库尚未加载".to_string())?;
         if let Some(logger) = &inner.logger {
-            logger.write(
-                "debug",
-                "request_sent",
-                json!({ "type": request.get("@type").and_then(Value::as_str) }),
-            );
+            logger.write("debug", "request_sent", request_log_details(request));
         }
         let correlation = request
             .get("@extra")
@@ -1284,6 +1280,17 @@ fn library_candidates(app: &AppHandle) -> Vec<PathBuf> {
     candidates
 }
 
+fn request_log_details(request: &Value) -> Value {
+    let request_type = request.get("@type").and_then(Value::as_str);
+    let mut details = json!({ "type": request_type });
+    if request_type == Some("downloadFile")
+        && let Some(priority) = request.get("priority").and_then(Value::as_i64)
+    {
+        details["priority"] = json!(priority);
+    }
+    details
+}
+
 #[cfg(target_os = "windows")]
 fn tdjson_file_name() -> &'static str {
     "tdjson.dll"
@@ -1302,6 +1309,27 @@ fn tdjson_file_name() -> &'static str {
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_logs_include_priority_without_file_or_request_identity() {
+        assert_eq!(
+            request_log_details(&json!({
+                "@type": "downloadFile", "priority": 19, "file_id": 123,
+                "@extra": "private-correlation", "path": "private-path"
+            })),
+            json!({ "type": "downloadFile", "priority": 19 })
+        );
+        assert_eq!(
+            request_log_details(
+                &json!({ "@type": "getRemoteFile", "remote_file_id": "private-remote", "priority": 19 })
+            ),
+            json!({ "type": "getRemoteFile" })
+        );
+        assert_eq!(
+            request_log_details(&json!({ "@type": "downloadFile", "priority": "private-string" })),
+            json!({ "type": "downloadFile" })
+        );
+    }
 
     #[test]
     fn bundled_tdjson_exports_current_json_api() {

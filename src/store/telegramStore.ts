@@ -1695,7 +1695,7 @@ export const createTelegramStore = (
       if (chat.kind === "saved" && chat.unreadCount > 0) scheduleChatRead(chat.id);
     };
 
-    const maybeAutoCacheArchiveMedia = (message: Message) => {
+    const maybeAutoCacheArchiveMedia = (message: Message, priority = 48) => {
       if (!preferencesStore.getState().deletedMessageArchiveEnabled) return;
       const fileId = archiveMediaFileId(message);
       const content = message.content.kind === "media" &&
@@ -1703,7 +1703,7 @@ export const createTelegramStore = (
         ? message.content
         : undefined;
       if (fileId !== undefined && content && !content.isDownloaded) {
-        void get().cacheFile(fileId, 48).catch(() => undefined);
+        void get().cacheFile(fileId, priority).catch(() => undefined);
       }
     };
 
@@ -1744,7 +1744,9 @@ export const createTelegramStore = (
         });
         if (updated.length === 0) return;
         commitFileUpdates(updated);
-        for (const message of updated) maybeAutoCacheArchiveMedia(message);
+        // Restoring old archives can queue thousands of missing files. Keep
+        // those repairs in background capacity; live preservation stays urgent.
+        for (const message of updated) maybeAutoCacheArchiveMedia(message, 16);
         scheduleCacheWrite();
       },
     });
@@ -2185,7 +2187,8 @@ export const createTelegramStore = (
         const incomingByChat = new Map<string, typeof event.messages>();
         let beforeCount = 0;
         for (const message of event.messages) {
-          maybeAutoCacheArchiveMedia(message);
+          // Bulk history preservation shares the bounded background capacity.
+          maybeAutoCacheArchiveMedia(message, 16);
           const chatMessages = incomingByChat.get(message.chatId) ?? [];
           chatMessages.push(message);
           incomingByChat.set(message.chatId, chatMessages);

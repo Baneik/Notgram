@@ -14,6 +14,11 @@ capacity while three full-file prefetches are active. They remain automatic
 requests: virtual unmount can reclaim them, explicit downloads have higher
 priority, and the total limit stays at twelve. A video's thumbnail completes
 before its full-file automatic download is enqueued.
+Photo/sticker preservation from loaded history and persisted deletion archives
+uses background priority 16 and shares the three full-file prefetch slots. These
+requests must not occupy all twelve slots ahead of the active conversation's posters. Live
+message preservation retains its existing urgent priority so a new remote
+deletion can still keep the media that is being received.
 
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.

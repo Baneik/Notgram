@@ -8,6 +8,8 @@ import { cachedSnapshotFrom } from "./telegramStore.cache";
 import { ManagedDownloadIndex } from "../utils/downloadManager";
 import { localMediaSource } from "../media/localMediaSource";
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
+import { FileDownloadQueue } from "../telegram/fileDownloadQueue";
+import type { TdObject } from "../telegram/tdlibMapper";
 
 afterEach(() => preferencesStore.setState({ deletedMessageArchiveEnabled: false }));
 
@@ -18,7 +20,7 @@ class RetainedTransport extends MockTelegramTransport {
     return super.connect(listener);
   }
   dispatch(event: TelegramEvent) { this.eventListener?.(event); }
-  override async cacheFile() {}
+  override async cacheFile(_fileId: number, _priority?: number) {}
 }
 
 async function fixture(transport = new RetainedTransport()) {
@@ -37,6 +39,52 @@ async function fixture(transport = new RetainedTransport()) {
   };
   return { store, transport, photo, source, archive };
 }
+
+it.each(["persisted archives", "loaded history"])("caches %s without filling the slots needed by a visible video poster", async source => {
+  const { store: initial, photo } = await fixture();
+  const archived: Message[] = Array.from({ length: 20 }, (_, index) => ({
+    ...photo, id: `old-archive-${index}`, isLocallyDeleted: true, locallyDeletedAt: new Date().toISOString(),
+    content: { kind: "media", mediaType: "photo", fileName: "archive.jpg", sizeLabel: "100 KB",
+      remoteId: `archive-${index}`, remoteUniqueId: `archive-${index}-unique` },
+  }));
+  const snapshot = { ...cachedSnapshotFrom(initial.getState()), messages: [],
+    locallyDeletedMessages: source === "persisted archives" ? archived : [] };
+  const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const request = vi.fn(async (request: TdObject) => ({ "@type": "file", id: request.file_id,
+    local: { is_downloading_active: true, is_downloading_completed: false } }));
+  const queue = new FileDownloadQueue(request, () => undefined);
+  const downloads: Promise<void>[] = [];
+  const lookups = vi.spyOn(transport, "resolveRemoteFile").mockImplementation(async remoteId => ({
+    fileId: 100 + Number(remoteId.split("-")[1]), remoteId, remoteUniqueId: `${remoteId}-unique`,
+    sizeLabel: "100 KB", canDownload: true, isDownloaded: false,
+  }));
+  vi.spyOn(transport, "cacheFile").mockImplementation((fileId, priority) => {
+    const download = queue.cache(fileId, priority);
+    downloads.push(download.catch(() => undefined));
+    return download;
+  });
+  const store = createTelegramStore(transport);
+  try {
+    await store.getState().initialize();
+    if (source === "loaded history") {
+      transport.dispatch({ type: "messages.upserted", messages: archived.map((message, index) => ({
+        ...message, isLocallyDeleted: false, locallyDeletedAt: undefined,
+        content: { ...message.content as Extract<Message["content"], { kind: "media" }>,
+          fileId: 100 + index, canDownload: true, isDownloaded: false },
+      })) });
+    } else {
+      await vi.waitFor(() => expect(lookups).toHaveBeenCalledTimes(20));
+    }
+    await vi.waitFor(() => expect(transport.cacheFile).toHaveBeenCalledTimes(20));
+    expect(request).toHaveBeenCalledTimes(3);
+    void store.getState().cacheFile(999, 19).catch(() => undefined);
+    expect(request.mock.calls.at(-1)?.[0]).toMatchObject({ file_id: 999, priority: 19 });
+    expect(request).toHaveBeenCalledTimes(4);
+  } finally {
+    queue.reset();
+    await Promise.all(downloads);
+  }
+});
 
 it("retains a visible message after the transport has evicted its raw copy", async () => {
   const { store, transport, photo } = await fixture();
@@ -189,7 +237,7 @@ it("rebinds persisted photo and thumbnail identities independently before accept
   pending.get("photo-remote")!({ fileId: 1777, remoteId: "photo-remote-refreshed", remoteUniqueId: "photo-unique",
     sizeLabel: "4 KB", canDownload: true, isDownloaded: false });
   await vi.waitFor(() => expect(read()).toMatchObject({ fileId: 1777, remoteId: "photo-remote-refreshed" }));
-  expect(cache).toHaveBeenCalledWith(1777, 48);
+  expect(cache).toHaveBeenCalledWith(1777, 16);
   expect(cache).not.toHaveBeenCalledWith(777, expect.anything());
   const before = read();
   transport.dispatch({ type: "file.updated", file: { fileId: 1777, remoteUniqueId: "wrong",
