@@ -18,6 +18,9 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { captureMessageRemoval } from "../utils/messageRemovalMotion";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
+import {
+  captureConversationReadingAnchor, measureConversationReadingAnchor, type ConversationReadingAnchor,
+} from "../utils/conversationReadingAnchor";
 import { observeConversationViewportDiagnostics } from "../utils/conversationViewportDiagnostics";
 import {
   conversationTraceFor, conversationTraceKind as traceKind, conversationScrollWriter as scrollWriter,
@@ -289,6 +292,7 @@ export const useConversationScroll = ({
   const virtualizerPrependRef = useRef<{ key: string; frame?: number } | undefined>(undefined);
   const contentAnchorOwnerRef = useRef<{
     key: string; generation: number; messageId: string; offset: number;
+    reading?: ConversationReadingAnchor;
   } | undefined>(undefined);
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
@@ -1213,18 +1217,20 @@ export const useConversationScroll = ({
     element: HTMLElement,
     messageId: string,
     expectedOffset: number,
+    reading?: ConversationReadingAnchor,
   ) => {
     const markControlledCorrection = () => {
       anchorCorrectionUntilRef.current = performance.now() + 120;
     };
     const correctMountedAnchor = () => {
+      const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
       const anchor = element.querySelector<HTMLElement>(
         `[data-message-id="${CSS.escape(messageId)}"]`,
       );
-      if (!anchor) return false;
-      const actualOffset = anchor.getBoundingClientRect().top -
+      if (!point && !anchor) return false;
+      const actualOffset = point?.actualOffset ?? anchor!.getBoundingClientRect().top -
         element.getBoundingClientRect().top;
-      const correction = actualOffset - expectedOffset;
+      const correction = actualOffset - (point?.expectedOffset ?? expectedOffset);
       if (Math.abs(correction) > 0.5) {
         markControlledCorrection();
         // DOM rects include interface zoom; scrollTop uses unscaled CSS pixels.
@@ -1317,7 +1323,8 @@ export const useConversationScroll = ({
     messageId: string,
     expectedOffset: number,
     expectedVirtuosoKey: string,
-    onSettled?: () => void,
+    onSettled?: (timedOut: boolean) => void,
+    reading?: ConversationReadingAnchor,
   ) => {
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
@@ -1327,6 +1334,7 @@ export const useConversationScroll = ({
       generation: scrollControlRef.current.generation,
       messageId,
       offset: expectedOffset,
+      reading,
     };
     contentAnchorOwnerRef.current = owner;
     let remainingFrames = CONTENT_ANCHOR_RECONCILE_MAX_FRAMES;
@@ -1340,17 +1348,21 @@ export const useConversationScroll = ({
         contentAnchorOwnerRef.current !== owner ||
         scrollControlRef.current.generation !== owner.generation
       ) return;
-      restoreAnchor(element, messageId, expectedOffset);
+      restoreAnchor(element, messageId, expectedOffset, reading);
+      const points = reading ? measureConversationReadingAnchor(element, reading) : undefined;
       const anchor = element.querySelector<HTMLElement>(
         `[data-message-id="${CSS.escape(messageId)}"]`,
       );
-      const actualOffset = anchor
+      const actualOffset = points?.[0]?.actualOffset ?? (anchor
         ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
-        : undefined;
+        : undefined);
       const signature = actualOffset === undefined
         ? "missing"
-        : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}`;
-      if (actualOffset !== undefined && Math.abs(actualOffset - expectedOffset) <= 1) {
+        : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}:${points?.map(point =>
+          `${point.messageId}:${point.actualOffset.toFixed(1)}:${point.width.toFixed(1)}:${point.height.toFixed(1)}`).join(";") ?? ""}`;
+      const aligned = points?.length ? points.every(point => Math.abs(point.actualOffset - point.expectedOffset) <= 1)
+        : actualOffset !== undefined && Math.abs(actualOffset - expectedOffset) <= 1;
+      if (aligned) {
         stableFrames = signature === previousSignature ? stableFrames + 1 : 1;
       } else {
         stableFrames = 0;
@@ -1361,7 +1373,7 @@ export const useConversationScroll = ({
         contentAnchorFrameRef.current = requestAnimationFrame(settle);
       } else {
         contentAnchorOwnerRef.current = undefined;
-        onSettled?.();
+        onSettled?.(stableFrames < CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES);
       }
     };
     settle();
@@ -1377,7 +1389,7 @@ export const useConversationScroll = ({
     const owner = contentAnchorOwnerRef.current;
     if (element && owner && owner.key === element.dataset.conversationVirtuosoKey &&
       owner.generation === control.generation) {
-      restoreAnchor(element, owner.messageId, owner.offset);
+      restoreAnchor(element, owner.messageId, owner.offset, owner.reading);
       return;
     }
     if (!request) {
@@ -1501,9 +1513,10 @@ export const useConversationScroll = ({
         rect.bottom > bounds.top + 1 && rect.top < bounds.bottom - 1;
     });
     if (!row?.dataset.messageId) return;
-    const existing = contentAnchorOwnerRef.current;
-    const anchor = existing?.key === virtuosoKey && existing.generation === control.generation &&
-      messageItemIndexesRef.current.has(existing.messageId)
+    const candidateOwner = contentAnchorOwnerRef.current;
+    const existing = candidateOwner?.key === virtuosoKey && candidateOwner.generation === control.generation &&
+      messageItemIndexesRef.current.has(candidateOwner.messageId) ? candidateOwner : undefined;
+    const anchor = existing
       ? { messageId: existing.messageId, offset: existing.offset }
       : { messageId: row.dataset.messageId, offset: row.getBoundingClientRect().top - bounds.top };
     const generation = control.generation;
@@ -1511,6 +1524,13 @@ export const useConversationScroll = ({
     const history = pending?.key === currentScrollKey &&
       pending.previousFirstId !== firstVisibleMessageIdRef.current &&
       visibleMessagesRef.current.length > pending.beforeCount ? pending : undefined;
+    const previousMessages = diagnosticModelRef.current.messages;
+    const historyPrepend = structuralChange && !virtualizerOwnsPrepend &&
+      visibleMessagesRef.current.length > previousMessages.length &&
+      firstVisibleMessageIdRef.current !== previousMessages[0]?.id &&
+      messageItemIndexesRef.current.has(previousMessages[0]?.id ?? "");
+    const reading = existing?.reading ?? (historyPrepend
+      ? captureConversationReadingAnchor(element, messageItemIndexesRef.current) : undefined);
     if (history) {
       history.anchorMessageId = anchor.messageId;
       history.anchorOffset = anchor.offset;
@@ -1573,21 +1593,24 @@ export const useConversationScroll = ({
         pendingNewCount: memory?.pendingNewCount ?? 0,
         anchorMessageId: anchor.messageId, anchorOffset: anchor.offset,
       });
-      settleContentAnchorPosition(element, anchor.messageId, anchor.offset, virtuosoKey, () => {
+      settleContentAnchorPosition(element, anchor.messageId, anchor.offset, virtuosoKey, (timedOut) => {
         if (history && pendingHistoryRestoreRef.current === history) pendingHistoryRestoreRef.current = undefined;
         clearHistorySnapshot();
         writeMemory(currentScrollKey, element, false,
           conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
         if (history) {
+          const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
           const target = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.messageId)}"]`);
           logPerformance("ui_history_render", {
             durationMs: performance.now() - history.startedAt,
             addedCount: Math.max(0, visibleMessagesRef.current.length - history.beforeCount),
-            anchorShiftPx: target ? Math.abs(target.getBoundingClientRect().top -
-              element.getBoundingClientRect().top - anchor.offset) : undefined,
+            timedOut,
+            anchorShiftPx: point ? Math.abs(point.actualOffset - point.expectedOffset)
+              : target ? Math.abs(target.getBoundingClientRect().top -
+                element.getBoundingClientRect().top - anchor.offset) : undefined,
           });
         }
-      });
+      }, reading);
     };
   }, [cancelRemovalMotion, reduceMotion, restoreAnchor, clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
     matchingMessageRequest?.loading, virtualizerOwnsPrepend, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
@@ -1615,7 +1638,7 @@ export const useConversationScroll = ({
       if (reconcileBottomViewport()) return;
       const owner = contentAnchorOwnerRef.current;
       if (owner?.key === virtuosoKey && owner.generation === control.generation) {
-        restoreAnchor(element, owner.messageId, owner.offset);
+        restoreAnchor(element, owner.messageId, owner.offset, owner.reading);
         return;
       }
       if (control.mode !== "detached" ||
@@ -2878,7 +2901,7 @@ export const useConversationScroll = ({
     if (owner && owner.generation === scrollControlRef.current.generation) {
       const element = messageListRef.current;
       if (element && element.dataset.conversationVirtuosoKey === owner.key) {
-        restoreAnchor(element, owner.messageId, owner.offset);
+        restoreAnchor(element, owner.messageId, owner.offset, owner.reading);
       }
       return;
     }

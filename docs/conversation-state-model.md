@@ -227,6 +227,17 @@ retain their existing positioning paths. Never run reading-anchor compensation a
 Virtuoso's prepend compensation. Cache origins and block sequences commit together; abandoned
 renders do not publish either.
 
+Idle history transactions capture the visible body, media card or album caption by message identity,
+plus up to two surviving neighbors. Keep those content positions, not a sender header's row top:
+pagination can turn the old first message into a group continuation and remove its header. If the
+content changes size/topology (for example a single photo becoming an album tile), prefer a captured
+unchanged neighbor and never switch back within that transaction. Missing content falls back to the
+existing row anchor. All application layout/resize callbacks use the same transaction's content
+points. Release the static snapshot after those positions and dimensions converge, with the existing
+bounded deadline; `ui_history_render.timedOut` distinguishes deadline release. Re-capture ordinary
+row-based reading memory from the final live viewport, so later passive resizes do not interpret a
+body offset as a row offset. Explicit input, navigation and view changes cancel this ownership.
+
 Upward intent requests the next history page within one viewport of the loaded boundary, with a
 64px minimum. Passive scroll/measurement events never arm requests. Finishing a request while the
 reader is still near the boundary does not itself start another visible-page load.
