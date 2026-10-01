@@ -1,5 +1,7 @@
 import { observeConversationNoticeAlignment } from "../utils/conversationNoticeAlignment";
 import { MESSAGE_VIEWPORT_PREFETCH } from "../utils/mediaPrefetch";
+import type { HistoryRetentionViewport } from "../store/historyRetention";
+import { conversationScrollMemory, scrollMemoryKey, visibleAnchor } from "../hooks/conversationScrollState";
 import { useChannelMessageViews } from "../hooks/useChannelMessageViews";
 import { servicePersonIds } from "../telegram/serviceMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
@@ -282,6 +284,7 @@ interface ConversationProps {
   onLatestWindow?: () => boolean;
   onHistoryWindow?: (messageId: string, offset: number) => boolean;
   historyWindowIsContext?: boolean;
+  hasNewerMessages?: boolean;
   sponsoredMessages?: SponsoredMessage[];
   sponsoredMessagesBetween?: number;
   chatMessages: Message[];
@@ -421,6 +424,7 @@ export function Conversation({
   onLatestWindow,
   onHistoryWindow,
   historyWindowIsContext = false,
+  hasNewerMessages = false,
   sponsoredMessages = [],
   sponsoredMessagesBetween = 0,
   chatMessages,
@@ -1220,6 +1224,8 @@ export function Conversation({
     search: pinnedViewOpen ? "" : "",
     historyLoading: pinnedViewOpen ? false : historyLoading,
     hasOlderMessages: pinnedViewOpen ? false : hasOlderMessages,
+    hasNewerMessages: pinnedViewOpen ? false : hasNewerMessages,
+    onLoadNewer: () => telegramStore.getState().loadNewerHistory(chat?.id ?? "", topic?.id),
     messageCount: pinnedViewOpen ? renderedMessages.length : messages.length,
     onLoadOlder: pinnedViewOpen ? async () => undefined : onLoadOlder,
     onLatestWindow: pinnedViewOpen ? undefined : onLatestWindow,
@@ -1229,6 +1235,27 @@ export function Conversation({
     cachedMessageIds: pinnedViewOpen ? undefined : cachedMessageIds,
     onUserScroll: handleConversationUserScroll,
   });
+  const retentionState = useRef<() => HistoryRetentionViewport>(() => ({ following: true, protectedIds: [] }));
+  retentionState.current = () => {
+    const list = messageListRef.current;
+    const memory = conversationScrollMemory.get(scrollMemoryKey(scrollScope, chat?.id) ?? "");
+    const protectedIds = [
+      ...selectedMessageIds,
+      ...[replyingTo?.id, editingMessage?.id, actionMenu?.messageId, deleteTarget?.id, discussionPost?.id]
+        .filter((id): id is string => Boolean(id)),
+      ...Array.from(list?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])
+        .flatMap(row => row.dataset.messageId ? [row.dataset.messageId] : []),
+    ];
+    return { following: memory?.followLatest !== false && !historyWindowIsContext,
+      anchorId: list ? visibleAnchor(list)?.messageId : undefined, topicId: topic?.id, protectedIds,
+      // Discussion panels own a separate thread cursor; their cache is protected
+      // until the panel closes rather than altering that cursor from this list.
+      busy: positioning || pinnedViewOpen || Boolean(discussionPost) };
+  };
+  useEffect(() => {
+    if (!chat?.id || discussionPostId) return;
+    return telegramStore.getState().registerHistoryRetentionViewport(chat.id, () => retentionState.current());
+  }, [activeAccountId, chat?.id, discussionPostId, topic?.id]);
   const messageTargetHighlightRef = useRef<HTMLDivElement>(null);
   useChannelMessageViews(messageListElement, `${activeAccountId}:${conversationIdentity}`, chat?.id,
     renderedMessages, chat?.kind === "channel" && authorizationReady && connectionStatus === "online" &&

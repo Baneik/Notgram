@@ -8,6 +8,34 @@ const load = (request: (query: TdObject) => Promise<TdObject>, cursor = 0) => lo
 });
 
 describe("history continuity", () => {
+  it.each([undefined, "1"])("walks short newer pages back to their boundary before emitting (topic: %s)", async topicId => {
+    const emitted: number[] = [];
+    const queries: TdObject[] = [];
+    const result = await loadHistoryWindow({
+      chatId: "7", topicId, direction: "newer", cursor: 100, targetCount: 30, knownMessages: new Map(),
+      request: async query => {
+        queries.push(query);
+        const from = Number(query.from_message_id) - Number(query.offset);
+        return { messages: Array.from({ length: 7 }, (_, index) => raw(from - index)) };
+      },
+      emitMessage: message => emitted.push(Number(message.id)),
+    });
+    expect(queries[0]).toMatchObject({ offset: -30, from_message_id: 100 });
+    expect(result).toMatchObject({ cursor: 130, loadedCount: 30, stalled: false });
+    expect(emitted).toEqual(Array.from({ length: 30 }, (_, index) => index + 101));
+  });
+
+  it("never commits a newer page above an unfilled boundary or claims exhaustion after one empty response", async () => {
+    const emit = vi.fn();
+    const stalled = await loadHistoryWindow({ chatId: "7", direction: "newer", cursor: 100, targetCount: 30,
+      knownMessages: new Map(), request: async () => ({ messages: [raw(130)] }), emitMessage: emit });
+    expect(stalled).toMatchObject({ cursor: 100, stalled: true, exhausted: false });
+    expect(emit).not.toHaveBeenCalled();
+    const request = vi.fn().mockResolvedValueOnce({ messages: [] }).mockResolvedValue({ messages: [raw(102), raw(101), raw(100)] });
+    const result = await loadHistoryWindow({ chatId: "7", direction: "newer", cursor: 100, targetCount: 30,
+      knownMessages: new Map(), request, emitMessage: emit });
+    expect(result).toMatchObject({ cursor: 102, messageIds: ["101", "102"], exhausted: false });
+  });
   it.each([false, true])("keeps repeated pages at the requested size without skipping overflow (inclusive: %s)", async inclusive => {
     const knownMessages = new Map<string, TdObject>([["1000", raw(1000)]]);
     let cursor = 1000;

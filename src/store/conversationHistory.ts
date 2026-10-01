@@ -18,6 +18,7 @@ export interface HistoryWindowView {
   oldest?: HistoryBoundary;
   newest?: HistoryBoundary;
   hasMore?: boolean;
+  hasNewer?: boolean;
 }
 
 export interface ConversationHistoryState {
@@ -49,6 +50,7 @@ interface Window {
   ids: Set<string>;
   cursor?: string;
   hasMore: boolean;
+  hasNewer?: boolean;
   failures?: number;
   loading?: boolean;
   oldest?: HistoryBoundary;
@@ -144,7 +146,8 @@ export class ConversationHistory {
     }
     return [...this.scopes.values()].flatMap(scope => [...scope.contexts.values()].flatMap(window => {
       const messageIds = [...window.ids].filter(id => scope.excluded.has(id) && cached.get(scope.chatId)?.has(id));
-      return messageIds.length ? [{ chatId: scope.chatId, topicId: scope.topicId, targetId: window.id.slice("context:".length), messageIds }] : [];
+      const targetId = window.id.startsWith("context:") ? window.id.slice("context:".length) : messageIds[0];
+      return messageIds.length ? [{ chatId: scope.chatId, topicId: scope.topicId, targetId, messageIds }] : [];
     }));
   }
 
@@ -170,19 +173,24 @@ export class ConversationHistory {
     const { oldest, newest } = scope.selected;
     const hasMore = scope.selected.hasMore || (scope.selected === scope.latest && Boolean(scope.refresh));
     if (scope.view?.id === scope.selected.id && scope.view.excludedIds === scope.excluded && scope.view.messageIds === ids &&
+      scope.view.hasNewer === scope.selected.hasNewer &&
       scope.view.oldest === oldest && scope.view.newest === newest && scope.view.hasMore === hasMore) return scope.view;
-    scope.view = { id: scope.selected.id, excludedIds: scope.excluded, messageIds: ids, oldest, newest, hasMore };
+    scope.view = { id: scope.selected.id, excludedIds: scope.excluded, messageIds: ids, oldest, newest, hasMore, hasNewer: scope.selected.hasNewer };
     return scope.view;
   }
 
   private publish(scope: Scope, patch: Partial<ConversationHistoryState> = {}, page?: ChatHistoryPage) {
+    this.host.publish(scope.chatId, scope.topicId, this.stateFor(scope, patch), page);
+  }
+
+  private stateFor(scope: Scope, patch: Partial<ConversationHistoryState> = {}): ConversationHistoryState {
     const previous = this.host.state(scope.chatId, scope.topicId);
     const view = this.view(scope);
-    this.host.publish(scope.chatId, scope.topicId, {
+    return {
       loading: false, initialized: previous?.initialized ?? false,
       ...previous, ...patch, hasMore: view.hasMore!, view,
       ...(scope.selected.loading ? { loading: true, background: false } : {}),
-    }, page);
+    };
   }
 
   clear() {
@@ -220,6 +228,113 @@ export class ConversationHistory {
         if (pendingKey.startsWith(`${key}:`)) this.pending.delete(pendingKey);
       }
     }
+  }
+
+  protectedIds(chatId: string) {
+    return [...this.scopes.values()].filter(scope => scope.chatId === chatId)
+      .flatMap(scope => [...scope.refresh?.boundary ?? [], ...(scope.targetId ? [scope.targetId] : [])]);
+  }
+
+  /** Cache eviction is not deletion. Keep each surviving contiguous interval
+   * independently pageable, and drop membership IDs along with message objects. */
+  retain(chatId: string, previous: Message[], kept: Message[], anchorId?: string) {
+    const patches: Array<{ topicId?: string; state: ConversationHistoryState }> = [];
+    const keptIds = new Set(kept.map(message => message.id));
+    for (const scope of this.scopes.values()) {
+      if (scope.chatId !== chatId) continue;
+      const scoped = previous.filter(message => (!scope.topicId || message.topicId === scope.topicId) && serverMessage(message));
+      const latest = scoped.filter(message => !scope.excluded.has(message.id));
+      const survivingRuns = (source: Message[]) => {
+        const runs: Message[][] = [];
+        let run: Message[] = [];
+        for (const message of source) {
+          if (keptIds.has(message.id)) run.push(message);
+          else if (run.length) { runs.push(run); run = []; }
+        }
+        if (run.length) runs.push(run);
+        return runs;
+      };
+      const runs = survivingRuns(latest);
+      const tail = runs.at(-1) ?? [];
+      const wasLatest = scope.selected === scope.latest;
+      const selectedAnchor = anchorId ?? scope.targetId;
+      const reading = selectedAnchor ? runs.find(items => items.some(message => message.id === selectedAnchor)) : undefined;
+      const resetRange = (window: Window, items: Message[], source?: Message[]) => {
+        const oldest = source?.[0] ?? window.oldest;
+        const newest = source?.at(-1) ?? window.newest;
+        const lostPrefix = oldest && items[0] && compareMessages(items[0], oldest) > 0;
+        const lostSuffix = newest && items.at(-1) && compareMessages(items.at(-1)!, newest) < 0;
+        window.ids = new Set(items.map(message => message.id));
+        window.oldest = window.newest = undefined;
+        extendRange(window, items);
+        if (lostPrefix) { window.cursor = items[0]?.id; window.hasMore = true; }
+        if (lostSuffix) window.hasNewer = true;
+      };
+      for (const [key, window] of [...scope.contexts]) {
+        const runs = survivingRuns(scoped.filter(message => window.ids.has(message.id)));
+        const selectedRun = runs.find(items => items.some(message => message.id === selectedAnchor)) ?? runs.at(-1);
+        if (!selectedRun) { scope.contexts.delete(key); continue; }
+        const original: Window = { ...window };
+        resetRange(window, selectedRun);
+        for (const items of runs.filter(items => items !== selectedRun)) {
+          const part: Window = { ...original, id: `retained:${items[0].id}` };
+          resetRange(part, items);
+          scope.contexts.set(part.id, part);
+        }
+      }
+      resetRange(scope.latest, tail, latest);
+      scope.latest.hasNewer = false;
+      for (const items of runs.slice(0, -1)) {
+        const id = `retained:${items[0].id}`;
+        const window: Window = { id, ids: new Set(items.map(message => message.id)),
+          cursor: items[0].id, hasMore: true, hasNewer: true };
+        extendRange(window, items);
+        scope.contexts.set(id, window);
+        if (wasLatest && reading === items) scope.selected = window;
+      }
+      if (scope.selected !== scope.latest && !scope.contexts.has(scope.selected.id)) scope.selected = scope.latest;
+      scope.excluded = new Set([...scope.contexts.values()].flatMap(window => [...window.ids]));
+      if (scope.refresh?.detachedIds) scope.refresh.detachedIds = new Set([...scope.refresh.detachedIds].filter(id => keptIds.has(id)));
+      scope.view = undefined;
+      patches.push({ topicId: scope.topicId, state: this.stateFor(scope) });
+    }
+    return patches;
+  }
+
+  newer(chatId: string, topicId?: string) {
+    const scope = this.scope(chatId, topicId);
+    const window = scope.selected;
+    if (!window.hasNewer || !window.newest || window.loading) return Promise.resolve();
+    const generation = this.generation;
+    return this.run(`${historyScopeKey(chatId, topicId)}:newer`, async () => {
+      window.loading = true;
+      this.publish(scope, { loading: true, background: false });
+      try {
+        // Native transports can publish the fetched records before resolving
+        // the page. Those new records are not evidence of overlap with latest.
+        const latestIds = new Set(this.host.messages(chatId, topicId).filter(message => !scope.excluded.has(message.id)).map(message => message.id));
+        const page = await this.host.request(chatId, topicId, { purpose: "newer", fromMessageId: window.newest!.id });
+        if (!this.current(scope, generation)) return;
+        window.ids = new Set([...window.ids, ...page.messageIds]);
+        extendRange(window, page.messages ?? this.host.messages(chatId, topicId).filter(message => page.messageIds.includes(message.id)));
+        window.hasNewer = page.hasMore;
+        window.loading = false;
+        if (page.messageIds.some(id => latestIds.has(id))) {
+          scope.contexts.delete(window.id);
+          scope.excluded = new Set([...scope.excluded].filter(id => !window.ids.has(id)));
+          extendRange(scope.latest, [...this.host.messages(chatId, topicId).filter(message => window.ids.has(message.id)), ...page.messages ?? []]);
+          scope.latest.cursor = window.cursor;
+          scope.latest.hasMore = window.hasMore;
+          if (scope.selected === window) scope.selected = scope.latest;
+        } else scope.excluded = new Set([...scope.excluded, ...page.messageIds]);
+        this.publish(scope, { loading: false }, page);
+      } catch (error) {
+        if (!this.current(scope, generation)) return;
+        window.loading = false;
+        this.host.error(error, topicId);
+        this.publish(scope, { loading: false });
+      }
+    });
   }
 
   /** Navigation selects a window synchronously with its viewport request. */
@@ -510,14 +625,14 @@ export class ConversationHistory {
         let stalled = false;
         while (pageCount < HISTORY_REFRESH_PAGE_BUDGET) {
           const cursor = window.cursor;
+          const latestIds = window !== scope.latest ? new Set(this.host.messages(scope.chatId, scope.topicId)
+            .filter(message => !scope.excluded.has(message.id) && serverMessage(message)).map(message => message.id)) : undefined;
           const page = await this.host.request(scope.chatId, scope.topicId, { purpose: "older", fromMessageId: cursor });
           if (!this.current(scope, generation)) return;
           pageCount++;
           this.accept(scope, window, page);
           if (window !== scope.latest) {
-            const latestIds = new Set(this.host.messages(scope.chatId, scope.topicId)
-              .filter(message => !scope.excluded.has(message.id) && serverMessage(message)).map(message => message.id));
-            scope.excluded = new Set([...scope.excluded, ...page.messageIds.filter(id => !latestIds.has(id))]);
+            scope.excluded = new Set([...scope.excluded, ...page.messageIds.filter(id => !latestIds?.has(id))]);
           }
           stalled = page.hasMore && (page.stalled === true || window.cursor === cursor);
           // A warm snapshot can extend below several server pages. Keep walking

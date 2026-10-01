@@ -221,6 +221,8 @@ interface ConversationScrollOptions {
   search: string;
   historyLoading: boolean;
   hasOlderMessages: boolean;
+  hasNewerMessages?: boolean;
+  onLoadNewer?: () => Promise<void>;
   messageCount: number;
   onLoadOlder: () => Promise<void>;
   onLatestWindow?: () => boolean;
@@ -242,6 +244,8 @@ export const useConversationScroll = ({
   search,
   historyLoading,
   hasOlderMessages,
+  hasNewerMessages = false,
+  onLoadNewer,
   messageCount,
   onLoadOlder,
   onLatestWindow,
@@ -2964,18 +2968,20 @@ export const useConversationScroll = ({
     const preventBottomOverscroll = (event: WheelEvent) => {
       const rawDistance = messageListElement.scrollHeight -
         messageListElement.clientHeight - messageListElement.scrollTop;
-      if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX) {
+      if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX && !hasNewerMessages) {
         event.preventDefault();
       }
     };
     messageListElement.addEventListener("wheel", preventBottomOverscroll, { passive: false });
     return () => messageListElement.removeEventListener("wheel", preventBottomOverscroll);
-  }, [messageListElement]);
+  }, [hasNewerMessages, messageListElement]);
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     if (event.deltaY !== 0) cancelRemovalMotion();
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    if (event.deltaY > 0 && hasNewerMessages && onLoadNewer && !historyLoading &&
+      rawDistance <= historyTriggerDistance(element)) void onLoadNewer();
     if (event.deltaY !== 0) {
       userInputSequenceRef.current++;
       anchorCorrectionUntilRef.current = 0;
@@ -2992,7 +2998,7 @@ export const useConversationScroll = ({
       userIntentUntilRef.current = performance.now() + 320;
       if (event.nativeEvent.isTrusted) trustedUserIntentUntilRef.current = performance.now() + 320;
     }
-    if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX) {
+    if (event.deltaY > 0 && rawDistance <= BOTTOM_WHEEL_GUARD_PX && !hasNewerMessages) {
       event.preventDefault();
       if (currentScrollKey) {
         adoptUserScrollMode("following");
@@ -3178,6 +3184,8 @@ export const useConversationScroll = ({
       userIntentUntilRef.current = performance.now() + 320;
       stopFollowingLatest();
     } else if (["ArrowDown", "PageDown", " "].includes(event.key)) {
+      if (hasNewerMessages && onLoadNewer && !historyLoading &&
+        distanceFromBottom(event.currentTarget) <= historyTriggerDistance(event.currentTarget)) void onLoadNewer();
       userScrollDirectionRef.current = "down";
       userIntentUntilRef.current = performance.now() + 320;
       const followLatest = currentScrollKey
@@ -3225,7 +3233,7 @@ export const useConversationScroll = ({
       return;
     }
     if (!pointerInitiated && contentAnchorOwnerRef.current) return;
-    const atBottom = distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
+    const atBottom = !hasNewerMessages && distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
     const previousScrollTop = userScrollTopRef.current;
     const measuredDirection = previousScrollTop === undefined
       ? undefined
@@ -3306,6 +3314,10 @@ export const useConversationScroll = ({
       !historyLoading
     ) {
       scheduleOlderLoad();
+    }
+    if (hasNewerMessages && onLoadNewer && userInitiated && direction === "down" &&
+      distanceFromBottom(element) <= historyTriggerDistance(element) && !historyLoading) {
+      void onLoadNewer();
     }
   };
 

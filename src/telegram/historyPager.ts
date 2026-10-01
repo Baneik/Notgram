@@ -8,6 +8,7 @@ interface LoadHistoryWindowOptions {
   topicId?: string;
   targetCount: number;
   cursor: number;
+  direction?: "older" | "newer";
   knownMessages: Map<string, TdObject>;
   request: (request: TdObject) => Promise<TdObject>;
   emitMessage: (message: TdObject) => void;
@@ -26,10 +27,52 @@ export const loadHistoryWindow = async ({
   topicId,
   targetCount,
   cursor: initialCursor,
+  direction = "older",
   knownMessages,
   request,
   emitMessage,
 }: LoadHistoryWindowOptions): Promise<LoadedHistoryWindow> => {
+  if (direction === "newer") {
+    const query = (cursor: number, offset: number) => request({
+      "@type": topicId ? "getForumTopicHistory" : "getChatHistory",
+      chat_id: numericId(chatId),
+      ...(topicId ? { forum_topic_id: numericId(topicId) } : { only_local: false }),
+      from_message_id: cursor, offset, limit: Math.min(100, targetCount + 1),
+    });
+    const staged = new Map<string, TdObject>();
+    let boundaryReached = false;
+    let cursor = initialCursor;
+    let empty = 0;
+    let stalls = 0;
+    for (let attempt = 0; attempt < targetCount + 5; attempt++) {
+      const response = await query(cursor, cursor === initialCursor ? -Math.min(99, targetCount) : 0);
+      const page = asTdObjects(response.messages);
+      const newer = page.filter(raw => (tdNumber(raw.id) ?? 0) > initialCursor);
+      for (const raw of newer) staged.set(tdId(raw.id), raw);
+      boundaryReached = page.some(raw => (tdNumber(raw.id) ?? 0) <= initialCursor);
+      if (boundaryReached && staged.size > 0) break;
+      if (!page.length || (boundaryReached && !newer.length)) {
+        if (++empty >= 2) break;
+        await new Promise(resolve => globalThis.setTimeout(resolve, 100));
+        continue;
+      }
+      const nextCursor = tdNumber(page.at(-1)?.id) ?? cursor;
+      if (nextCursor === cursor) {
+        if (++stalls >= MAX_CONSECUTIVE_STALLS) break;
+        await new Promise(resolve => globalThis.setTimeout(resolve, 100));
+      } else { cursor = nextCursor; stalls = 0; }
+    }
+    // A short negative-offset response may start above the requested boundary.
+    // Walk it back before committing, then emit the nearest newer records first.
+    if (!boundaryReached && staged.size) return {
+      loadedCount: 0, messageIds: [], cursor: initialCursor, exhausted: false, stalled: true,
+    };
+    const accepted = [...staged.values()].sort((left, right) => tdNumber(left.id)! - tdNumber(right.id)!).slice(0, targetCount);
+    for (const raw of accepted) emitMessage(raw);
+    return { loadedCount: accepted.filter(raw => !knownMessages.has(tdId(raw.id))).length,
+      messageIds: accepted.map(raw => tdId(raw.id)), cursor: tdNumber(accepted.at(-1)?.id) ?? initialCursor,
+      exhausted: empty >= 2 && accepted.length === 0, stalled: stalls >= MAX_CONSECUTIVE_STALLS };
+  }
   let loadedCount = 0;
   let windowCount = 0;
   const messageIds: string[] = [];

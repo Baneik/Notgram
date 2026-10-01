@@ -95,6 +95,7 @@ export type MessageChangeEvent =
   | { type: "reset"; messages: ReadonlyMap<string, Message[]> }
   | { type: "upsert"; messages: readonly Message[]; liveMessages: readonly Message[] }
   | { type: "replace"; oldMessageId: string; message: Message }
+  | { type: "evict"; chatId: string; messageIds: readonly string[] }
   | { type: "remove"; chatId: string; messageIds: readonly string[] };
 
 export type MessageChangeListener = (event: MessageChangeEvent) => void;
@@ -189,6 +190,7 @@ export interface TelegramState {
   logOutCurrentAccount: () => Promise<boolean>;
   /** Selection commits synchronously; history/read work continues in the background. */
   selectChat: (chatId: string, options?: { forumTopicId?: string; deferHistory?: boolean }) => void;
+  registerHistoryRetentionViewport: (chatId: string, viewport: () => import("./historyRetention").HistoryRetentionViewport) => () => void;
   selectForumTopic: (topicId?: string) => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
   resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
@@ -218,6 +220,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  loadNewerHistory: (chatId: string, topicId?: string) => Promise<void>;
   focusHistoryWindow: (chatId: string, messageId?: string, topicId?: string) => boolean;
   loadChatSponsoredMessages: (chatId: string) => Promise<void>;
   clickChatSponsoredMessage: (chatId: string, messageId: string, isMediaClick?: boolean) => Promise<void>;

@@ -10,6 +10,22 @@ const raw = (id: number): TdObject => ({
 });
 
 describe("independent history window cursors", () => {
+  it.each([false, true])("reloads newer native records and releases raw message/file indexes (forum: %s)", async forum => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawMessages: Map<string, Map<string, TdObject>> };
+    internal.request = async query => {
+      const from = Number(query.from_message_id) - Number(query.offset);
+      return { messages: Array.from({ length: Number(query.limit) }, (_, index) => raw(from - index)) };
+    };
+    const read = (fromMessageId: string) => forum
+      ? transport.loadForumTopicHistory("7", "1", 30, { purpose: "newer", fromMessageId })
+      : transport.loadChatHistory("7", 30, { purpose: "newer", fromMessageId });
+    const page = await read("100");
+    expect(page.messageIds).toEqual(Array.from({ length: 30 }, (_, index) => String(101 + index)));
+    transport.evictChatMessages("7", page.messageIds);
+    expect(internal.rawMessages.get("7")?.size ?? 0).toBe(0);
+    expect((await read("100")).messageIds).toEqual(page.messageIds);
+  });
   it.each([false, true].flatMap(forum => [false, true].map(inclusive => ({ forum, inclusive }))))(
     "keeps native older pages at 30 messages (forum: $forum, inclusive: $inclusive)", async ({ forum, inclusive }) => {
       const transport = new TauriTelegramTransport();

@@ -77,6 +77,7 @@ import {
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
 import { trimComposerFormattedText } from "../utils/composerMentions";
 import { protectedCachePaths } from "./cacheProtection";
+import { HISTORY_MESSAGE_LIMIT, retainedHistoryMessages, type HistoryRetentionViewport } from "./historyRetention";
 import { emptyGlobalSearch } from "./globalSearchState";
 import { emptyChatMessageSearch } from "./chatMessageSearchState";
 import { emptyProfileState } from "./profileState";
@@ -321,6 +322,11 @@ export const createTelegramStore = (
       mergeMessages(current, incoming.filter(acceptsMessage));
     const upsertMessage = (current: Message[], incoming: Message) => upsertMessages(current, [incoming]);
     const publishMessageChange = (event: MessageChangeEvent) => {
+      if (event.type === "evict") {
+        messageFiles.remove(event.chatId, event.messageIds);
+        for (const listener of messageChangeListeners) listener(event);
+        return;
+      }
       if (event.type === "reset") retainedMessages.reset(event.messages);
       else if (event.type === "remove") retainedMessages.remove(event.chatId, event.messageIds);
       else if (event.type === "replace") {
@@ -892,16 +898,18 @@ export const createTelegramStore = (
 
     let boundedMessages: TelegramState["messages"] | undefined;
     let boundedMessageCount = 0;
+    const retentionViewports = new Map<string, Set<() => HistoryRetentionViewport>>();
     const ordinaryMessageCounts = new WeakMap<Message[], number>();
     const ordinaryMessageCount = (items: Message[]) => {
       let count = ordinaryMessageCounts.get(items);
       if (count === undefined) {
-        count = items.reduce((sum, message) => sum + Number(!message.isLocallyDeleted), 0);
+        count = items.reduce((sum, message) => sum + Number(!message.isLocallyDeleted && !message.isPending &&
+          message.delivery !== "sending" && message.delivery !== "failed"), 0);
         ordinaryMessageCounts.set(items, count);
       }
       return count;
     };
-    const boundInactiveHistory = () => {
+    const boundMessageHistory = () => {
       const current = get();
       // Draft-only writes reuse the last count; unchanged immutable histories
       // also reuse their counts when another chat receives a message.
@@ -912,9 +920,39 @@ export const createTelegramStore = (
         boundedMessages = current.messages;
       }
       let total = boundedMessageCount;
-      if (total <= 10_000 && current.messages.size <= 100) return;
+      const oversized = [...current.messages].filter(([, items]) => ordinaryMessageCount(items) > HISTORY_MESSAGE_LIMIT);
+      if (total <= 10_000 && current.messages.size <= 100 && oversized.length === 0) return;
       const messages = new Map(current.messages);
       const histories = new Map(current.histories);
+      const topicHistories = new Map(current.topicHistories);
+      const evictions: Array<{ chatId: string; ids: string[] }> = [];
+      for (const [chatId, items] of oversized) {
+        const providers = [...retentionViewports.get(chatId) ?? []];
+        const viewports = providers.map(provider => provider());
+        const pending = histories.get(chatId)?.loading || [...topicHistories].some(([key, state]) =>
+          key.startsWith(`${chatId}:topic:`) && state.loading);
+        if (pending) continue;
+        const ids = new Set(history.protectedIds(chatId));
+        for (const item of current.outbox) {
+          if (item.chatId !== chatId) continue;
+          ids.add(item.id);
+          if (item.replyToMessageId) ids.add(item.replyToMessageId);
+        }
+        for (const draft of current.drafts.values()) if (draft.chatId === chatId && draft.replyToMessageId) ids.add(draft.replyToMessageId);
+        const kept = retainedHistoryMessages(items, viewports, ids);
+        if (kept === items) continue;
+        const keptIds = new Set(kept.map(message => message.id));
+        const removed = items.filter(message => !keptIds.has(message.id)).map(message => message.id);
+        if (!removed.length) continue;
+        const anchor = viewports.find(viewport => !viewport.following)?.anchorId;
+        for (const patch of history.retain(chatId, items, kept, anchor)) {
+          if (patch.topicId) topicHistories.set(topicKey(chatId, patch.topicId), patch.state);
+          else histories.set(chatId, patch.state);
+        }
+        messages.set(chatId, kept);
+        total -= ordinaryMessageCount(items) - ordinaryMessageCount(kept);
+        evictions.push({ chatId, ids: removed });
+      }
       const protectedChats = new Set(current.outbox.map((item) => item.chatId));
       for (const [chatId, items] of messages) {
         if (total <= 10_000 && messages.size <= 100) break;
@@ -928,17 +966,22 @@ export const createTelegramStore = (
         if (items.some((message) => message.delivery === "sending")) continue;
         total -= ordinaryMessageCount(items);
         messages.delete(chatId); histories.delete(chatId); history.discard(chatId);
-        messageFiles.remove(chatId, items.map(message => message.id));
+        evictions.push({ chatId, ids: items.map(message => message.id) });
         transport.discardChatHistoryCache?.(chatId);
       }
-      if (messages.size !== current.messages.size) {
+      if (evictions.length) {
         boundedMessages = messages;
         boundedMessageCount = total;
-        set({ messages, histories });
+        set({ messages, histories, topicHistories });
+        for (const { chatId, ids } of evictions) {
+          transport.evictChatMessages?.(chatId, ids);
+          // Ordinary eviction has no tombstone and never removes deletion archives.
+          publishMessageChange({ type: "evict", chatId, messageIds: ids });
+        }
       }
     };
     const scheduleCacheWrite = () => {
-      boundInactiveHistory();
+      boundMessageHistory();
       const state = get();
       if (state.authorization.kind !== "ready" || !state.currentUserId) return;
       scheduleMessageExpiry();
@@ -964,6 +1007,7 @@ export const createTelegramStore = (
         const writeSnapshot = () => {
           cacheIdleCallback = undefined;
           cacheDirtySince = undefined;
+          boundMessageHistory();
           const current = get();
           if (current.authorization.kind !== "ready" || !current.currentUserId) return;
           const snapshot = snapshotWithHistory(
@@ -1022,6 +1066,7 @@ export const createTelegramStore = (
     const clearCachedData = (clearSnapshot = true) => {
       boundedMessages = undefined;
       boundedMessageCount = 0;
+      retentionViewports.clear();
       resetOutbox();
       chatJoinTargets.clear();
       history.clear();
@@ -2560,6 +2605,15 @@ export const createTelegramStore = (
         messageChangeListeners.add(listener);
         return () => messageChangeListeners.delete(listener);
       },
+      registerHistoryRetentionViewport: (chatId, viewport) => {
+        const providers = retentionViewports.get(chatId) ?? new Set();
+        providers.add(viewport);
+        retentionViewports.set(chatId, providers);
+        return () => {
+          providers.delete(viewport);
+          if (!providers.size && retentionViewports.get(chatId) === providers) retentionViewports.delete(chatId);
+        };
+      },
       removingMessages: new Map(),
       unreadAttentionMessageIds: new Map(),
       drafts: new Map(),
@@ -3411,6 +3465,7 @@ export const createTelegramStore = (
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         return topicId ? loadForumTopicHistory(chatId, topicId, "older") : loadHistory(chatId, "older");
       },
+      loadNewerHistory: (chatId, topicId) => history.newer(chatId, topicId),
       loadChatSponsoredMessages: async (chatId) => {
         if (get().authorization.kind !== "ready" || get().chats.get(chatId)?.kind !== "channel") return;
         try {

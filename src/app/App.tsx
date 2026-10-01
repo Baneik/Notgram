@@ -562,7 +562,7 @@ export function App() {
         return;
       }
       const accountId = telegramStore.getState().activeAccountId;
-      if (event.type === "remove") {
+      if (event.type === "remove" || event.type === "evict") {
         streamTracker.remove(accountId, event.chatId, event.messageIds);
         return;
       }
@@ -2053,6 +2053,7 @@ export function App() {
           onLatestWindow={showLatestHistoryWindow}
           onHistoryWindow={restoreHistoryWindow}
           historyWindowIsContext={Boolean(activeHistoryView?.messageIds)}
+          hasNewerMessages={activeHistoryView?.hasNewer}
           sponsoredMessages={visibleSponsoredMessages}
           sponsoredMessagesBetween={activeSponsoredMessages?.messagesBetween}
           chatMessages={activeChatMessages}

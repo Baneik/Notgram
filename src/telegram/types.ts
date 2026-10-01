@@ -1281,7 +1281,7 @@ export interface StreamFileInput {
 
 /** An explicit cursor belongs to the caller's window, never to another reader. */
 export interface HistoryPageRequest {
-  purpose: "refresh" | "older";
+  purpose: "refresh" | "older" | "newer";
   fromMessageId?: string;
 }
 

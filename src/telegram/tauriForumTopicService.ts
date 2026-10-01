@@ -168,6 +168,7 @@ export class TauriForumTopicService {
       const result = await loadHistoryWindow({
         chatId,
         topicId,
+        direction: request?.purpose === "newer" ? "newer" : "older",
         cursor,
         targetCount: Math.max(1, Math.min(limit, 100)),
         knownMessages: new Map(cursor ? [[String(cursor), {}]] : []),

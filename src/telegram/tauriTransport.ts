@@ -2024,6 +2024,20 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.rawMessages.delete(chatId);
   }
 
+  evictChatMessages(chatId: string, messageIds: readonly string[]) {
+    const messages = this.rawMessages.get(chatId);
+    for (const id of messageIds) {
+      this.unindexMessageFiles(chatId, id);
+      messages?.delete(id);
+      const key = `${chatId}:${id}`;
+      this.clearRichMessageHydration(key);
+      for (const replyKey of this.unavailableReplyHydrations) {
+        if (replyKey.startsWith(`${key}:`)) this.unavailableReplyHydrations.delete(replyKey);
+      }
+    }
+    if (messages?.size === 0) this.rawMessages.delete(chatId);
+  }
+
   async loadChatHistory(chatId: string, limit = 30, request?: HistoryPageRequest): Promise<ChatHistoryPage> {
     chatId = this.canonicalChatId(chatId);
     if (!request && this.exhaustedHistories.has(chatId)) {
@@ -2383,6 +2397,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const result = await loadHistoryWindow({
       chatId,
       targetCount,
+      direction: request?.purpose === "newer" ? "newer" : "older",
       cursor: request ? (request.fromMessageId ? numericId(request.fromMessageId) : 0) : this.historyCursors.get(chatId) ?? 0,
       // Stage the entire window: a timeout on a later TDLib page must not
       // consume messages or advance the committed cursor before the UI gets them.

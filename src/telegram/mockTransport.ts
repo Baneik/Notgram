@@ -1764,6 +1764,14 @@ export class MockTelegramTransport implements TelegramTransport {
       .filter((message) => message.chatId === chatId && (!topicId || message.topicId === topicId))
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
     const anchorIndex = request?.fromMessageId ? history.findIndex(message => message.id === request.fromMessageId) : -1;
+    if (request?.purpose === "newer") {
+      const boundary = request.fromMessageId ?? "0";
+      const newer = anchorIndex >= 0 ? history.slice(0, anchorIndex) : history.filter(message =>
+        /^\d+$/.test(message.id) && /^\d+$/.test(boundary) && BigInt(message.id) > BigInt(boundary));
+      const page = newer.slice(-limit).reverse();
+      return { loadedCount: page.length, messageIds: page.map(message => message.id), messages: clone(page),
+        hasMore: newer.length > page.length, nextFromMessageId: page.at(-1)?.id ?? request.fromMessageId };
+    }
     let offset = request ? anchorIndex + 1 : this.historyOffsets.get(key) ?? 0;
     if (request?.fromMessageId && anchorIndex < 0) {
       if (/^\d+$/.test(request.fromMessageId) && history.every(message => /^\d+$/.test(message.id))) {

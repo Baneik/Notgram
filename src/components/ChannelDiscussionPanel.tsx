@@ -232,6 +232,11 @@ export function ChannelDiscussionPanel({
   const inputRef = useRef<ComposerInputElement>(null);
   const insertionIdRef = useRef(0);
   const discussionChatId = post.discussionThread?.chatId ?? comments[0]?.chatId ?? post.chatId;
+  const activeAccountId = useTelegramStore(state => state.activeAccountId);
+  const registerHistoryRetentionViewport = useTelegramStore(state => state.registerHistoryRetentionViewport);
+  useEffect(() => registerHistoryRetentionViewport(discussionChatId, () => ({
+    following: false, protectedIds: [], busy: true,
+  })), [activeAccountId, discussionChatId, registerHistoryRetentionViewport]);
   const draftKey = `${post.chatId}:discussion:${post.id}`;
   const storedDiscussionChat = useTelegramStore((state) => state.chats.get(discussionChatId));
   const outbox = useTelegramStore((state) => state.outbox);
@@ -248,7 +253,6 @@ export function ChannelDiscussionPanel({
   const getInlineQueryResults = useTelegramStore((state) => state.getInlineQueryResults);
   const sendInlineQueryResultMessage = useTelegramStore((state) => state.sendInlineQueryResultMessage);
   const sendBotStartMessage = useTelegramStore((state) => state.sendBotStartMessage);
-  const activeAccountId = useTelegramStore(state => state.activeAccountId);
   const blockedUsers = useLocalUserBlocks(state => state.users);
   const blockedById = useMemo(() => new Map(blockedUsers.filter(user => user.accountId === activeAccountId)
     .map(user => [user.userId, user])), [activeAccountId, blockedUsers]);

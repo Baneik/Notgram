@@ -502,6 +502,41 @@ jump-return navigation, interrupted renders, bounded recovery continuation, inde
 cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
 adequate assertion for this failure mode.
 
+## Ordinary history retention
+
+The in-memory Store trims ordinary history per chat at 2,400 messages, targeting 2,000
+with hysteresis. A detached reader keeps a contiguous interval around its actual visible
+anchor plus 300 recent messages. Mounted rows, selected/action/reply/edit targets, draft
+reply targets, recovery boundaries, pending/failed sends and complete media albums are
+protected. Deletion archives retain their independent persistence and are not counted
+against this ordinary-message budget. Protected records can temporarily exceed it.
+
+Positioning and pending history transactions defer eviction; the existing snapshot-write
+callback retries after positioning. Viewport registrations contain live getters, not DOM
+nodes or message arrays, and dispose when their conversation unmounts. Account reset
+clears them. Inactive conversations use the recent tail; a saved reading position outside
+that tail is restored through the existing message-context loader.
+An open channel-discussion panel temporarily protects its source and thread caches: that
+panel has a separate thread-pagination owner. Closing it allows the ordinary policy to
+resume; this change does not replace its pagination or trim its displayed comment list.
+
+Eviction commits the message array and history-window membership together. It releases
+ordinary file indexes, downstream download indexes and native raw-message/file indexes,
+without deletion tombstones or removing locally retained copies. Empty context membership
+is discarded; surviving disjoint intervals never become adjacent in one timeline.
+
+Removing an older prefix resets the reader cursor to the surviving oldest message and
+reopens older pagination. A reader interval with an evicted newer suffix exposes `hasNewer`;
+downward input within one viewport requests one newer page. Negative TDLib history offsets
+are shared by ordinary chats and forum topics. Short responses are walked back to the
+starting boundary before publication, and one empty response does not prove exhaustion.
+The controller captures latest membership before the request, since native publication
+can precede its result. Overlap rejoins the intervals; End/latest selects the retained tail.
+
+Regression coverage includes repeated live updates, hundreds of older/newer pages,
+frame-by-frame reading stability, native early publication, short/empty newer responses,
+file/raw-index release, archive/send/draft/album protection and reload after eviction.
+
 ## Private chat history deletion
 
 The confirmation defaults to deleting only the current user's history. Deleting for both sides
