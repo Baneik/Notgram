@@ -9,6 +9,7 @@ import {
 } from "./messageNotificationPolicy";
 
 const incomingMessage = {
+  chatKind: "direct" as const,
   outgoing: false,
   notificationsEnabled: true,
   muted: false,
@@ -27,6 +28,17 @@ describe("message notification policy", () => {
 
   it("never notifies messages received in Saved Messages", () => {
     expect(shouldNotifyMessage({ ...incomingMessage, chatKind: "saved" })).toBe(false);
+  });
+
+  it.each(["group", "channel"] as const)("requires confirmed membership for %s notifications", (chatKind) => {
+    expect(shouldNotifyMessage({ ...incomingMessage, chatKind, isMember: false })).toBe(false);
+    expect(shouldNotifyMessage({ ...incomingMessage, chatKind })).toBe(false);
+    expect(shouldNotifyMessage({ ...incomingMessage, chatKind, isMember: true })).toBe(true);
+  });
+
+  it("suppresses unknown chats without requiring membership for private chats", () => {
+    expect(shouldNotifyMessage({ ...incomingMessage, chatKind: undefined })).toBe(false);
+    expect(shouldNotifyMessage({ ...incomingMessage, isMember: false })).toBe(true);
   });
 
   it("suppresses outgoing, globally disabled, explicitly muted, and visible active messages", () => {

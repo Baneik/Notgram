@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { TelegramState } from "../../src/store/telegramStore.types";
-import type { ChatHistoryPage, ConnectionStatus, Message, TelegramEvent } from "../../src/telegram/types";
+import type { Chat, ChatHistoryPage, ConnectionStatus, ForumTopic, Message, TelegramEvent } from "../../src/telegram/types";
+import type { DesktopNotification } from "../../src/notifications/desktopNotifications";
 
 const exposeRecoveryTransport = (page: Page) => page.route("**/src/telegram/mockTransport.ts", async (route) => {
   const response = await route.fetch();
@@ -46,6 +47,113 @@ test("notification eligibility is checked before resolving topics in a replay bu
     return { disabled, outgoing, historical, eligible: resolutions };
   }, { storePath: "/src/store/telegramStore.ts", preferencesPath: "/src/store/preferencesStore.ts" });
   expect(counts).toEqual({ disabled: 0, outgoing: 0, historical: 0, eligible: 1 });
+});
+
+test("channel subscriptions notify without leaking non-member discussion group updates", async ({ page }) => {
+  await exposeRecoveryTransport(page);
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const result = await page.evaluate(async ({ storePath, preferencesPath }) => {
+    const { telegramStore } = await import(storePath) as { telegramStore: {
+      getState: () => TelegramState; setState: (state: Partial<TelegramState>) => void;
+    } };
+    const { preferencesStore } = await import(preferencesPath) as { preferencesStore: {
+      setState: (state: { notificationsEnabled: boolean; notificationSound: boolean }) => void;
+    } };
+    const dispatch = (window as typeof window & { __notgramRecoveryDispatch: (event: TelegramEvent) => void }).__notgramRecoveryDispatch;
+    const notifications: DesktopNotification[] = [];
+    Object.assign(window, { __TAURI_INTERNALS__: {
+      invoke: async (command: string, args: { notification?: DesktopNotification }) => {
+        if (command === "notgram_show_notification" && args.notification) notifications.push(args.notification);
+      },
+    } });
+    preferencesStore.setState({ notificationsEnabled: true, notificationSound: false });
+    const state = telegramStore.getState();
+    const source = state.messages.get("chat-product")![0];
+    const group: Chat = { ...state.chats.get("chat-product")!, id: "unjoined-discussion", isMember: false, muted: false };
+    const channel: Chat = { ...state.chats.get("chat-release")!, isMember: true, muted: false };
+    const unknownGroup: Chat = { ...group, id: "unknown-membership", isMember: undefined };
+    const previewChannel: Chat = { ...channel, id: "preview-channel", isMember: false };
+    const direct: Chat = { ...state.chats.get("chat-mia")!, muted: false };
+    dispatch({ type: "chats.upserted", chats: [group, channel, unknownGroup, previewChannel, direct] });
+    const inject = (chatId: string, id: string) => dispatch({ type: "message.upsert", animateEntrance: true, message: {
+      ...source, id, chatId, topicId: undefined, messageThreadId: "discussion-root", outgoing: false,
+      sentAt: new Date().toISOString(), content: { kind: "text", text: id },
+    } });
+    inject(group.id, "non-member-comment");
+    inject(channel.id, "followed-channel-post");
+    inject(unknownGroup.id, "unknown-membership-comment");
+    inject("missing-chat", "unknown-chat-message");
+    inject(previewChannel.id, "unfollowed-channel-post");
+    inject(direct.id, "private-message");
+    dispatch({ type: "chats.upserted", chats: [{ ...group, isMember: true }] });
+    inject(group.id, "joined-group-message");
+    dispatch({ type: "chats.upserted", chats: [group] });
+    inject(group.id, "left-group-message");
+    await Promise.resolve();
+    return {
+      routes: notifications.map(({ route }) => ({ chatId: route.chatId, messageId: route.messageId })),
+      discussionMessages: telegramStore.getState().messages.get(group.id)?.map(({ id }) => id).sort(),
+    };
+  }, { storePath: "/src/store/telegramStore.ts", preferencesPath: "/src/store/preferencesStore.ts" });
+  expect(result.discussionMessages).toEqual(["joined-group-message", "left-group-message", "non-member-comment"]);
+  expect(result.routes).toEqual([
+    { chatId: "chat-release", messageId: "followed-channel-post" },
+    { chatId: "chat-mia", messageId: "private-message" },
+    { chatId: "unjoined-discussion", messageId: "joined-group-message" },
+  ]);
+});
+
+test("notification membership is checked before topic lookup and after an in-flight lookup", async ({ page }) => {
+  await exposeRecoveryTransport(page);
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const result = await page.evaluate(async ({ storePath, preferencesPath }) => {
+    const { telegramStore } = await import(storePath) as { telegramStore: {
+      getState: () => TelegramState; setState: (state: Partial<TelegramState>) => void;
+    } };
+    const { preferencesStore } = await import(preferencesPath) as { preferencesStore: {
+      setState: (state: { notificationsEnabled: boolean; notificationSound: boolean }) => void;
+    } };
+    const dispatch = (window as typeof window & { __notgramRecoveryDispatch: (event: TelegramEvent) => void }).__notgramRecoveryDispatch;
+    const notifications: DesktopNotification[] = [];
+    Object.assign(window, { __TAURI_INTERNALS__: {
+      invoke: async (command: string, args: { notification?: DesktopNotification }) => {
+        if (command === "notgram_show_notification" && args.notification) notifications.push(args.notification);
+      },
+    } });
+    preferencesStore.setState({ notificationsEnabled: true, notificationSound: false });
+    const source = telegramStore.getState().messages.get("chat-product")![0];
+    const forum: Chat = { ...telegramStore.getState().chats.get("chat-forum")!, isMember: false, muted: false };
+    dispatch({ type: "chats.upserted", chats: [forum] });
+    let resolutions = 0;
+    let finishLookup: (() => void) | undefined;
+    telegramStore.setState({ resolveForumTopic: async () => {
+      resolutions += 1;
+      await new Promise<void>((resolve) => { finishLookup = resolve; });
+      return {
+        id: "12", chatId: forum.id, name: "Topic", muted: false, unreadCount: 0, lastReadInboxMessageId: "0",
+        iconColor: 0, createdAt: source.sentAt, isGeneral: false, isOutgoing: false, isClosed: false,
+        isHidden: false, isPinned: false, unreadMentionCount: 0, unreadReactionCount: 0, order: "1",
+      } satisfies ForumTopic;
+    } });
+    const inject = (id: string) => dispatch({ type: "message.upsert", animateEntrance: true, message: {
+      ...source, id, chatId: forum.id, topicId: "12", outgoing: false, sentAt: new Date().toISOString(),
+    } });
+    inject("non-member-topic-message");
+    const nonMemberLookups = resolutions;
+    finishLookup?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const nonMemberNotifications = notifications.length;
+    notifications.length = 0;
+    dispatch({ type: "chats.upserted", chats: [{ ...forum, isMember: true }] });
+    inject("message-before-leaving");
+    dispatch({ type: "chats.upserted", chats: [forum] });
+    finishLookup?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { nonMemberLookups, nonMemberNotifications, resolutions, afterLeaving: notifications.length };
+  }, { storePath: "/src/store/telegramStore.ts", preferencesPath: "/src/store/preferencesStore.ts" });
+  expect(result).toEqual({ nonMemberLookups: 0, nonMemberNotifications: 0, resolutions: 1, afterLeaving: 0 });
 });
 
 test("proxy recovery shows retry progress instead of blaming proxy settings", async ({ page }) => {

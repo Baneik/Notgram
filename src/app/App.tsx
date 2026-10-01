@@ -462,6 +462,7 @@ export function App() {
       // and topic read cursors are checked again once their settings are known.
       if (!shouldNotifyMessage({
         chatKind: receivedChat?.kind,
+        isMember: receivedChat?.isMember,
         outgoing: message.outgoing,
         notificationsEnabled: preferencesStore.getState().notificationsEnabled,
         muted: !message.topicId && (receivedChat?.muted ?? false),
@@ -503,6 +504,7 @@ export function App() {
       ) return;
       if (!shouldNotifyMessage({
         chatKind: chat?.kind,
+        isMember: chat?.isMember,
         outgoing: message.outgoing,
         notificationsEnabled: preferences.notificationsEnabled,
         muted: isMessageConversationMuted({

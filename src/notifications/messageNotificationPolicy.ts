@@ -37,6 +37,7 @@ export class MessageNotificationStreamTracker {
 
 export interface MessageNotificationContext {
   chatKind?: ChatKind;
+  isMember?: boolean;
   outgoing: boolean;
   notificationsEnabled: boolean;
   muted: boolean;
@@ -92,6 +93,7 @@ const predatesNotificationSession = (sentAt?: string, notBeforeMs?: number) => {
 
 export const shouldNotifyMessage = ({
   chatKind,
+  isMember,
   outgoing,
   notificationsEnabled,
   muted,
@@ -104,7 +106,8 @@ export const shouldNotifyMessage = ({
   streaming,
 }: MessageNotificationContext) =>
   notificationsEnabled &&
-  chatKind !== "saved" &&
+  // Public previews and channel discussion threads can receive live updates without membership.
+  (chatKind === "direct" || ((chatKind === "group" || chatKind === "channel") && isMember === true)) &&
   !outgoing &&
   !streaming &&
   !muted &&

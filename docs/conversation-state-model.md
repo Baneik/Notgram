@@ -514,6 +514,14 @@ and timer drift request only a non-forced check; background throttling alone mus
 TDLib connection. Overlapping folder refreshes share chat lookups within the current sync generation.
 Hidden folder warmup waits for a visible document and the selected list to finish loading.
 
+Receiving a live update does not authorize a desktop notification. Public previews and linked
+channel discussion groups can receive updates without membership. Notification eligibility requires
+a known chat, and groups/channels require server-mapped `isMember === true`; private chats need no
+membership flag and Saved Messages never notify. Check membership before resolving forum topics and
+again against current state after the lookup, so leaving a group during the request cannot leak an
+alert. Keep these updates in message history and discussion views; membership gates presentation,
+not update delivery, and a followed channel has its own membership independent of its discussion group.
+
 Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
 and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.
 
