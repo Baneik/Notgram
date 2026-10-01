@@ -135,11 +135,15 @@ test("leaving captures the mounted viewport and a reading anchor even at the bot
   await expect.poll(() => latestMessageBottomGap(page)).toBeLessThanOrEqual(13);
   await expect.poll(() => page.locator(".message-list").evaluate(element =>
     element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
-  const before = await page.locator(".message-list").evaluate(async element => {
+  await page.evaluate(async () => {
     // Let the virtualizer receive the native scroll events from bottom settling.
     for (let frame = 0; frame < 3; frame++) {
       await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     }
+  });
+  // Capture and leave atomically, with no pending promise owned by a node
+  // that the click deliberately unmounts.
+  const before = await page.locator(".message-list").evaluate(element => {
     const bounds = element.getBoundingClientRect();
     const anchor = [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
       .find(row => row.getBoundingClientRect().bottom > bounds.top + 1);
