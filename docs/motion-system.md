@@ -139,7 +139,7 @@ queue time, source/display dimensions, output bytes and cache hits (phase 1 gene
 The image viewer keeps its transform on a positioned surface outside the decoded-image lifecycle.
 Upgrading one photo must retain both its painted preview and its zoom/pan; selecting another photo
 resets the viewport before paint. Pointer moves coalesce into one transform write per animation frame,
-and the window entrance changes opacity only so it cannot distort pointer coordinates. Wheel navigation
+and standalone window/preview entrances reveal at full opacity. Wheel navigation
 handles every nonzero event without a cooldown or distance threshold, including events within one render.
 The image fits above the controls, but zoomed pixels and panning use the full screen. Original decoded
 dimensions override document thumbnail dimensions. Captions clamp to five lines with ellipsis and never
@@ -148,9 +148,17 @@ reserve layout space. A dark media backdrop and caption/footer scrim maintain co
 The viewer requests its best local source immediately; a separate small preview may load in parallel
 but must never gate the original on preview loading or decoding. The decoded original replaces this
 preview at full opacity, without an additional image fade. Source upgrades retain the existing decoded
-node. The thumbnail strip selects small sources and adapts its item count to available width. Only the
+node. The standalone viewer owns a separate three-entry/192 MiB cache of decoded original
+elements, with live pixels protected and unused oversized originals released. An uncropped
+prepared conversation Blob may provide its first frame while the original loads; cropped
+album previews do not replace the whole photo. Native photo windows may remain hidden for
+60 seconds after closing so a fresh revision can reuse these elements. Account reset,
+media cleanup, replacement and idle expiry destroy that child. Native reveal follows a
+ready DOM frame, with bounded fallbacks for slow/error sources and hidden-frame throttling.
+The thumbnail strip selects small sources and adapts its item count to available width. Only the
 two adjacent local originals are warmed, sequentially and at low priority, after the current original
-has decoded and navigation settles. Zoom input retains every delta and clamps each intermediate
+has decoded and navigation settles, and only when their declared pixel footprint fits
+alongside live images. Zoom input retains every delta and clamps each intermediate
 transform, while both zoom and drag painting coalesce to one write per animation frame.
 Zoom updates the surface's layout dimensions so the browser rasterizes the original at its displayed
 size; do not scale a fitted image layer or pin it with `will-change: transform`. Panning uses translation

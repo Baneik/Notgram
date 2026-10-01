@@ -4,6 +4,7 @@ import { logPerformance } from "../utils/performanceMonitor";
 export interface PhotoPreviewSize { width: number; height: number; cover: boolean }
 export interface PhotoPreview {
   url: string;
+  blob: Blob;
   width: number;
   height: number;
   sourceWidth: number;
@@ -29,6 +30,12 @@ const MAX_ENTRIES = 128;
 let bytes = 0;
 let running = 0;
 let nextToken = 0;
+const resetListeners = new Set<() => void>();
+
+export const onPhotoPreviewCacheCleared = (listener: () => void) => {
+  resetListeners.add(listener);
+  return () => { resetListeners.delete(listener); };
+};
 
 export const photoPreviewSize = (width: number, height: number, cover: boolean): PhotoPreviewSize => {
   const scale = Math.min(1, 1600 / Math.max(width, height));
@@ -57,6 +64,7 @@ const trim = () => {
   }
 };
 export const clearPhotoPreviewCache = () => {
+  for (const listener of resetListeners) listener();
   for (const [key, entry] of entries) discard(key, entry);
   queue.length = 0;
 };
@@ -121,7 +129,7 @@ const pump = () => {
     void load(entry).then(({ result, cached }) => {
       if (entry.controller.signal.aborted) return;
       const { blob, ...dimensions } = result;
-      const value = { ...dimensions, url: URL.createObjectURL(blob) };
+      const value = { ...dimensions, blob, url: URL.createObjectURL(blob) };
       entry.value = value;
       entry.bytes = result.blob.size + result.width * result.height * 4;
       bytes += entry.bytes;

@@ -6,11 +6,14 @@ import {
   closeMediaViewerWindowSession,
   openMediaViewerWindow,
   syncMediaViewerWindow,
+  closeActiveMediaViewerWindow,
   type MediaViewerWindowMessage,
 } from "./mediaViewerWindowBridge";
 import type { PhotoMessage } from "../utils/mediaViewerModel";
+import { clearPhotoPreviewCache, photoPreviewSize, retainPhotoPreview } from "./photoPreview";
 
-vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false), invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false), invoke: vi.fn(),
+  convertFileSrc: (path: string) => `http://notgram-asset.localhost/${path}` }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
 
 describe("media viewer window routing", () => {
@@ -50,9 +53,94 @@ beforeEach(() => {
   vi.stubGlobal("open", () => ({}));
 });
 afterEach(() => {
-  if (sessionId) closeMediaViewerWindowSession(sessionId);
+  closeActiveMediaViewerWindow();
+  clearPhotoPreviewCache();
   sessionId = undefined;
   vi.useRealTimers(); vi.unstubAllGlobals();
+});
+
+describe("native photo window reuse", () => {
+  beforeEach(() => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(invoke).mockImplementation((command, args) => {
+      if (command === "notgram_open_media_viewer_window") sessionId = (args as { id: string }).id;
+      return Promise.resolve(undefined);
+    });
+  });
+
+  const initialized = async (onClosed = vi.fn()) => {
+    const pending = openMediaViewerWindow({ messages: photos, activeMessageId: "6", colorTheme: "dark" },
+      vi.fn().mockResolvedValue(undefined), vi.fn().mockResolvedValue(undefined), onClosed);
+    const channel = ViewerChannel.current;
+    channel.receive({ type: "ready", id: sessionId! });
+    await pending;
+    channel.receive({ type: "active", id: sessionId!, messageId: "6" });
+    return { channel, onClosed };
+  };
+
+  it("hands off the prepared uncropped preview without another generation", async () => {
+    const fetch = vi.fn(async () => new Response(new Blob(["preview"]), { headers: {
+      "X-Preview-Width": "390", "X-Preview-Height": "260", "X-Source-Width": "6000", "X-Source-Height": "4000",
+    } }));
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:preview"), revokeObjectURL: vi.fn() });
+    const source = "http://notgram-asset.localhost/photo.png";
+    const uncropped = retainPhotoPreview(source, photoPreviewSize(390, 260, false));
+    const preview = await uncropped.promise;
+    const cropped = retainPhotoPreview(source, photoPreviewSize(390, 260, true));
+    const tile = await cropped.promise;
+    const messages = [{ ...photos[6], content: { ...photos[6].content, localPath: "photo.png" } }];
+    const pending = openMediaViewerWindow({ messages, activeMessageId: "6", colorTheme: "dark" }, vi.fn(), vi.fn());
+    const channel = ViewerChannel.current;
+    channel.receive({ type: "ready", id: sessionId! });
+    await pending;
+    const init = channel.sent.find(message => message.type === "init");
+    expect(init?.type).toBe("init");
+    if (init?.type === "init") {
+      expect(init.descriptor.preparedPreview).toEqual({ sourcePath: "photo.png", blob: preview.blob });
+      expect(init.descriptor.preparedPreview?.blob).not.toBe(tile.blob);
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    uncropped.release(); cropped.release();
+  });
+
+  it("reopens the parked WebView with new selection and action owners", async () => {
+    const { channel, onClosed } = await initialized();
+    channel.receive({ type: "parked", id: sessionId!, revision: 0 });
+    expect(onClosed).toHaveBeenCalledOnce();
+    const save = vi.fn().mockResolvedValue(undefined);
+    const reopened = await openMediaViewerWindow({ messages: photos, activeMessageId: "10", colorTheme: "light" }, vi.fn(), save);
+    expect(reopened).toBe(sessionId);
+    expect(channel.sent.at(-1)).toMatchObject({ type: "reopen", descriptor: { activeMessageId: "10", revision: 1 } });
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "notgram_open_media_viewer_window")).toHaveLength(1);
+    channel.receive({ type: "parked", id: sessionId!, revision: 0 });
+    channel.receive({ type: "save", id: sessionId!, sourcePath: "image.jpg", fileName: "image.jpg", requestId: 9 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(save).toHaveBeenCalledWith("image.jpg", "image.jpg");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(channel.closed).toBe(false);
+  });
+
+  it("ignores hidden sync and duplicate parking, then expires once", async () => {
+    const { channel, onClosed } = await initialized();
+    channel.receive({ type: "parked", id: sessionId!, revision: 0 });
+    channel.receive({ type: "parked", id: sessionId!, revision: 0 });
+    syncMediaViewerWindow(photos, "light");
+    await vi.advanceTimersByTimeAsync(32);
+    expect(channel.sent.filter(message => message.type === "sync")).toHaveLength(0);
+    expect(onClosed).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(channel.closed).toBe(true);
+    expect(onClosed).toHaveBeenCalledOnce();
+  });
+
+  it("destroys parked resources during account reset or cache cleanup", async () => {
+    const { channel } = await initialized();
+    channel.receive({ type: "parked", id: sessionId!, revision: 0 });
+    clearPhotoPreviewCache();
+    expect(channel.closed).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("notgram_close_media_viewer_window", { id: sessionId });
+  });
 });
 
 async function openSession(cache = vi.fn().mockResolvedValue(undefined), save = vi.fn().mockResolvedValue(undefined)) {

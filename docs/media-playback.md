@@ -39,6 +39,30 @@ file. Browser window polling and native destruction events cover exits without
 a reliable `beforeunload` notification. Account transitions also clear resume
 positions. No second media element is mounted in the main window.
 
+Native sessions opened on a photo may retain one hidden child WebView for 60 seconds
+after closing. Parking unmounts the viewer and releases its action/session owner;
+reopening receives a newer descriptor revision, fresh selection and fresh action
+callbacks. Idle children ignore synchronization, and stale/duplicate parking cannot
+close a reopened session. Video closure, replacement, account reset and media-cache
+cleanup still destroy the child; an expired idle child is destroyed as well.
+
+The photo viewer retains decoded image elements, rather than URL readiness flags,
+in a separate LRU cache of three entries and 192 MiB estimated RGBA pixels. Live
+elements cannot be evicted; an oversized live original is released when it becomes
+idle. Source upgrades keep the previous painted node until the replacement is ready.
+Adjacent local photos warm sequentially at low priority after the current original
+decodes, only when their declared dimensions fit alongside live pixels. Reattaching
+a cached node does not request or explicitly decode the original again. The browser
+can still discard internal decoded pixels under memory pressure.
+
+An available uncropped conversation preview is transferred as a Blob to the child
+for its first frame, without another native generation. Cropped album tiles cannot
+stand in for an uncropped original. The original starts in parallel with the preview.
+Native windows stay hidden until the ready DOM requests reveal; a 120 ms fallback
+after initialization keeps missing, failed or slow sources actionable. Reveal waits
+for an animation frame, with a 32 ms fallback for hidden WebViews. Entrance and
+preview opacity animations are disabled in the standalone viewer.
+
 The controller claims playback ownership while preparing. Starting audio sends
 a pause to the viewer and cancels pending autoplay. A viewer requests permission
 to play from the coordinator; delayed state reports never reclaim ownership.
@@ -146,6 +170,11 @@ preparation time. `media_seek_completed` measures seeking to playback recovery
 seconds during visible playback. Payloads contain bounded numeric metrics rather
 than paths, captions or source URLs. The first-frame metric means compositor
 submission, not a guarantee about physical display presentation.
+
+`ui_media_viewer_image` reports ready-node mounting (phase 1, including a cache-hit
+flag) and cold browser decoding (phase 2, including natural dimensions). It contains
+no paths or URLs. Cached mounting skips a second explicit decode, but neither metric
+proves a native compositor frame or eliminates the first decode of a large original.
 
 Before claiming native performance improvements, compare the same build/settings,
 machine and fixtures against a baseline using the following matrix. Record sample

@@ -8,11 +8,12 @@ import { useStableVisibility } from "../hooks/useStableVisibility";
 import { useImageViewport } from "../hooks/useImageViewport";
 import { adjacentPhotoId, photoThumbnailWindow, type ViewerMessage } from "../utils/mediaViewerModel";
 import { photoSources } from "../media/photoSources";
-import { hasDecodedImage, rememberDecodedImage } from "../media/decodedImages";
+import { canWarmViewerImage, hasViewerImage, retainViewerImage } from "../media/viewerImages";
 import { localMediaSource } from "../media/localMediaSource";
 import { logPerformance } from "../utils/performanceMonitor";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
+import { ViewerImage } from "./ViewerImage";
 
 export interface MediaViewerProps {
   messages: ViewerMessage[];
@@ -20,6 +21,8 @@ export interface MediaViewerProps {
   onActiveMessageChange: (messageId: string) => void;
   onClose: () => void;
   allowSave?: boolean;
+  preparedPreview?: { sourcePath: string; url: string };
+  onPhotoReady?: () => void;
   onDownload: (fileId: number, fileName: string) => Promise<void>;
   onSave: (sourcePath: string, fileName: string) => Promise<void>;
   video?: {
@@ -69,27 +72,28 @@ const MediaViewerThumbnail = memo(function MediaViewerThumbnail({ message, selec
   </button>;
 });
 
-function PhotoSurface({ message, onDownload, onDimensions }: {
+function PhotoSurface({ message, onDownload, onDimensions, preparedPreview, onPhotoReady }: {
   message: ViewerMessage; onDownload: MediaViewerProps["onDownload"]; onDimensions: (width: number, height: number) => void;
+  preparedPreview?: MediaViewerProps["preparedPreview"]; onPhotoReady?: () => void;
 }) {
   const { source, preview, failed, onError, retry } = usePhotoSource(message);
   const [hasReadyImage, setHasReadyImage] = useState(false);
-  const imageRef = useRef<HTMLImageElement>(null);
   const startedAt = useRef(performance.now());
   const showDownloading = useStableVisibility(Boolean(message.content.isDownloading));
   const content = message.content;
+  const placeholder = preparedPreview && preparedPreview.sourcePath === content.localPath ? preparedPreview.url : preview;
   const canDownload = messageCanBeSaved(message) && content.fileId !== undefined && content.canDownload !== false && !content.isDownloading && !content.isDownloaded;
   return source ? <>
     {/* Start the original immediately; a slow preview must never gate its load. */}
-    {!hasReadyImage && preview && <StableImage className="media-viewer-placeholder" src={preview} alt="" aria-hidden="true" draggable={false} />}
-    <StableImage ref={imageRef} retainWhileLoading className="media-viewer-image" fetchPriority="high"
-    src={source} alt={content.caption || content.fileName} draggable={false} onError={onError}
-    onReady={() => {
+    {!hasReadyImage && placeholder && <StableImage className="media-viewer-placeholder" src={placeholder} alt="" aria-hidden="true" draggable={false} onReady={onPhotoReady} />}
+    <ViewerImage source={source} alt={content.caption || content.fileName} onError={onError}
+    onReady={(image, cached) => {
       setHasReadyImage(true);
-      if (imageRef.current && source === localMediaSource(content.localPath)) {
-        onDimensions(imageRef.current.naturalWidth, imageRef.current.naturalHeight);
+      if (source === localMediaSource(content.localPath)) {
+        onDimensions(image.naturalWidth, image.naturalHeight);
       }
-      logPerformance("ui_media_viewer_image", { durationMs: performance.now() - startedAt.current });
+      onPhotoReady?.();
+      logPerformance("ui_media_viewer_image", { durationMs: performance.now() - startedAt.current, phase: 1, cached });
     }} /></> : <div className="media-viewer-empty" role="status">
     {showDownloading ? <LoaderCircle className="spin" size={34} /> : <ImageOff size={38} strokeWidth={1.5} />}
     <span>{failed ? translate("图片加载失败") : showDownloading ? translate("图片正在下载") : translate("原图尚未下载")}</span>
@@ -105,7 +109,7 @@ export function MediaViewer(props: MediaViewerProps) {
   return active ? <Viewer {...props} active={active} /> : null;
 }
 
-function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onClose, allowSave = true, onDownload, onSave, video }: MediaViewerProps & { active: ViewerMessage }) {
+function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onClose, allowSave = true, onDownload, onSave, video, preparedPreview, onPhotoReady }: MediaViewerProps & { active: ViewerMessage }) {
   const content = active.content;
   const identity = `${active.chatId}:${active.id}`;
   const stageRef = useRef<HTMLElement>(null);
@@ -124,29 +128,28 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   useEffect(() => {
     if (!originalReady) return;
     let cancelled = false;
-    const images: HTMLImageElement[] = [];
+    const images: ReturnType<typeof retainViewerImage>[] = [];
     // The visible original owns the decode budget first. Warm neighbors one at
     // a time only after it is ready, and cancel pending work on navigation.
     const timer = globalThis.setTimeout(() => {
       void (async () => {
         for (const source of new Set([previousSource, nextSource])) {
           if (cancelled) return;
-          if (!source || hasDecodedImage(source)) continue;
-          const image = new Image();
+          if (!source || hasViewerImage(source)) continue;
+          const neighbor = messages.find(message => localMediaSource(message.content.localPath) === source)?.content;
+          if (!canWarmViewerImage(neighbor?.width, neighbor?.height)) continue;
+          const image = retainViewerImage(source, "low");
           images.push(image);
-          image.decoding = "async";
-          image.fetchPriority = "low";
-          image.src = source;
           try {
-            await image.decode();
-            if (!cancelled) rememberDecodedImage(source);
+            await image.promise;
           } catch { /* A failed neighbor must not prevent viewing the current photo. */ }
+          finally { image.release(); }
         }
       })();
     }, 140);
     return () => {
       cancelled = true; globalThis.clearTimeout(timer);
-      for (const image of images) image.removeAttribute("src");
+      for (const image of images) image.release();
     };
   }, [identity, content.localPath, originalReady, previousSource, nextSource]);
   const thumbnailSlotRef = useRef<HTMLDivElement>(null);
@@ -254,7 +257,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
               }
             }}>
             <div ref={viewport.surfaceRef} className="media-viewer-surface">
-              <PhotoSurface key={identity} message={active} onDownload={async (fileId, fileName) => {
+              <PhotoSurface key={identity} message={active} preparedPreview={preparedPreview} onPhotoReady={onPhotoReady} onDownload={async (fileId, fileName) => {
                 const generation = actionGeneration.current;
                 try { await onDownload(fileId, fileName); }
                 catch { if (actionGeneration.current === generation) setActionError(translate("文件下载失败")); }

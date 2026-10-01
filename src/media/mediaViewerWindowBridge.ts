@@ -5,6 +5,8 @@ import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { logPerformance } from "../utils/performanceMonitor";
 import { videoPlaybackController, type VideoSource, type VideoState, type VideoCommand, type VideoServices, type VideoAction } from "./videoPlayback";
 import { listen } from "@tauri-apps/api/event";
+import { latestPhotoPreview, onPhotoPreviewCacheCleared } from "./photoPreview";
+import { localMediaSource } from "./localMediaSource";
 
 export interface MediaViewerWindowDescriptor {
   id: string;
@@ -13,6 +15,9 @@ export interface MediaViewerWindowDescriptor {
   colorTheme: "light" | "dark";
   allowSave?: boolean;
   mode?: "window" | "fullscreen";
+  preparedPreview?: { sourcePath: string; blob: Blob };
+  reusable?: boolean;
+  revision?: number;
 }
 
 export type MediaViewerWindowMessage =
@@ -23,6 +28,8 @@ export type MediaViewerWindowMessage =
   | { type: "video-action"; id: string; key: string; revision: number; action: VideoAction; value?: number }
   | { type: "video-command"; id: string; command: VideoCommand; revision: number; value?: number }
   | { type: "init"; id: string; descriptor: MediaViewerWindowDescriptor }
+  | { type: "reopen"; id: string; descriptor: MediaViewerWindowDescriptor }
+  | { type: "parked"; id: string; revision: number }
   | {
       type: "sync";
       id: string;
@@ -53,10 +60,16 @@ interface MediaViewerSession {
   cleanup?: () => void;
   openedAt: number;
   initialSelection: boolean;
+  initialized?: boolean;
+  parked?: boolean;
+  idleTimer?: ReturnType<typeof globalThis.setTimeout>;
+  onDownload: (fileId: number, fileName: string) => Promise<void>;
+  onSave: (sourcePath: string, fileName: string) => Promise<void>;
 }
 
 export const MEDIA_VIEWER_WINDOW_CHANNEL = "notgram-media-viewer-window-v1";
 const INITIALIZATION_TIMEOUT_MS = 8_000;
+const IDLE_VIEWER_TIMEOUT_MS = 60_000;
 let activeSession: MediaViewerSession | undefined;
 
 const cacheVisiblePhotos = (session: MediaViewerSession) => {
@@ -121,7 +134,7 @@ export const syncMediaViewerWindow = (
   colorTheme: MediaViewerWindowDescriptor["colorTheme"],
 ) => {
   const session = activeSession;
-  if (!session || messages.length === 0) return;
+  if (!session || session.parked || messages.length === 0) return;
   const sessionChatId = session.descriptor.messages[0]?.chatId;
   if (sessionChatId) messages = messages.filter(message => message.chatId === sessionChatId);
   if (messages.length === 0) return;
@@ -136,7 +149,7 @@ export const syncMediaViewerWindowSession = (
   colorTheme: MediaViewerWindowDescriptor["colorTheme"],
 ) => {
   const session = activeSession;
-  if (!session || session.id !== id || messages.length === 0) return false;
+  if (!session || session.parked || session.id !== id || messages.length === 0) return false;
   session.descriptor = { ...session.descriptor, messages, colorTheme };
   scheduleSync(session);
   return true;
@@ -149,6 +162,7 @@ const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
   session.cancelInitialization?.();
   if (session.syncTimer !== undefined) globalThis.clearTimeout(session.syncTimer);
   if (session.prefetchTimer !== undefined) globalThis.clearTimeout(session.prefetchTimer);
+  if (session.idleTimer !== undefined) globalThis.clearTimeout(session.idleTimer);
   if (session.initializationTimer !== undefined) {
     globalThis.clearTimeout(session.initializationTimer);
     session.initializationTimer = undefined;
@@ -164,7 +178,9 @@ const disposeSession = (session: MediaViewerSession, requestClose: boolean) => {
   }
   session.channel.close();
   if (activeSession === session) activeSession = undefined;
-  session.onClosed?.();
+  const onClosed = session.onClosed;
+  session.onClosed = undefined;
+  onClosed?.();
 };
 
 export const closeMediaViewerWindowSession = (id: string) => {
@@ -177,6 +193,19 @@ export const closeActiveMediaViewerWindow = () => {
   if (activeSession) disposeSession(activeSession, true);
 };
 
+// Account resets and explicit cache cleanup must also release an idle child WebView.
+onPhotoPreviewCacheCleared(closeActiveMediaViewerWindow);
+
+const prepareDescriptor = (input: Omit<MediaViewerWindowDescriptor, "id">, id: string, revision = 0): MediaViewerWindowDescriptor => {
+  const active = input.messages.find(message => message.id === input.activeMessageId);
+  const sourcePath = active?.content.mediaType === "photo" ? active.content.localPath : undefined;
+  const source = localMediaSource(sourcePath);
+  // An album's cropped tile cannot stand in for the uncropped viewer image.
+  const preview = source ? latestPhotoPreview(source, false)?.value : undefined;
+  return { ...input, id, revision, reusable: isTauri() && active?.content.mediaType === "photo",
+    preparedPreview: sourcePath && preview ? { sourcePath, blob: preview.blob } : undefined };
+};
+
 export const openMediaViewerWindow = async (
   input: Omit<MediaViewerWindowDescriptor, "id">,
   onDownload: (fileId: number, fileName: string) => Promise<void>,
@@ -187,6 +216,22 @@ export const openMediaViewerWindow = async (
 ) => {
   const existing = activeSession;
   const active = input.messages.find(message => message.id === input.activeMessageId);
+  if (existing?.initialized && existing.parked && existing.descriptor.reusable && active?.content.mediaType === "photo") {
+    if (existing.idleTimer !== undefined) globalThis.clearTimeout(existing.idleTimer);
+    existing.idleTimer = undefined;
+    existing.parked = false;
+    existing.onClosed = onClosed;
+    existing.onDownload = onDownload;
+    existing.onSave = onSave;
+    existing.onCache = onCache;
+    existing.videoServices = videoServices;
+    existing.requestedFiles.clear();
+    existing.openedAt = Date.now();
+    existing.initialSelection = true;
+    existing.descriptor = prepareDescriptor(input, existing.id, (existing.descriptor.revision ?? 0) + 1);
+    existing.channel.postMessage({ type: "reopen", id: existing.id, descriptor: existing.descriptor } satisfies MediaViewerWindowMessage);
+    return existing.id;
+  }
   if (existing && active && existing.videoKey === `${active.chatId}:${active.id}`) {
     existing.onClosed = onClosed;
     existing.descriptor = { ...existing.descriptor, messages: input.messages, colorTheme: input.colorTheme };
@@ -198,10 +243,10 @@ export const openMediaViewerWindow = async (
   if (activeSession) disposeSession(activeSession, true);
 
   const id = createMediaViewerWindowId();
-  const descriptor: MediaViewerWindowDescriptor = { ...input, id };
+  const descriptor = prepareDescriptor(input, id);
   const channel = new BroadcastChannel(MEDIA_VIEWER_WINDOW_CHANNEL);
   const startedAt = performance.now();
-  const session: MediaViewerSession = { id, channel, descriptor, onClosed, onCache, videoServices, requestedFiles: new Map(), openedAt: Date.now(), initialSelection: true };
+  const session: MediaViewerSession = { id, channel, descriptor, onClosed, onCache, onDownload, onSave, videoServices, requestedFiles: new Map(), openedAt: Date.now(), initialSelection: true };
   activeSession = session;
   // Native destruction and browser handles cover exits where beforeunload or
   // the channel notification cannot run (including a crashed child WebView).
@@ -227,6 +272,20 @@ export const openMediaViewerWindow = async (
   channel.onmessage = (event: MessageEvent<MediaViewerWindowMessage>) => {
     const message = event.data;
     if (!message || message.id !== id || activeSession !== session) return;
+    if (message.type === "parked" && !session.parked && message.revision === session.descriptor.revision &&
+        session.initialized && session.descriptor.reusable && !session.videoKey) {
+      session.parked = true;
+      if (session.prefetchTimer !== undefined) globalThis.clearTimeout(session.prefetchTimer);
+      if (session.syncTimer !== undefined) globalThis.clearTimeout(session.syncTimer);
+      session.syncTimer = undefined;
+      session.descriptor = { ...session.descriptor, messages: [], preparedPreview: undefined };
+      session.idleTimer = globalThis.setTimeout(() => disposeSession(session, true), IDLE_VIEWER_TIMEOUT_MS);
+      const onClosed = session.onClosed;
+      session.onClosed = undefined;
+      onClosed?.();
+      return;
+    }
+    if (session.parked && message.type !== "closed") return;
     if (message.type === "ready") {
       channel.postMessage({
         type: "init",
@@ -268,7 +327,9 @@ export const openMediaViewerWindow = async (
       };
       // Resolve actions in their owning window and report failures back to the
       // viewer, where the user is waiting, rather than dropping rejections.
-      const action = Promise.resolve().then(() => message.type === "download" ? onDownload(message.fileId, message.fileName) : onSave(message.sourcePath, message.fileName));
+      const download = session.onDownload;
+      const save = session.onSave;
+      const action = Promise.resolve().then(() => message.type === "download" ? download(message.fileId, message.fileName) : save(message.sourcePath, message.fileName));
       void action.then(() => reply(false), () => reply(true));
     } else if (message.type === "closed") {
       disposeSession(session, false);
@@ -298,6 +359,7 @@ export const openMediaViewerWindow = async (
       initializationTimeout,
     ]);
     session.cancelInitialization = undefined;
+    session.initialized = true;
     if (session.initializationTimer !== undefined) {
       globalThis.clearTimeout(session.initializationTimer);
       session.initializationTimer = undefined;

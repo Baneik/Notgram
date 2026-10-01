@@ -2001,7 +2001,11 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .media-viewer-viewport.is-dragging { cursor: grabbing; }
 .media-viewer-surface { position: absolute; translate: -50% -50%; transform-origin: center; }
 .media-viewer-image { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
+.media-viewer-image-host { display: block; width: 100%; height: 100%; }
 .media-viewer-image[data-image-transition="enter"] { transition: none; }
+.media-viewer-window-page .media-viewer-backdrop,
+.media-viewer-window-page .media-viewer-backdrop > .media-viewer { animation: none; }
+.media-viewer-placeholder[data-image-transition="enter"] { transition: none; }
 .media-viewer-placeholder { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .media-viewer-image[data-image-pending="true"] { opacity: 0; }
 .media-viewer-empty { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: color-mix(in srgb, var(--color-on-media) 72%, transparent); text-align: center; font-size: 13px; }

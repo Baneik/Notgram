@@ -117,6 +117,7 @@ pub fn run() {
             settings_window::notgram_open_settings_window,
             media_viewer_window::notgram_close_media_viewer_window,
             media_viewer_window::notgram_open_media_viewer_window,
+            media_viewer_window::notgram_show_media_viewer_window,
             video_window::notgram_close_video_window,
             video_window::notgram_open_video_window,
             telegram::telegram_runtime_status,

@@ -16,6 +16,8 @@ async function openFixture(page: Page, previewOnly = false, options: {
   onRequest?: (path: string) => void;
   originalSize?: { width: number; height: number };
   detailPattern?: boolean;
+  native?: boolean;
+  preparedPreview?: boolean;
 } = {}) {
   await page.route("**/viewer-fixture.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Viewer fixture</title>" }));
   await page.goto("/viewer-fixture.html");
@@ -60,7 +62,28 @@ async function openFixture(page: Page, previewOnly = false, options: {
       caption: index === 6 ? "Viewer caption" : `Caption ${index}` },
   }));
   const descriptor: MediaViewerWindowDescriptor = { id: "fixture", messages, activeMessageId: "photo-6", colorTheme: "dark" };
-  await page.addInitScript(descriptor => {
+  // Blob values must be structured-cloned through the actual channel, not JSON init arguments.
+  const previewBase64 = options.preparedPreview ? images.original : undefined;
+  if (options.native) { descriptor.reusable = true; descriptor.revision = 0; }
+  await page.addInitScript(({ native, previewBase64 }) => {
+    if (native) Object.assign(window, { isTauri: true, viewerNativeCalls: [] as Array<{ command: string; ready: boolean }>, __TAURI_INTERNALS__: {
+      metadata: { currentWindow: { label: "media-viewer-fixture" }, currentWebview: { label: "media-viewer-fixture" } },
+      convertFileSrc: (path: string) => path,
+      transformCallback: () => 1,
+      unregisterCallback: () => undefined,
+      invoke: async (command: string) => {
+        (window as unknown as { viewerNativeCalls: Array<{ command: string; ready: boolean }> }).viewerNativeCalls.push({ command,
+          ready: Boolean(document.querySelector('.media-viewer-surface img[data-image-state="ready"]')) });
+        return 1;
+      },
+    } });
+    (window as unknown as { viewerPreparedBase64?: string }).viewerPreparedBase64 = previewBase64;
+  }, { native: options.native, previewBase64 });
+  await page.addInitScript(input => {
+    const descriptor = input as unknown as MediaViewerWindowDescriptor;
+    const base64 = (window as unknown as { viewerPreparedBase64?: string }).viewerPreparedBase64;
+    if (base64) descriptor.preparedPreview = { sourcePath: descriptor.messages[6]!.content.localPath!,
+      blob: new Blob([Uint8Array.from(atob(base64), character => character.charCodeAt(0))], { type: "image/jpeg" }) };
     const channel = new BroadcastChannel("notgram-media-viewer-window-v1");
     const fixture = { descriptor, channel, events: [] as MediaViewerWindowMessage[], failActions: false };
     (window as unknown as FixtureWindow).viewerFixture = fixture;
@@ -95,6 +118,99 @@ test("a local original loads without waiting for a stalled thumbnail in a fresh 
     release();
     await opened;
   }
+});
+
+test("returning to a decoded original reuses its node without a request or decode", async ({ page }) => {
+  const { requests } = await openFixture(page);
+  await page.evaluate(() => {
+    const image = document.querySelector<HTMLImageElement>('.media-viewer-image[data-image-state="ready"]')!;
+    Object.assign(window, { firstViewerImage: image, repeatDecodeCount: 0 });
+    const decode = image.decode.bind(image);
+    image.decode = () => { (window as unknown as { repeatDecodeCount: number }).repeatDecodeCount++; return decode(); };
+  });
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator('.media-viewer-image[src="/viewer-image/original-7.jpg"][data-image-state="ready"]')).toHaveCount(1);
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator('.media-viewer-image[src="/viewer-image/original-6.jpg"][data-image-state="ready"]')).toHaveCount(1);
+  expect(await page.evaluate(() => {
+    const state = window as unknown as { firstViewerImage: HTMLImageElement; repeatDecodeCount: number };
+    return { same: document.querySelector('.media-viewer-image[data-image-state="ready"]') === state.firstViewerImage, decodes: state.repeatDecodeCount };
+  })).toEqual({ same: true, decodes: 0 });
+  expect(requests.filter(path => path === "/viewer-image/original-6.jpg")).toHaveLength(1);
+});
+
+test("a predecoded neighbor mounts without repeating its request or losing a frame", async ({ page }) => {
+  const { requests } = await openFixture(page);
+  await expect.poll(() => requests.includes("/viewer-image/original-7.jpg")).toBe(true);
+  await page.evaluate(async () => {
+    const module = await import("/src/media/viewerImages.ts" as string) as typeof import("../../src/media/viewerImages");
+    const retained = module.retainViewerImage("/viewer-image/original-7.jpg");
+    const image = await retained.promise;
+    Object.assign(window, { predecodedNeighbor: image });
+    retained.release();
+  });
+  const result = await page.evaluate(async () => {
+    const viewport = document.querySelector(".media-viewer-viewport")!;
+    viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 1 }));
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const image = document.querySelector<HTMLImageElement>('.media-viewer-image[data-image-state="ready"]');
+    return { same: image === (window as unknown as { predecodedNeighbor: HTMLImageElement }).predecodedNeighbor,
+      source: image?.getAttribute("src"), opacity: image ? getComputedStyle(image).opacity : undefined };
+  });
+  expect(result).toEqual({ same: true, source: "/viewer-image/original-7.jpg", opacity: "1" });
+  expect(requests.filter(path => path === "/viewer-image/original-7.jpg")).toHaveLength(1);
+});
+
+test("a prepared clear preview is visible while the original loads and has no entrance fade", async ({ page }) => {
+  let release!: () => void;
+  const originalGate = new Promise<void>(resolve => { release = resolve; });
+  const opened = openFixture(page, false, { originalGate, preparedPreview: true });
+  void opened.catch(() => undefined);
+  try {
+    const placeholder = page.locator('.media-viewer-placeholder[data-image-state="ready"]');
+    await expect(placeholder).toHaveCount(1);
+    expect(await placeholder.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(3200);
+    await expect(placeholder).toHaveCSS("opacity", "1");
+    await expect(placeholder).toHaveCSS("transition-duration", "0s");
+    await expect(page.locator(".media-viewer-backdrop")).toHaveCSS("animation-name", "none");
+    await expect(page.locator(".media-viewer")).toHaveCSS("animation-name", "none");
+  } finally { release(); await opened; }
+});
+
+test("native photo close parks the window and reopens the same pixels before showing", async ({ page }) => {
+  const { requests } = await openFixture(page, false, { native: true });
+  await page.evaluate(() => Object.assign(window, { parkedImage: document.querySelector('.media-viewer-image[data-image-state="ready"]') }));
+  await expect.poll(() => page.evaluate(() => (window as unknown as { viewerNativeCalls: Array<{ command: string }> })
+    .viewerNativeCalls.filter(call => call.command === "notgram_show_media_viewer_window").length)).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".media-viewer")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as unknown as FixtureWindow).viewerFixture.events.some(event => event.type === "parked"))).toBe(true);
+  await page.evaluate(() => {
+    const fixture = (window as unknown as FixtureWindow).viewerFixture;
+    fixture.channel.postMessage({ type: "reopen", id: "fixture", descriptor: { ...fixture.descriptor, revision: 1 } });
+  });
+  await expect(page.locator('.media-viewer-image[data-image-state="ready"]')).toHaveCount(1);
+  expect(await page.evaluate(() => document.querySelector('.media-viewer-image[data-image-state="ready"]') ===
+    (window as unknown as { parkedImage: HTMLImageElement }).parkedImage)).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { viewerNativeCalls: Array<{ command: string }> })
+    .viewerNativeCalls.filter(call => call.command === "notgram_show_media_viewer_window").length)).toBe(2);
+  const calls = await page.evaluate(() => (window as unknown as { viewerNativeCalls: Array<{ command: string; ready: boolean }> }).viewerNativeCalls);
+  expect(calls.filter(call => call.command === "notgram_show_media_viewer_window").every(call => call.ready)).toBe(true);
+  expect(calls.some(call => call.command === "plugin:window|close")).toBe(false);
+  expect(requests.filter(path => path === "/viewer-image/original-6.jpg")).toHaveLength(1);
+});
+
+test("native viewer exposes controls even when both image sources stall", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const opened = openFixture(page, false, { native: true, originalGate: gate, thumbnailGate: gate });
+  void opened.catch(() => undefined);
+  try {
+    await expect(page.locator(".media-viewer-details")).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { viewerNativeCalls?: Array<{ command: string }> })
+      .viewerNativeCalls?.some(call => call.command === "notgram_show_media_viewer_window") ?? false)).toBe(true);
+    await expect(page.locator('.media-viewer-surface img[data-image-state="ready"]')).toHaveCount(0);
+  } finally { release(); await opened; }
 });
 
 test("neighbor originals wait until the current original is decoded", async ({ page }) => {

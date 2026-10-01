@@ -15,6 +15,14 @@ fn validate_window_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_owner(label: &str, id: &str) -> Result<(), String> {
+    validate_window_id(id)?;
+    if label != format!("media-viewer-{id}") {
+        return Err("media viewer window identity mismatch".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn notgram_open_media_viewer_window(
     app: AppHandle,
@@ -46,7 +54,7 @@ pub async fn notgram_open_media_viewer_window(
         .always_on_top(true)
         .skip_taskbar(true)
         .shadow(false)
-        .focused(true)
+        .focused(false)
         .visible(false)
         // Enter fullscreen during construction, before page-load callbacks can
         // show the HWND with its initial non-client caption style.
@@ -70,8 +78,6 @@ pub async fn notgram_open_media_viewer_window(
             let window = window.clone();
             let _ = window.clone().run_on_main_thread(move || {
                 remove_native_frame(&window);
-                let _ = window.show();
-                let _ = window.set_focus();
             });
         })
         .build()
@@ -82,6 +88,23 @@ pub async fn notgram_open_media_viewer_window(
             let _ = app.emit_to("main", "notgram:media-viewer-closed", &id);
         }
     });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn notgram_show_media_viewer_window(
+    window: tauri::WebviewWindow,
+    id: String,
+    windowed: bool,
+) -> Result<(), String> {
+    // Only the owning child may reveal its prepared frame, never another window.
+    validate_owner(window.label(), &id)?;
+    remove_native_frame(&window);
+    window
+        .set_fullscreen(!windowed)
+        .map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -131,7 +154,7 @@ pub async fn notgram_close_media_viewer_window(app: AppHandle, id: String) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::validate_window_id;
+    use super::{validate_owner, validate_window_id};
 
     #[test]
     fn accepts_ephemeral_alphanumeric_window_ids() {
@@ -142,5 +165,13 @@ mod tests {
     fn rejects_window_ids_that_can_escape_the_label_or_url() {
         assert!(validate_window_id("../main").is_err());
         assert!(validate_window_id("").is_err());
+    }
+
+    #[test]
+    fn only_the_owning_viewer_can_reveal_its_window() {
+        assert!(validate_owner("media-viewer-photo123", "photo123").is_ok());
+        assert!(validate_owner("main", "photo123").is_err());
+        assert!(validate_owner("media-viewer-other", "photo123").is_err());
+        assert!(validate_owner("media-viewer-../main", "../main").is_err());
     }
 }
