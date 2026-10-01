@@ -3,6 +3,7 @@ import {
   captureActiveConversationScrollState,
   isMessageFullyVisible,
   matchesVirtualMessageLayout,
+  matchesMeasuredMessages,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
   commitConversationVirtualIndex,
@@ -22,6 +23,15 @@ describe("conversation reentry checkpoints", () => {
     anchorMessageId: "a", anchorOffset: -12, anchorSentAt: messages[0].sentAt,
     nearbyAnchors: [{ messageId: "a", offset: -12 }, { messageId: "b", offset: 68 }],
   };
+
+  it("rejects cached heights when a message changes without changing its virtual position", () => {
+    const measured = messages.map(message => new WeakRef(message));
+    expect(matchesMeasuredMessages(measured, [...messages])).toBe(true);
+    expect(matchesMeasuredMessages(undefined, messages)).toBe(false);
+    expect(matchesMeasuredMessages(measured, messages.slice(1))).toBe(false);
+    expect(matchesMeasuredMessages(measured, messages.map((message, index) => index === 1 ? { ...message } : message))).toBe(false);
+    expect(matchesMeasuredMessages(measured, [...messages].reverse())).toBe(false);
+  });
 
   it("distinguishes the old bottom from a tail extended while away", () => {
     expect(restoreConversationBottom(memory, messages.slice(0, 3))).toBe(true);

@@ -10,7 +10,7 @@ import { DiscussionErrorBoundary } from "./DiscussionErrorBoundary";
 import { canPostToChannel } from "../telegram/chatManagement";
 import { MessageMetadata } from "./MessageMetadata";
 import { MessageReactions } from "./MessageReactions";
-import { MessageTextFlow } from "./MessageTextFlow";
+import { MessageTextFlow, MessageTextLayoutContext, flushMessageTextMeasurements } from "./MessageTextFlow";
 import { translate } from "../i18n";
 import { useShallow } from "zustand/react/shallow";
 import type { ComposerInputElement } from "./ComposerInput";
@@ -208,8 +208,10 @@ const measureMessageItem: SizeFunction = (element, field) => {
 
 const VirtualMessageListContent = forwardRef<HTMLDivElement, ListProps & { context?: MessageListContext }>(
   ({ context, ...props }, ref) => {
-    useLayoutEffect(() => { context?.onLayoutCommitted(); });
-    return <div {...props} className="message-list-content" ref={ref} />;
+    useLayoutEffect(() => { flushMessageTextMeasurements(); context?.onLayoutCommitted(); });
+    return <MessageTextLayoutContext value={context?.onLayoutCommitted}>
+      <div {...props} className="message-list-content" ref={ref} />
+    </MessageTextLayoutContext>;
   },
 );
 VirtualMessageListContent.displayName = "VirtualMessageListContent";
@@ -2278,7 +2280,7 @@ export function Conversation({
     setPinnedReturnRestoreId((current) => current + 1);
   };
 
-  const openMessageInHistory = (chatId: string, messageId: string) => {
+  const openMessageInHistory = useCallback((chatId: string, messageId: string) => {
     if (pinnedViewOpen) {
       pinnedReturnAnchorRef.current = undefined;
       closePinnedView();
@@ -2286,7 +2288,7 @@ export function Conversation({
     rememberJumpOrigin(messageId);
     onOpenMessage(chatId, messageId);
     focusComposer();
-  };
+  }, [closePinnedView, focusComposer, onOpenMessage, pinnedViewOpen, rememberJumpOrigin]);
 
   const confirmPin = async (disableNotification: boolean, onlyForSelf: boolean) => {
     if (!pinTarget || pinPending) return;
@@ -2778,7 +2780,7 @@ export function Conversation({
                         showChannelMetadata={displaysChannelMetadata(message)}
                         channelPost={isChannelPost}
                         channelDiscussionAction={albumItem ? undefined : renderDiscussionAction(message)}
-                        serviceMembers={servicePersonIds(message.content).map((userId) => {
+                        serviceMembers={message.content.kind === "service" ? servicePersonIds(message.content).map((userId) => {
                           const blockedMember = localBlockedUsersById.get(userId);
                           return {
                             id: userId,
@@ -2786,7 +2788,7 @@ export function Conversation({
                               (userId.startsWith("chat:") ? forwardTargetsById.get(userId.slice(5))?.title : undefined) ?? translate("Telegram 用户"),
                             profileAvailable: !blockedMember && (users.has(userId) || (userId.startsWith("chat:") && forwardTargetsById.has(userId.slice(5)))),
                           };
-                        })}
+                        }) : undefined}
                         serviceTargetSummary={serviceTargetSummary(message, messagesById, localBlockedUsersById)}
                         groupPosition={positions.get(message.id) ?? "single"}
                         replyPreview={replyPreviewForMessage(message)}
@@ -2878,6 +2880,8 @@ export function Conversation({
                     const albumCaption = captionMessage && !captionConcealed ? (
                       <MessageTextFlow
                         className="media-album-caption"
+                        layoutSource={captionMessage.content}
+                        layoutVersion={`${albumMetadataMessage.sentAt}:${albumMetadataMessage.editedAt}:${albumMetadataMessage.delivery}:${hasAlbumReactionFooter}`}
                         data-caption-message-id={captionMessage.id}
                         tabIndex={0}
                         onContextMenu={(event) => {

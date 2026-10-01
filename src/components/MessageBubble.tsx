@@ -251,8 +251,8 @@ function MessageBubbleComponent({
     height: number;
   }>();
 
-  const [metaWrapped, setMetaWrapped] = useState(false);
   const content = message.content;
+  const textLayoutVersion = `${message.sentAt}:${message.editedAt}:${message.delivery}:${message.isPinned}:${message.outgoing}:${message.isPending}:${searchQuery}`;
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const collapseQuote = useCallback(
     (
@@ -679,7 +679,7 @@ function MessageBubbleComponent({
   );
 
   const visualCaption = content.kind === "media" && hasCaption && content.caption ? (
-    <MessageTextFlow className="photo-caption-flow" forceWrapped={channelPost}>
+    <MessageTextFlow className="photo-caption-flow" forceWrapped={channelPost} layoutSource={content} layoutVersion={textLayoutVersion}>
       <MessageRichText
         chatId={message.chatId}
         className="photo-caption"
@@ -750,7 +750,7 @@ function MessageBubbleComponent({
           void onOpenActions(message, left, bounds.top, event.currentTarget, undefined, true);
         }}
       >
-        <div className={`message-bubble ${isService ? "conversation-notice" : ""} ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${content.kind === "text" && metaWrapped ? "has-wrapped-meta" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
+        <div className={`message-bubble ${isService ? "conversation-notice" : ""} ${isVisual ? "is-photo" : ""} ${channelPost ? "is-channel-post-bubble" : ""} ${replyPreview ? "has-reply" : ""} ${content.kind === "media" ? `media-bubble-${content.mediaType}` : ""} ${hasCaption ? "has-caption" : ""} ${content.kind === "text" || content.kind === "rich" ? "is-textual" : ""} ${showReactionFooter ? "has-reactions" : ""}`}>
           {!albumItem && !isService && forwardLabel && (
             onOpenForwardSource ? (
               <button
@@ -808,7 +808,8 @@ function MessageBubbleComponent({
             <MessageTextFlow
               largeEmoji={isLargeEmojiText(content.text)}
               forceWrapped={channelPost}
-              onWrapChange={setMetaWrapped}
+              layoutSource={content}
+              layoutVersion={textLayoutVersion}
             >
               <MessageRichText
                 chatId={message.chatId}

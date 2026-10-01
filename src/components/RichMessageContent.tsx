@@ -101,7 +101,7 @@ const RichMathExpression = lazy(() => import("./RichMathExpression"));
 const MathExpression = ({ expression, displayMode }: { expression: string; displayMode: boolean }) => {
   const className = displayMode ? "rich-math-block" : "rich-math-inline";
   return (
-    <Suspense fallback={<span className={className} data-expression={expression}>{expression}</span>}>
+    <Suspense fallback={<span className={className} data-expression={expression} data-message-layout-pending>{expression}</span>}>
       <RichMathExpression expression={expression} displayMode={displayMode} />
     </Suspense>
   );

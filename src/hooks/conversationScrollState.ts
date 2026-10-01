@@ -108,6 +108,7 @@ export const conversationVirtuosoSnapshots = new Map<string, {
   messageItemIndexes?: ReadonlyMap<string, number>;
   viewportWidth?: number;
   geometryKey?: string;
+  messages?: readonly WeakRef<Message>[];
 }>();
 export const conversationLayouts = new Map<string, {
   firstMessageId?: string;
@@ -129,6 +130,11 @@ export const matchesVirtualMessageLayout = (
   }
   return true;
 };
+
+/** Position/partition equality cannot validate heights after an edit, reaction,
+ * or file update received while the conversation was unmounted. */
+export const matchesMeasuredMessages = (previous: readonly WeakRef<Message>[] | undefined, current: readonly Message[]) =>
+  Boolean(previous && previous.length === current.length && previous.every((message, index) => message.deref() === current[index]));
 
 export const conversationGeometryKey = (preferences: Pick<AppPreferences,
   "chatFontSize" | "interfaceScale" | "messageGroupSpacing" | "messageRowSpacing" | "messageBubblePadding" | "quoteCollapseLines"

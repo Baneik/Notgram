@@ -23,6 +23,7 @@
     "test:e2e:regression": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1 -Suite regression",
     "test:e2e:visual": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1 -Suite visual",
     "test:e2e:performance": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-e2e.ps1 -Suite performance",
+    "test:performance:switch": "node scripts/test-session-switch-performance.mjs",
     "test:e2e:types": "tsc -p tsconfig.e2e.json",
     "test:native-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native-smoke.ps1",
     "tdlib:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-tdlib.ps1",
@@ -53,6 +54,7 @@
     "react-markdown": "^10.1.0",
     "react-virtuoso": "^4.18.11",
     "remark-gfm": "^4.0.1",
+    "unified": "^11.0.5",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

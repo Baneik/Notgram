@@ -182,6 +182,28 @@ This rule applies to text, photo captions, album captions, and discussion messag
 including readers detached just above the bottom. Never compensate for a probing
 mutation by adding another scroll writer.
 
+Text metadata measurements share a phased queue: collect live geometry, insert all
+necessary probes, read all line rectangles, remove all probes, then publish results.
+The virtual list flushes that queue once after its children commit; resize notifications
+are deduplicated by flow. Do not reintroduce per-message synchronous measurement or
+parent state updates to mirror a child's wrapped class. Bubble padding follows that
+class through CSS. Text layout results belong to immutable content through a WeakMap,
+with at most eight geometry/metadata variants. Validate the actual width, typography,
+text/metadata DOM and quote state before reusing a result. Quote line measurements and
+Markdown parser output also survive remounts in bounded caches (256 sources/512,000
+source characters, up to eight quote variants); source caches clear on account changes.
+Parser trees are copied before downstream plugins may mutate them. Cached values must
+never retain live DOM, event callbacks, selection state or media side effects.
+Resize delivery drains after the shared observer batch in the same frame. Explicit
+quote expansion/collapse drains the affected row before the viewport owner computes
+its anchor. A child layout commit informs that owner without mirroring child state
+in the bubble or rerendering the conversation.
+
+Cold positioning waits for mounted rich-text/math fallbacks and loading fonts to
+resolve before final settlement, for at most one second. A fallback's initial height
+does not establish visual readiness. Superseding selection and user input continue
+to cancel positioning through its existing generation owner.
+
 Middle-button autoscroll outlives pointerup and the short wheel/key input timeout. Both row observers
 and total-height callbacks must yield detached anchoring for its entire lifetime, until explicit input
 or window blur ends it.
@@ -332,9 +354,22 @@ keys must use the same stable partition identity, and album identity must not de
 first loaded member.
 
 Virtuoso measurements are reusable only when the ordered message-to-partition mapping,
-viewport width and geometry-affecting preferences still match. Equal first/last message IDs
-and row counts are insufficient. On a mismatch, retain the semantic reading anchor and let
-the destination measure its actual layout.
+message object versions, viewport width, language and geometry-affecting preferences still
+match. Equal first/last message IDs and row counts are insufficient. A stable conversation
+surface supplies width before the destination scroller mounts. Capture message versions
+as weak references so size snapshots do not retain evicted history; keep at most 32 size
+snapshots. Eviction does not remove semantic reading memory. On a mismatch, retain the
+reading anchor and let the destination measure its actual layout.
+
+`npm run test:performance:switch` builds an isolated production React/Mock benchmark
+under ignored artifacts and performs 30 warm switches at 250ms intervals while editing.
+Require zero long tasks, frame interval P95 below 22ms and maximum below 40ms,
+synchronous click P95 below 16.7ms, editor processing P95 below 8ms, and first-frame
+editor response P95 below 40ms. Unchanged warm text performs no line-rectangle reads.
+Development runs enforce cache and behavior correctness; JSX development checks
+make their timings unsuitable as production acceptance. These Chromium gates
+do not prove native WebView2 or 240Hz acceptance; compare native builds against the
+same account/history and retain separate blocking, positioning and visual release metrics.
 
 Positioning feedback belongs to the viewport transaction. It may appear after a delay, but
 must unmount in the same commit that publishes a positioned view. It has no independent

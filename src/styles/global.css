@@ -676,6 +676,9 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .sidebar-resizer:hover::after, .sidebar-resizer:focus-visible::after, .chat-sidebar.is-resizing .sidebar-resizer::after { background: var(--accent); }
 html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !important; user-select: none !important; }
 
+.conversation-surface { position: relative; grid-column: 3; min-width: 0; min-height: 0; display: grid; }
+.conversation-scrollbar-probe { position: absolute; width: 100px; height: 0; overflow-y: scroll; visibility: hidden; contain: strict; pointer-events: none; }
+.conversation-surface > .conversation { grid-column: 1; grid-row: 1; }
 .conversation {
   position: relative; grid-column: 3; min-width: 0; height: 100%; min-height: 0; display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto; background: var(--chat-canvas); background-image: var(--color-surface-texture);
@@ -977,9 +980,10 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   position: relative; z-index: 1;
   height: 100%; min-height: 0; padding: 0 var(--message-list-inline-padding);
   overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none;
-  scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent;
+  scrollbar-color: transparent transparent;
 }
-.message-list::-webkit-scrollbar { width: 8px; height: 0; }
+.message-list, .conversation-scrollbar-probe { scrollbar-gutter: stable; scrollbar-width: thin; }
+.message-list::-webkit-scrollbar, .conversation-scrollbar-probe::-webkit-scrollbar { width: 8px; height: 0; }
 .message-list::-webkit-scrollbar-track { background: transparent; }
 .message-list::-webkit-scrollbar-thumb {
   min-height: 36px; background-color: transparent; background-clip: content-box;
@@ -1467,7 +1471,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-text-flow.is-large-emoji:not(.is-meta-wrapped) > .message-rich-text + .message-meta {
   margin: 0 0 2px; float: none; align-items: flex-end; transform: none;
 }
-.message-bubble.is-textual.has-wrapped-meta {
+.message-bubble.is-textual:has(> .message-text-flow.is-meta-wrapped) {
   padding-bottom: max(0px, calc(var(--message-bubble-padding-y) - 6px));
 }
 .message-bubble.is-textual, .message-bubble.is-textual .message-rich-text { cursor: text; }
@@ -3549,7 +3553,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
   .sticker-set-list > button > .emoji-asset-visual { inset: 3px; }
   .sticker-set-footer .dialog-primary { width: 100%; }
   .rail-button { width: min(72px, 18vw); min-height: 54px; flex: 0 0 auto; }
-  .chat-sidebar, .conversation, .forum-topics-view {
+  .chat-sidebar, .conversation, .forum-topics-view, .conversation-surface {
     grid-column: 1;
     grid-row: 1;
     min-width: 0;
@@ -3566,7 +3570,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     transition: opacity var(--motion-duration-standard) var(--motion-ease-standard), transform var(--motion-duration-standard) var(--motion-ease-standard);
   }
   .sidebar-resizer { display: none; }
-  .conversation, .forum-topics-view {
+  .conversation, .forum-topics-view, .conversation-surface {
     display: grid;
     opacity: 0;
     transform: translateY(var(--motion-distance-standard));
@@ -3580,11 +3584,12 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
     pointer-events: none;
   }
   .mobile-chat-open { grid-template-rows: minmax(0, 1fr); }
-  .mobile-chat-open .conversation, .mobile-chat-open .forum-topics-view {
+  .mobile-chat-open .conversation, .mobile-chat-open .forum-topics-view, .mobile-chat-open .conversation-surface {
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
   }
+  .conversation-surface > .conversation { opacity: 1; transform: none; transition: none; pointer-events: inherit; }
   .app-shell:not(.mobile-chat-open) .chat-sidebar {
     pointer-events: auto;
   }

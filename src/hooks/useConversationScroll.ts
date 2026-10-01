@@ -12,7 +12,9 @@ import {
 import { flushSync } from "react-dom";
 import type { IndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../telegram/types";
-import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
+import { useConversationGeometry } from "../components/ConversationSurface";
+import { remeasureMessageText } from "../components/MessageTextFlow";
+import { usePreferencesStore } from "../store/preferencesStore";
 import { motionScrollBehavior } from "../utils/motionPreference";
 import { captureMessageRemoval } from "../utils/messageRemovalMotion";
 import { observeConversationRowSizes } from "../utils/conversationRowSizes";
@@ -44,6 +46,7 @@ import {
   distanceFromBottom,
   isMessageFullyVisible,
   matchesVirtualMessageLayout,
+  matchesMeasuredMessages,
   registerConversationScrollStateCapture,
   resolveConversationVirtualIndex,
   commitConversationVirtualIndex,
@@ -247,6 +250,10 @@ export const useConversationScroll = ({
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
   const geometryKey = usePreferencesStore(conversationGeometryKey);
+  const viewportGeometry = useConversationGeometry();
+  const measuredGeometryKey = viewportGeometry.key || geometryKey;
+  const measuredGeometryKeyRef = useRef(measuredGeometryKey);
+  measuredGeometryKeyRef.current = measuredGeometryKey;
   const messageListRef = useRef<HTMLDivElement>(null);
   const virtuosoKeyRef = useRef("");
   const [messageListElement, setMessageListElement] = useState<HTMLDivElement | null>(null);
@@ -565,8 +572,9 @@ export const useConversationScroll = ({
       storedSnapshot.firstMessageId === firstVisibleMessageId &&
       storedSnapshot.lastMessageId === lastVisibleMessageId &&
       storedSnapshot.virtualItemCount === virtualItemCount &&
-      storedSnapshot.viewportWidth === messageListRef.current?.clientWidth &&
-      storedSnapshot.geometryKey === geometryKey &&
+      storedSnapshot.viewportWidth === (messageListRef.current?.clientWidth ?? viewportGeometry.width) &&
+      storedSnapshot.geometryKey === measuredGeometryKey &&
+      matchesMeasuredMessages(storedSnapshot.messages, visibleMessages) &&
       matchesVirtualMessageLayout(storedSnapshot.messageItemIndexes, messageItemIndexes)
     ? storedSnapshot.state
     : undefined;
@@ -1734,6 +1742,7 @@ export const useConversationScroll = ({
       publishPositionedIdentity(identity);
     };
     let attempts = 0;
+    const contentReadyDeadline = performance.now() + 1_000;
     const finishWhenRendered = () => {
       attempts += 1;
       positioningFrameRef.current = requestAnimationFrame(() => {
@@ -1755,6 +1764,16 @@ export const useConversationScroll = ({
           messageListRef.current?.querySelector("[data-message-id]"),
         );
         if (!hasRenderedContent && attempts < 12) {
+          finishWhenRendered();
+          return;
+        }
+        // Lazy rich text/math and their fonts can resolve after row heights
+        // first appear stable. Finish cold positioning against real content,
+        // rather than publishing a fallback's geometry as the settled viewport.
+        if (performance.now() < contentReadyDeadline && (
+          messageListRef.current?.querySelector("[data-message-layout-pending], .message-rich-text.is-loading") ||
+          document.fonts.status === "loading"
+        )) {
           finishWhenRendered();
           return;
         }
@@ -2329,6 +2348,7 @@ export const useConversationScroll = ({
     // as measured space; scrollTop cannot preserve a position above zero.
     element.style.setProperty("--conversation-entry-start-space", `${leadingSpace}px`);
     flushSync(expand);
+    flushSync(() => remeasureMessageText(row));
     restoreAnchor(element, messageId, offset);
   }, [currentScrollKey, interruptControlledPositioning, restoreAnchor,
     settleContentAnchorPosition, virtuosoKey, writeMemory]);
@@ -2355,6 +2375,8 @@ export const useConversationScroll = ({
       conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
     persist();
     flushSync(collapse);
+    const resizedRow = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (resizedRow) flushSync(() => remeasureMessageText(resizedRow));
     const anchor = getCollapsedAnchor();
     const row = anchor?.closest<HTMLElement>("[data-message-id]") ??
       element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
@@ -2694,9 +2716,11 @@ export const useConversationScroll = ({
       };
       conversationScrollMemory.set(key, memory);
       const viewportWidth = element.clientWidth;
-      const capturedGeometryKey = conversationGeometryKey(preferencesStore.getState());
+      const capturedGeometryKey = measuredGeometryKeyRef.current;
+      const capturedMessages = visibleMessagesRef.current.map(message => new WeakRef(message));
       handle?.getState((state) => {
         if (conversationScrollMemory.get(key) !== memory) return;
+        conversationVirtuosoSnapshots.delete(key);
         conversationVirtuosoSnapshots.set(key, {
           state,
           firstMessageId: layout?.firstMessageId,
@@ -2705,7 +2729,13 @@ export const useConversationScroll = ({
           messageItemIndexes: layout?.messageItemIndexes,
           viewportWidth,
           geometryKey: capturedGeometryKey,
+          messages: capturedMessages,
         });
+        // Eviction only drops an acceleration cache; durable reading memory
+        // remains independent and is restored through the ordinary anchor path.
+        if (conversationVirtuosoSnapshots.size > 32) {
+          conversationVirtuosoSnapshots.delete(conversationVirtuosoSnapshots.keys().next().value!);
+        }
       });
     };
     const unregisterCapture = registerConversationScrollStateCapture(captureScrollState);

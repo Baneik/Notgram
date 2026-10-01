@@ -7,6 +7,14 @@ import type { Components } from "react-markdown";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightTextNodes } from "../utils/textHighlight";
 import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
+import { createMarkdownParseCache } from "../utils/markdownParseCache";
+import { telegramStore } from "../store/telegramStore";
+
+const markdownCache = createMarkdownParseCache();
+const remarkPlugins = [remarkGfm, markdownCache.plugin];
+telegramStore.subscribe((state, previous) => {
+  if (state.activeAccountId !== previous.activeAccountId) markdownCache.clear();
+});
 
 interface MarkdownTextProps {
   text: string;
@@ -36,8 +44,11 @@ function MarkdownText({ text, className, highlightQuery, onCollapseQuote, onExpa
     h6: ({ children }) => <h6>{highlight(children)}</h6>,
     li: ({ children }) => <li>{highlight(children)}</li>,
     // Ignore parser separators between blocks; pre-wrap would turn them into empty preview lines.
-    blockquote: ({ children }) => (
-      <CollapsibleBlockQuote as="blockquote" resetKey={text} onCollapse={onCollapseQuote} onExpand={onExpandQuote}>
+    blockquote: ({ children, node }) => (
+      <CollapsibleBlockQuote as="blockquote" resetKey={text}
+        layoutSource={node?.position?.start.offset !== undefined && node.position.end.offset !== undefined
+          ? text.slice(node.position.start.offset, node.position.end.offset) : undefined}
+        onCollapse={onCollapseQuote} onExpand={onExpandQuote}>
         {highlight(Children.toArray(children).filter((child) => typeof child !== "string" || child.trim()))}
       </CollapsibleBlockQuote>
     ),
@@ -48,7 +59,7 @@ function MarkdownText({ text, className, highlightQuery, onCollapseQuote, onExpa
   return (
     <div className={`message-rich-text ${className}`} data-rich-text="markdown">
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={remarkPlugins}
         skipHtml
         urlTransform={(url) => safeHref(url) ?? ""}
         components={components}

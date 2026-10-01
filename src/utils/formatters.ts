@@ -1,27 +1,64 @@
 import { currentLanguage, translate } from "../i18n";
+
+type DateFormat = "chatTime" | "chatDay" | "messageTime" | "messageDay" | "messageYear";
+const dateFormats: Record<DateFormat, Intl.DateTimeFormatOptions> = {
+  chatTime: { hour: "2-digit", minute: "2-digit", hour12: false },
+  chatDay: { month: "numeric", day: "numeric" },
+  messageTime: { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false },
+  messageDay: { month: "long", day: "numeric" },
+  messageYear: { year: "numeric", month: "long", day: "numeric" },
+};
+let formattingContext = "";
+let timeZone = "";
+let timeZoneCheckedAt = -Infinity;
+const formatters = new Map<DateFormat, Intl.DateTimeFormat>();
+const messageTimes = new Map<string, string>();
+
+const dateFormatter = (format: DateFormat) => {
+  const now = Date.now();
+  // A running desktop app must also notice an OS timezone change. Resolve it
+  // once per minute rather than creating an Intl instance for every message.
+  if (now < timeZoneCheckedAt || now - timeZoneCheckedAt >= 60_000) {
+    timeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    timeZoneCheckedAt = now;
+  }
+  const language = currentLanguage();
+  const context = `${language}:${timeZone}`;
+  if (context !== formattingContext) {
+    formattingContext = context;
+    formatters.clear();
+    messageTimes.clear();
+  }
+  let formatter = formatters.get(format);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(language, { ...dateFormats[format], timeZone });
+    formatters.set(format, formatter);
+  }
+  return formatter;
+};
+
 export const formatChatTime = (isoDate: string) => {
   const date = new Date(isoDate);
   const today = new Date();
   if (date.toDateString() === today.toDateString()) {
-    return new Intl.DateTimeFormat(currentLanguage(), {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(date);
+    return dateFormatter("chatTime").format(date);
   }
-  return new Intl.DateTimeFormat(currentLanguage(), {
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
+  return dateFormatter("chatDay").format(date);
 };
 
-export const formatMessageTime = (isoDate: string) =>
-  new Intl.DateTimeFormat(currentLanguage(), {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date(isoDate));
+export const formatMessageTime = (isoDate: string) => {
+  const formatter = dateFormatter("messageTime");
+  const cached = messageTimes.get(isoDate);
+  if (cached !== undefined) {
+    messageTimes.delete(isoDate);
+    messageTimes.set(isoDate, cached);
+    return cached;
+  }
+  const result = formatter.format(new Date(isoDate));
+  messageTimes.set(isoDate, result);
+  if (messageTimes.size > 2_048) messageTimes.delete(messageTimes.keys().next().value!);
+  return result;
+};
 
 export const localDateKey = (isoDate: string) => {
   const date = new Date(isoDate);
@@ -40,11 +77,7 @@ export const formatMessageDay = (isoDate: string, now = new Date()) => {
   );
   if (dayDifference === 0) return translate("今天");
   if (dayDifference === 1) return translate("昨天");
-  return new Intl.DateTimeFormat(currentLanguage(), {
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(date);
+  return dateFormatter(date.getFullYear() === now.getFullYear() ? "messageDay" : "messageYear").format(date);
 };
 
 export const formatCompactCount = (value: number) => {

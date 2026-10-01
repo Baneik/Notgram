@@ -1,5 +1,7 @@
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import { useContext, useLayoutEffect } from "react";
+import { MessageTextLayoutContext } from "./MessageTextFlow";
 
 interface RichMathExpressionProps {
   expression: string;
@@ -7,6 +9,8 @@ interface RichMathExpressionProps {
 }
 
 function RichMathExpression({ expression, displayMode }: RichMathExpressionProps) {
+  const onLayoutCommitted = useContext(MessageTextLayoutContext);
+  useLayoutEffect(() => { onLayoutCommitted?.(); });
   return (
     <span
       className={displayMode ? "rich-math-block" : "rich-math-inline"}

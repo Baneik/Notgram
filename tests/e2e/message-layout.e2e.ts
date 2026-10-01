@@ -351,7 +351,7 @@ test("text message time releases reserved inline space when it wraps", async ({ 
     const group = element.closest<HTMLElement>(".message-group");
     if (group) group.style.width = "648px";
   });
-  await expect(longMessage.locator(".message-bubble")).toHaveClass(/has-wrapped-meta/);
+  await expect(longMessage.locator(".message-text-flow")).toHaveClass(/is-meta-wrapped/);
   await expect(longMessage.locator(".message-bubble")).toHaveCSS("padding-bottom", "0px");
   await expect(longMessage.locator(".message-meta")).toHaveCSS("float", "none");
   const releasedGeometry = await longMessage.locator(".message-bubble-shell").evaluate((shell) => {

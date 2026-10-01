@@ -3,6 +3,29 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { translate } from "../i18n";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { observeLayout } from "../utils/layoutObservation";
+import { useConversationGeometry } from "./ConversationSurface";
+import { telegramStore } from "../store/telegramStore";
+
+interface QuoteLayout { lineCount: number; collapsedHeight: number; fingerprint: string }
+const quoteLayouts = new Map<string, Map<string, QuoteLayout>>();
+let cachedCharacters = 0;
+const rememberQuoteLayout = (source: string, key: string, layout: QuoteLayout) => {
+  let variants = quoteLayouts.get(source);
+  if (!variants) { variants = new Map(); cachedCharacters += source.length; }
+  quoteLayouts.delete(source);
+  variants.delete(key);
+  variants.set(key, layout);
+  if (variants.size > 8) variants.delete(variants.keys().next().value!);
+  quoteLayouts.set(source, variants);
+  while (quoteLayouts.size > 256 || cachedCharacters > 512_000) {
+    const oldest = quoteLayouts.keys().next().value!;
+    cachedCharacters -= oldest.length;
+    quoteLayouts.delete(oldest);
+  }
+};
+telegramStore.subscribe((state, previous) => {
+  if (state.activeAccountId !== previous.activeAccountId) { quoteLayouts.clear(); cachedCharacters = 0; }
+});
 
 const COLLAPSED_QUOTE_LINES = 3.5;
 
@@ -16,6 +39,7 @@ export type CollapseQuoteHandler = (
 
 export function CollapsibleBlockQuote({
   quoteText,
+  layoutSource,
   resetKey,
   onExpand,
   onCollapse,
@@ -24,6 +48,7 @@ export function CollapsibleBlockQuote({
   className = "",
 }: {
   quoteText?: string;
+  layoutSource?: string;
   resetKey: string;
   onExpand?: ExpandQuoteHandler;
   onCollapse?: CollapseQuoteHandler;
@@ -35,8 +60,12 @@ export function CollapsibleBlockQuote({
   const contentRef = useRef<HTMLElement>(null);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
   const threshold = usePreferencesStore((state) => state.quoteCollapseLines);
-  const [lineCount, setLineCount] = useState(0);
-  const [collapsedHeight, setCollapsedHeight] = useState(0);
+  const geometry = useConversationGeometry();
+  const layoutContext = `${geometry.key}:${geometry.width}:${threshold}`;
+  const source = layoutSource ?? quoteText ?? resetKey;
+  const cachedLayout = quoteLayouts.get(source)?.get(layoutContext);
+  const [lineCount, setLineCount] = useState(cachedLayout?.lineCount ?? 0);
+  const [collapsedHeight, setCollapsedHeight] = useState(cachedLayout?.collapsedHeight ?? 0);
   const [expanded, setExpanded] = useState(false);
   const collapsible = lineCount > threshold;
   const collapsed = collapsible && !expanded;
@@ -54,6 +83,13 @@ export function CollapsibleBlockQuote({
       const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
         ? parsedLineHeight
         : Number.parseFloat(computed.fontSize) * 1.48;
+      const fingerprint = `${layoutContext}:${content.getBoundingClientRect().width}:${computed.font}:${computed.lineHeight}:${content.innerHTML}`;
+      const cached = quoteLayouts.get(source)?.get(layoutContext);
+      if (cached?.fingerprint === fingerprint) {
+        setLineCount(current => current === cached.lineCount ? current : cached.lineCount);
+        setCollapsedHeight(current => Math.abs(current - cached.collapsedHeight) < 0.25 ? current : cached.collapsedHeight);
+        return;
+      }
       const range = document.createRange();
       const lineTops: number[] = [];
       // Block rectangles (paragraphs, lists) are containers, not additional text lines.
@@ -72,13 +108,15 @@ export function CollapsibleBlockQuote({
       setLineCount((current) => current === nextLineCount ? current : nextLineCount);
       // A low threshold must still hide content when the quote is collapsed.
       const nextCollapsedHeight = lineHeight * Math.min(COLLAPSED_QUOTE_LINES, threshold);
+      const nextLayout = { lineCount: nextLineCount, collapsedHeight: nextCollapsedHeight, fingerprint };
+      rememberQuoteLayout(source, layoutContext, nextLayout);
       setCollapsedHeight((current) => Math.abs(current - nextCollapsedHeight) < 0.25
         ? current
         : nextCollapsedHeight);
     };
     measure();
     return observeLayout(content, measure);
-  }, [resetKey, threshold]);
+  }, [layoutContext, source]);
 
   const preview = quoteText?.replace(/\s+/g, " ").trim().slice(0, 120);
   return (

@@ -19,6 +19,7 @@ import {
 import { flushSync } from "react-dom";
 import { ChatSidebar } from "../components/ChatSidebar";
 import { Conversation } from "../components/Conversation";
+import { ConversationSurface } from "../components/ConversationSurface";
 import { rememberActiveComposerFocus } from "../hooks/useComposerFocus";
 import { ForumTopicsView } from "../components/ForumTopicsView";
 import { NavigationRail } from "../components/NavigationRail";
@@ -1839,6 +1840,17 @@ export function App() {
     [activeMessages, activeRemovingMessages],
   );
 
+  const openConversationMessage = useCallback((chatId: string, messageId: string, options?: Parameters<typeof openGlobalSearchMessage>[2]) => {
+    void openGlobalSearchMessage(chatId, messageId, { ...options, recordNavigation: true });
+  }, [openGlobalSearchMessage]);
+  const openConversationChat = useCallback((chatId: string) => {
+    void openGlobalSearchChat(chatId, true);
+  }, [openGlobalSearchChat]);
+  const openConversationSender = useCallback((senderId: string) => {
+    if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
+    else void loadUserProfile(senderId);
+  }, [loadChatProfile, loadUserProfile]);
+
   const preserveWorkspaceShell = accountSwitching && (
     authorization.kind === "preparing" || authorization.kind === "ready"
   );
@@ -1999,7 +2011,7 @@ export function App() {
             onSetTopicPinned={(topicId, pinned) => activeChatId ? setForumTopicPinned(activeChatId, topicId, pinned) : Promise.resolve(false)}
           />
         ) : (
-          <Profiler
+          <ConversationSurface><Profiler
             id="conversation"
             onRender={(_id, phase, actualDuration, baseDuration, startTime) => {
               if (!isPerformanceMonitoringEnabled()) return;
@@ -2101,23 +2113,13 @@ export function App() {
           onViewportReady={finishConversationSnapshot}
           mobileViewport={mobileViewport}
           mobileChatOpen={mobileChatOpen}
-          onOpenMessage={(chatId, messageId, options) => {
-            void openGlobalSearchMessage(chatId, messageId, {
-              ...options,
-              recordNavigation: true,
-            });
-          }}
+          onOpenMessage={openConversationMessage}
           onOpenMessageSearch={(senderId, chatId) => {
             const targetChatId = chatId ?? activeChatId;
             if (targetChatId) openChatSearch(targetChatId, senderId);
           }}
-          onOpenChat={(chatId) => {
-            void openGlobalSearchChat(chatId, true);
-          }}
-          onOpenSenderProfile={(senderId) => {
-            if (senderId.startsWith("chat:")) void loadChatProfile(senderId.slice("chat:".length));
-            else void loadUserProfile(senderId);
-          }}
+          onOpenChat={openConversationChat}
+          onOpenSenderProfile={openConversationSender}
           onOpenMention={openMentionProfile}
           onSearchHashtag={searchActiveChatHashtag}
           onOpenStickerSet={openStickerSetPreview}
@@ -2151,7 +2153,7 @@ export function App() {
           onCloseDiscussion={closeChannelDiscussion}
           onBack={closeMobileChat}
             />
-          </Profiler>
+          </Profiler></ConversationSurface>
         )}
       </main>
       {accountSwitching && (
