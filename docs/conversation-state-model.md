@@ -210,18 +210,33 @@ or window blur ends it.
 
 ### Virtual index origin and viewport anchors
 
-`firstItemIndex` is a size-cache origin, not a viewport anchor. Resolve it from the ordered stable
-virtual block IDs (including sponsored blocks), against the last committed render. Subtract the
-number of inserted blocks only when the entire old sequence is an unchanged suffix of the new one;
-add the number of removed blocks only for the inverse operation. Normal head pagination therefore
-retains the logical indexes of existing blocks.
+`firstItemIndex` is a size-cache origin, not a viewport anchor. The resolver computes prefix
+displacements from ordered stable virtual block IDs (including sponsored blocks), against the last
+committed render: subtract inserted blocks only when the entire old sequence is an unchanged suffix
+of the new one, and add removed blocks only for the inverse operation.
+
+Each reading prepend has one geometry owner. During continuous detached scrolling, use the resolved origin
+and let Virtuoso preserve motion. Its temporary content margin and deferred `scrollBy` form one
+pass; application layout, row-resize and total-height callbacks must yield until that margin clears.
+Do not cancel that ownership guard on wheel input or cover this pass with a static snapshot. Capture
+the final live reading position when it ends. An idle reader instead keeps the committed origin and
+uses the before-mutation application anchor, including grouping and late-content adjustments. A
+single input followed by a pause is idle: compare input sequence against the pagination request's
+checkpoint, which survives cancellation of its old anchor. Programmatic navigation and bottom following
+retain their existing positioning paths. Never run reading-anchor compensation alongside
+Virtuoso's prepend compensation. Cache origins and block sequences commit together; abandoned
+renders do not publish either.
+
+Upward intent requests the next history page within one viewport of the loaded boundary, with a
+64px minimum. Passive scroll/measurement events never arm requests. Finishing a request while the
+reader is still near the boundary does not itself start another visible-page load.
 
 Interior insertions/deletions, tail edits, group splits/merges, mixed changes and independent history
 window replacements keep the origin. Mounted rows remeasure at their current indexes. Stable block
 identity survives a member deletion or a pending-message ID confirmation, so neither counts as a
-removed block. Bottom and detached reading positions remain owned by the existing before-mutation
+removed block. Bottom and non-prefix detached changes remain owned by the existing before-mutation
 viewport capture and coordinator. Neither the tail message nor the preferred reading anchor may
-shift the global size cache. An abandoned render cannot commit a new origin or block sequence.
+shift the global size cache.
 
 `ui_conversation_viewport` provides numeric-only native evidence once per second while the current
 viewport is visible, and emits only when endpoint geometry or control state changes. It records the

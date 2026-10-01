@@ -89,7 +89,7 @@ const BOTTOM_PROXIMITY_PX = 32;
 // Only absorb rounding at that maximum; guarding the whole sentinel traps the
 // last message against (or underneath) the composer before its gap is visible.
 const BOTTOM_WHEEL_GUARD_PX = 1;
-const HISTORY_TRIGGER_PX = 64;
+const historyTriggerDistance = (element: HTMLElement) => Math.max(64, element.clientHeight);
 const BOTTOM_RECONCILE_MAX_FRAMES = 8;
 const BOTTOM_RECONCILE_STABLE_FRAMES = 2;
 const BOTTOM_RECONCILE_MAX_VERIFICATION_PASSES = 2;
@@ -269,16 +269,24 @@ export const useConversationScroll = ({
   lastVisibleMessageIdRef.current = visibleMessages.at(-1)?.id;
   virtualItemCountRef.current = virtualItemCount;
   const diagnosticModelRef = useRef({ messages: visibleMessages, indexes: messageItemIndexes, firstItemIndex: 0 });
+  const committedVirtualKeyRef = useRef("");
 
   const previousLayoutRef = useRef<ConversationLayoutSnapshot | undefined>(undefined);
   const pendingHistoryRestoreRef = useRef<PendingHistoryRestore | undefined>(undefined);
   const historyLoadKeyRef = useRef<string | undefined>(undefined);
+  // Input may cancel an anchor without cancelling its network request. Keep
+  // the request's input checkpoint until its data commits, so a single gesture
+  // followed by a pause is not mistaken for continuous scrolling.
+  const historyPaginationRef = useRef<{
+    key: string; firstMessageId?: string; inputSequence: number;
+  } | undefined>(undefined);
   const historyLoadFrameRef = useRef<number | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
   const bottomFrameRef = useRef<number | undefined>(undefined);
   const bottomPinRequestRef = useRef<BottomPinRequest | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
   const contentAnchorFrameRef = useRef<number | undefined>(undefined);
+  const virtualizerPrependRef = useRef<{ key: string; frame?: number } | undefined>(undefined);
   const contentAnchorOwnerRef = useRef<{
     key: string; generation: number; messageId: string; offset: number;
   } | undefined>(undefined);
@@ -289,6 +297,7 @@ export const useConversationScroll = ({
   const smoothScrollUntilRef = useRef(0);
   const anchorCorrectionUntilRef = useRef(0);
   const userIntentUntilRef = useRef(0);
+  const userInputSequenceRef = useRef(0);
   const trustedUserIntentUntilRef = useRef(0);
   const userScrollDirectionRef = useRef<UserScrollDirection | undefined>(undefined);
   const userScrollTopRef = useRef<number | undefined>(undefined);
@@ -460,13 +469,31 @@ export const useConversationScroll = ({
   ].join(":");
   const virtuosoKey = `${currentScrollKey ?? scope}:${searchActive ? "search" : "conversation"}`;
   virtuosoKeyRef.current = virtuosoKey;
-  const virtuosoFirstItemIndex = resolveConversationVirtualIndex(
+  const resolvedVirtuosoFirstItemIndex = resolveConversationVirtualIndex(
     virtuosoKey,
     virtualBlockIds,
     { commit: false },
   );
+  const prepending = committedVirtualKeyRef.current === virtuosoKey &&
+    resolvedVirtuosoFirstItemIndex < diagnosticModelRef.current.firstItemIndex;
+  const pagination = historyPaginationRef.current;
+  const readingPrepend = prepending && scrollControlRef.current.mode === "detached" && !revealTargetTokenRef.current;
+  const virtualizerOwnsPrepend = readingPrepend &&
+    (pointerActiveRef.current || middleAutoScrollRef.current ||
+      ((performance.now() <= userIntentUntilRef.current || (userScrollMemoryStableRef.current?.frames ?? 2) < 2) &&
+        (!pagination || pagination.key !== currentScrollKey ||
+          pagination.inputSequence !== userInputSequenceRef.current)));
+  // An idle reader needs the application anchor for changed grouping/layout.
+  // During live scrolling Virtuoso preserves motion through its own prepend.
+  // Never ask both owners to compensate the same insertion.
+  const virtuosoFirstItemIndex = readingPrepend && !virtualizerOwnsPrepend
+    ? diagnosticModelRef.current.firstItemIndex
+    : resolvedVirtuosoFirstItemIndex;
   useLayoutEffect(() => {
     commitConversationVirtualIndex(virtuosoKey, virtuosoFirstItemIndex, virtualBlockIds);
+    committedVirtualKeyRef.current = virtuosoKey;
+    if (historyPaginationRef.current && historyPaginationRef.current.key === currentScrollKey &&
+      historyPaginationRef.current.firstMessageId !== firstVisibleMessageId) historyPaginationRef.current = undefined;
     diagnosticModelRef.current = { messages: visibleMessagesRef.current, indexes: messageItemIndexes, firstItemIndex: virtuosoFirstItemIndex };
     conversationTraceFor(messageListRef.current)?.record(traceKind.commitAfter, {
       firstItemIndex: virtuosoFirstItemIndex, blockCount: virtualItemCount, messageCount: messageItemIndexes.size,
@@ -1343,6 +1370,7 @@ export const useConversationScroll = ({
   const onListLayoutCommitted = useCallback(() => {
     const element = messageListRef.current;
     conversationTraceFor(element)?.record(traceKind.commitAfter);
+    if (virtualizerPrependRef.current?.key === element?.dataset.conversationVirtuosoKey) return;
     if (removalRef.current) { removalRef.current.refresh(); return; }
     const request = bottomPinRequestRef.current;
     const control = scrollControlRef.current;
@@ -1379,6 +1407,7 @@ export const useConversationScroll = ({
     });
     const control = scrollControlRef.current;
     const memory = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
+    if (!structuralChange && virtualizerPrependRef.current) return;
     if (!element || !currentScrollKey || searchActive ||
       element.dataset.conversationVirtuosoKey !== virtuosoKey ||
       control.mode === "navigating" || revealTargetTokenRef.current ||
@@ -1488,7 +1517,7 @@ export const useConversationScroll = ({
     }
     // Capture at DOM commit, not when the network request starts. The user may
     // have continued reading during that request. No React state is set here.
-    if (structuralChange && !historySnapshotRef.current) {
+    if (structuralChange && !virtualizerOwnsPrepend && !historySnapshotRef.current) {
       const snapshot = captureConversationJumpSnapshot(element, { isolate: true });
       if (snapshot) {
         snapshot.element.dataset.conversationHistorySnapshot = "true";
@@ -1497,6 +1526,45 @@ export const useConversationScroll = ({
           releaseTimer: globalThis.setTimeout(clearHistorySnapshot, HISTORY_SNAPSHOT_MAX_MS),
         };
       }
+    }
+    if (virtualizerOwnsPrepend) {
+      // Virtuoso applies a temporary margin, then scrollBy, then clears the
+      // margin. Application writes during this pass duplicate its correction.
+      if (virtualizerPrependRef.current?.frame !== undefined) cancelAnimationFrame(virtualizerPrependRef.current.frame);
+      const prepend = { key: virtuosoKey, frame: undefined as number | undefined };
+      virtualizerPrependRef.current = prepend;
+      if (contentAnchorFrameRef.current !== undefined) cancelAnimationFrame(contentAnchorFrameRef.current);
+      contentAnchorFrameRef.current = undefined;
+      contentAnchorOwnerRef.current = undefined;
+      if (historyRestoreFrameRef.current !== undefined) cancelAnimationFrame(historyRestoreFrameRef.current);
+      historyRestoreFrameRef.current = undefined;
+      if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
+      anchorFrameRef.current = undefined;
+      return () => {
+        let frames = 0;
+        const finish = () => {
+          if (virtualizerPrependRef.current !== prepend) return;
+          if (messageListRef.current !== element || element.dataset.conversationVirtuosoKey !== prepend.key) {
+            virtualizerPrependRef.current = undefined;
+            return;
+          }
+          frames++;
+          const content = element.querySelector<HTMLElement>(".message-list-content");
+          if (frames < CONTENT_ANCHOR_RECONCILE_MAX_FRAMES && (frames < 3 ||
+            (Number.parseFloat(content?.style.marginTop ?? "0") || 0) !== 0)) {
+            prepend.frame = requestAnimationFrame(finish);
+            return;
+          }
+          virtualizerPrependRef.current = undefined;
+          if (history && pendingHistoryRestoreRef.current === history) pendingHistoryRestoreRef.current = undefined;
+          const current = conversationScrollMemory.get(currentScrollKey);
+          if (scrollControlRef.current.mode === "following") scheduleBottomPin(undefined, "track");
+          else if (scrollControlRef.current.mode === "detached") {
+            writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true);
+          }
+        };
+        prepend.frame = requestAnimationFrame(finish);
+      };
     }
     return () => {
       if (messageListRef.current !== element || scrollControlRef.current.generation !== generation) return;
@@ -1522,7 +1590,7 @@ export const useConversationScroll = ({
       });
     };
   }, [cancelRemovalMotion, reduceMotion, restoreAnchor, clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
-    matchingMessageRequest?.loading, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
+    matchingMessageRequest?.loading, virtualizerOwnsPrepend, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   useLayoutEffect(() => {
     if (!messageListElement || !currentScrollKey || searchActive) return;
@@ -1541,6 +1609,7 @@ export const useConversationScroll = ({
       const control = scrollControlRef.current;
       const memory = conversationScrollMemory.get(currentScrollKey);
       if (element.dataset.conversationVirtuosoKey !== virtuosoKey) return;
+      if (virtualizerPrependRef.current?.key === virtuosoKey) return;
       // Media/caption layout can change after the previous bottom transaction
       // settled. Real row resizes must reconcile before paint as well.
       if (reconcileBottomViewport()) return;
@@ -1603,9 +1672,6 @@ export const useConversationScroll = ({
     }
     contentAnchorOwnerRef.current = undefined;
     olderLoadArmedRef.current = false;
-    userIntentUntilRef.current = 0;
-    trustedUserIntentUntilRef.current = 0;
-    userScrollDirectionRef.current = undefined;
     if (scrollControlRef.current.identity === initialLocationIdentity) {
       scrollControlRef.current.mode = "detached";
     }
@@ -1626,6 +1692,10 @@ export const useConversationScroll = ({
       beforeCount: visibleMessagesRef.current.length,
     };
     historyLoadKeyRef.current = currentScrollKey;
+    historyPaginationRef.current = {
+      key: currentScrollKey, firstMessageId: firstVisibleMessageIdRef.current,
+      inputSequence: userInputSequenceRef.current,
+    };
     markHistoryInteraction();
     void onLoadOlder().finally(() => {
       if (historyLoadKeyRef.current === currentScrollKey) {
@@ -1661,7 +1731,7 @@ export const useConversationScroll = ({
         if (
           remainingFrames > 0 &&
           element &&
-          element.scrollTop <= HISTORY_TRIGGER_PX
+          element.scrollTop <= historyTriggerDistance(element)
         ) attempt();
       });
     };
@@ -2781,6 +2851,8 @@ export const useConversationScroll = ({
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
     }
+    if (virtualizerPrependRef.current?.frame !== undefined) cancelAnimationFrame(virtualizerPrependRef.current.frame);
+    virtualizerPrependRef.current = undefined;
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
     }
@@ -2797,6 +2869,7 @@ export const useConversationScroll = ({
     conversationTraceFor(messageListRef.current)?.record(traceKind.totalHeight);
     if (removalRef.current) { removalRef.current.refresh(); return; }
     if (!currentScrollKey || searchActive) return;
+    if (virtualizerPrependRef.current?.key === messageListRef.current?.dataset.conversationVirtuosoKey) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
     // The prepend transaction owns anchor correction until its settlement
     // callback. Letting this generic signal schedule another RAF can make the
@@ -2881,6 +2954,7 @@ export const useConversationScroll = ({
     const element = event.currentTarget;
     const rawDistance = element.scrollHeight - element.clientHeight - element.scrollTop;
     if (event.deltaY !== 0) {
+      userInputSequenceRef.current++;
       anchorCorrectionUntilRef.current = 0;
       setHighlightedMessage(undefined);
       middleAutoScrollRef.current = false;
@@ -3045,7 +3119,10 @@ export const useConversationScroll = ({
   }, [releasePointerControl]);
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (["End", "Home", "ArrowUp", "ArrowDown", "PageUp", "PageDown", " "].includes(event.key)) cancelRemovalMotion();
+    if (["End", "Home", "ArrowUp", "ArrowDown", "PageUp", "PageDown", " "].includes(event.key)) {
+      userInputSequenceRef.current++;
+      cancelRemovalMotion();
+    }
     anchorCorrectionUntilRef.current = 0;
     setHighlightedMessage(undefined);
     middleAutoScrollRef.current = false;
@@ -3199,7 +3276,7 @@ export const useConversationScroll = ({
     if (followLatest && !atBottom) scheduleBottomPin();
     if (atBottom) publishJumpHistory(currentScrollKey, []);
     if (
-      element.scrollTop <= HISTORY_TRIGGER_PX &&
+      element.scrollTop <= historyTriggerDistance(element) &&
       userInitiated &&
       olderLoadArmedRef.current &&
       hasOlderMessages &&
