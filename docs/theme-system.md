@@ -19,6 +19,12 @@ Notgram separates a theme identity from the native `light` or `dark` color schem
 
 `scripts/verify-theme-contract.mjs` fails when a theme omits a token, a component uses an unknown token, component CSS contains a raw color literal, or the retired `.theme-dark` path is reintroduced.
 
+## Emoji typography
+
+Ordinary Unicode emoji use the bundled Google Noto Color Emoji font in every window, including the editor, messages, picker, reactions, previews, and notifications. It is loaded before the shared window mount so cached message measurements use the final font. Mixed text keeps the existing text-font stack before Noto; emoji-only overrides use `--emoji-font-family`. Emoji remain Unicode text for selection, copying, editing, searching, and sending. Existing single-emoji enlargement and text-size preferences still apply.
+
+The complete COLRv1 font and its SIL OFL 1.1 license are bundled locally by Vite; rendering needs no external font service or expanded WebView permissions. Source revision and conversion details live in `src/assets/fonts/noto-color-emoji/README.md`.
+
 ## Delivery plan
 
 ### Phase 1: contract and structural surfaces (implemented)

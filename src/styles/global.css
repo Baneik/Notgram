@@ -1,5 +1,15 @@
+@font-face {
+  font-family: "Noto Color Emoji";
+  src: url("../assets/fonts/noto-color-emoji/NotoColorEmoji.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
-  font-family: "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif;
+  --emoji-font-family: "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  /* Keep ordinary digits and symbols in the text fonts; Noto owns emoji fallback. */
+  font-family: "Segoe UI", "Microsoft YaHei UI", Arial, "Noto Color Emoji", sans-serif;
   font-size: 14px;
   color: var(--color-text-primary);
   background: var(--color-bg-canvas);
@@ -1401,7 +1411,7 @@ button.message-sender, span.message-sender { display: block; }
 button.message-sender:hover { text-decoration: none; }
 .message-sender-avatar { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; cursor: pointer; }
 .message-sender-avatar.is-local-block-alias .avatar > span {
-  font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+  font-family: var(--emoji-font-family);
   font-size: 24px; line-height: 1; font-weight: 400; transform: translateY(-3px);
 }
 .message-sender-avatar.is-local-block-alias .avatar { background-color: var(--color-avatar-alias-background) !important; }
@@ -1530,11 +1540,11 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-rich-text .message-hashtag { cursor: pointer; font-weight: 600; }
 .message-rich-text code {
   padding: 1px 4px; color: var(--color-status-danger); background: var(--color-bg-code);
-  border-radius: 3px; font-family: Consolas, "Courier New", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
+  border-radius: 3px; font-family: Consolas, "Courier New", "Noto Color Emoji", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre, .message-rich-text .rich-pre {
   padding: 7px 8px; display: block; overflow-x: auto; color: var(--color-text-code); background: var(--color-bg-code);
-  border-radius: 5px; white-space: pre; font-family: Consolas, "Courier New", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
+  border-radius: 5px; white-space: pre; font-family: Consolas, "Courier New", "Noto Color Emoji", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre code { padding: 0; color: inherit; background: transparent; white-space: inherit; }
 .message-rich-text blockquote, .message-rich-text .rich-blockquote {
@@ -1612,7 +1622,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-rich-text mark.message-search-highlight {
   color: inherit; background: color-mix(in srgb, var(--accent) 22%, var(--color-bg-elevated));
 }
-.rich-message-content .rich-custom-emoji { display: inline-block; font-family: "Segoe UI Emoji", sans-serif; }
+.rich-message-content .rich-custom-emoji { display: inline-block; font-family: var(--emoji-font-family); }
 /* Keep unbreakable KaTeX groups scrollable without widening the message bubble. */
 .rich-message-content .rich-math-inline { display: inline-block; max-width: 100%; overflow-x: auto; vertical-align: middle; }
 .rich-message-content .rich-math-block { margin: 0 0 7px; display: block; max-width: 100%; overflow-x: auto; text-align: center; }
@@ -3172,7 +3182,7 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .ad-regex-heading { margin-top: 5px; }
 .ad-regex-list { display: grid; gap: 7px; }
 .ad-regex-row { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 6px; }
-.ad-regex-row textarea { width: 100%; min-height: 52px; padding: 8px 9px; color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--color-border-strong); border-radius: 6px; outline: 0; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; line-height: 1.45; }
+.ad-regex-row textarea { width: 100%; min-height: 52px; padding: 8px 9px; color: var(--ink); background: var(--color-bg-control); border: 1px solid var(--color-border-strong); border-radius: 6px; outline: 0; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, "Noto Color Emoji", monospace; font-size: 11px; line-height: 1.45; }
 .ad-regex-row textarea[aria-invalid="true"] { border-color: var(--color-status-danger); }
 .ad-regex-row > .icon-button { align-self: start; color: var(--color-status-danger); }
 .ad-regex-error { grid-column: 1 / -1; margin-top: -2px; color: var(--color-status-danger); font-size: 10px; }

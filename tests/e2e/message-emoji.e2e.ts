@@ -3,6 +3,27 @@ import type { Message } from "../../src/telegram/types";
 
 type TextMode = "markdown" | "entities";
 
+async function renderedFonts(page: Page, selector: string) {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("DOM.enable");
+    await session.send("CSS.enable");
+    const { root } = await session.send("DOM.getDocument");
+    const { nodeId } = await session.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+    expect(nodeId, selector).toBeGreaterThan(0);
+    const { fonts } = await session.send("CSS.getPlatformFontsForNode", { nodeId });
+    return fonts;
+  } finally {
+    await session.detach();
+  }
+}
+
+const expectNoto = async (page: Page, selector: string) => {
+  const fonts = await renderedFonts(page, selector);
+  expect(fonts.some(font => font.familyName === "Noto Color Emoji" && font.isCustomFont && font.glyphCount > 0)).toBe(true);
+  expect(fonts.some(font => font.familyName === "Segoe UI Emoji")).toBe(false);
+};
+
 async function showMessages(page: Page, texts: string[], mode: TextMode, outgoing = false, chatId = "chat-product") {
   await page.evaluate(async ({ texts, mode, outgoing, chatId }) => {
     const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
@@ -131,4 +152,68 @@ test("channel emoji posts retain their dedicated metadata row", async ({ page })
     expect(actual.metaTop).toBeGreaterThanOrEqual(actual.textBottom - 1);
     expect(actual.metaBottomGap).toBeGreaterThanOrEqual(4);
   }
+});
+
+test("bundled Noto renders emoji across the composer, picker, messages and reactions without changing Unicode", async ({ page }) => {
+  await page.route("https://**/*", route => route.abort());
+  await page.goto("/");
+  const composer = page.getByRole("textbox", { name: "消息内容" });
+  await expect(composer).toBeVisible();
+  const text = "中文 AB 123 # * © ® ™ ↔ 😀 👩🏽‍💻 🇨🇳 1️⃣ ❤️";
+  await composer.fill(text);
+  await expect(composer).toHaveJSProperty("value", text);
+  await expectNoto(page, ".composer-input p");
+  const fonts = await renderedFonts(page, ".composer-input p");
+  expect(fonts.some(font => font.familyName === "Segoe UI" && font.glyphCount >= 10)).toBe(true);
+
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+  await picker.getByRole("tab", { name: "Emoji", exact: true }).click();
+  await expectNoto(page, '.emoji-grid button[aria-label="插入 😀"]');
+  await picker.getByRole("button", { name: "插入 😀", exact: true }).click();
+  await expect(composer).toHaveJSProperty("value", text + "😀");
+  await picker.getByRole("button", { name: "关闭表情面板" }).click();
+  await page.getByRole("button", { name: "发送消息", exact: true }).click();
+  const sent = page.locator(".message-bubble.is-textual").filter({ hasText: text + "😀" });
+  await expect(sent).toHaveCount(1);
+  await expect(sent.locator(".message-rich-text")).toHaveText(text + "😀");
+
+  await showMessages(page, [text, "😀"], "entities");
+  await expectNoto(page, '[data-message-id="emoji-layout-0"] .message-rich-text strong');
+  await expectNoto(page, '[data-message-id="emoji-layout-1"] .message-rich-text strong');
+  await expect(page.locator('[data-message-id="emoji-layout-0"] .message-rich-text')).toHaveText(text);
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const chatId = state.activeChatId!;
+    const messages = state.messages.get(chatId)!.map(message => ({ ...message, interaction: {
+      viewCount: 0, forwardCount: 0, replyCount: 0, ...message.interaction, reactions: [{
+        type: { kind: "emoji" as const, emoji: "👍" }, totalCount: 3, chosen: false, recentSenderIds: [],
+      }],
+    } }));
+    telegramStore.setState({ messages: new Map(state.messages).set(chatId, messages) });
+  });
+  await expect(page.locator('[data-message-id="emoji-layout-0"] .message-reaction-emoji')).toHaveText("👍");
+  await expectNoto(page, '[data-message-id="emoji-layout-0"] .message-reaction-emoji');
+});
+
+test("notification windows bundle Noto and its complete font license", async ({ page }) => {
+  await page.route("https://**/*", route => route.abort());
+  await page.goto("/windows/notification-window.html");
+  await expect(page.getByRole("region", { name: "桌面通知" })).toBeVisible();
+  await page.evaluate(async () => {
+    const module = await (0, eval)('import("/src/notifications/notificationWindowStore.ts")') as typeof import("../../src/notifications/notificationWindowStore");
+    module.replaceDesktopNotificationWindowSnapshot({ revision: 1, items: [{
+      id: "noto-notification", title: "Emoji", body: "收到 😀 👩🏽‍💻 🇨🇳 ❤️", avatar: { label: "N", color: "#4e86b0" },
+      themeId: "notgram-dark", reduceMotion: true, updatedAtMs: Date.now(),
+      route: { accountId: "default", chatId: "chat-product", messageId: "p-5" },
+    }] });
+  });
+  await expect(page.locator(".desktop-notification-message")).toHaveText("收到 😀 👩🏽‍💻 🇨🇳 ❤️");
+  await expectNoto(page, ".desktop-notification-message");
+  const licenseUrl = await page.locator('link[rel="license"]').getAttribute("href");
+  expect(licenseUrl).toBeTruthy();
+  const license = await page.request.get(licenseUrl!);
+  expect(license.ok()).toBe(true);
+  expect(await license.text()).toContain("SIL OPEN FONT LICENSE Version 1.1");
 });
