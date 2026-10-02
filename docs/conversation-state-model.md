@@ -618,6 +618,26 @@ again against current state after the lookup, so leaving a group during the requ
 alert. Keep these updates in message history and discussion views; membership gates presentation,
 not update delivery, and a followed channel has its own membership independent of its discussion group.
 
+Desktop notification presentation uses an app-owned, initially hidden WebView2 window. Rust owns its
+queue and revision; serialize create/show/dismiss operations so concurrent alerts cannot create a
+duplicate window or hide a newer queue. Create the window before accepting a request, and retain
+accepted items even when the change event fails. Frontend ingress retries rejected requests at most
+twice, abandoning an older retry when the same account/chat/topic receives a newer request.
+
+The child subscribes before reading its initial snapshot, and reads again on visibility changes and
+every two seconds as a missed-event fallback. Ignore equal or older revisions so polling does not
+rerender cards or renew their lifetime. Native optional avatar paths may be null; text limits count
+Unicode scalars on both sides. Bound the final combined title/body to 200/1000 scalars before invoking
+Rust, preserving complete surrogate pairs when truncating.
+
+Showing the child must never depend on `requestAnimationFrame`: a hidden WebView can suspend frames.
+Measure its committed DOM immediately, retry failed native shows with delays capped at five seconds,
+and start each item version's ten-second dismissal timer only after a successful show. Failed dismiss
+commands leave the native item available for a later retry. Delivery diagnostics record only numeric
+phase (0=create, 1=enqueue/event, 2=show), success, queue revision and visible count; never include routes,
+preview text, avatar paths or raw error strings. Browser tests simulate paused frames and lost events;
+actual Windows visibility, monitor changes, sleep/wake and sound still require native acceptance.
+
 Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
 and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.
 

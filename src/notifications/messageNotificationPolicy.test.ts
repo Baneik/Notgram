@@ -244,6 +244,18 @@ describe("message notification policy", () => {
     })).toEqual({ title: "Notgram", body: "收到一条新消息" });
   });
 
+  it("bounds the combined title and sender-prefixed body without splitting emoji", () => {
+    const presentation = notificationPresentation({
+      showPreview: true, chatTitle: "😀".repeat(200), topicTitle: "topic",
+      senderName: "sender", messageText: "😀".repeat(1000),
+    });
+    expect(Array.from(presentation.title)).toHaveLength(200);
+    expect(Array.from(presentation.body)).toHaveLength(1000);
+    expect(presentation.title.endsWith("…")).toBe(true);
+    expect(presentation.body.endsWith("…")).toBe(true);
+    expect(presentation.body).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/u);
+  });
+
   it("identifies forum topics and prefixes group messages with the sender", () => {
     expect(notificationPresentation({
       showPreview: true,

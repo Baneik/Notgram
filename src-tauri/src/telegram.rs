@@ -776,6 +776,28 @@ impl TelegramRuntime {
         }
     }
 
+    pub(crate) fn log_notification_delivery(
+        &self,
+        phase: u8,
+        success: bool,
+        revision: u64,
+        visible_count: usize,
+    ) {
+        let logger = self
+            .inner
+            .lock()
+            .expect("telegram runtime mutex poisoned")
+            .logger
+            .clone();
+        if let Some(logger) = logger {
+            logger.write(
+                if success { "info" } else { "warn" },
+                "desktop_notification_delivery",
+                json!({ "phase": phase, "success": success, "revision": revision, "visibleCount": visible_count }),
+            );
+        }
+    }
+
     fn log_performance_batch(&self, records: Vec<PerformanceLogRecord>) -> Result<(), String> {
         if records.is_empty() || records.len() > MAX_PERFORMANCE_LOG_BATCH {
             return Err("性能日志批次大小无效".to_string());

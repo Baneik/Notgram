@@ -92,6 +92,7 @@ struct NotificationWindowLayout {
 #[derive(Default)]
 pub struct DesktopNotificationWindowState {
     queue: Mutex<NotificationQueue>,
+    delivery: tauri::async_runtime::Mutex<()>,
     next_id: AtomicU64,
 }
 
@@ -367,12 +368,13 @@ fn position_notification_window(
     Ok(())
 }
 
-fn emit_snapshot(app: &AppHandle, snapshot: &DesktopNotificationSnapshot) {
-    let _ = app.emit_to(
+fn emit_snapshot(app: &AppHandle, snapshot: &DesktopNotificationSnapshot) -> Result<(), String> {
+    app.emit_to(
         NOTIFICATION_WINDOW_LABEL,
         NOTIFICATIONS_CHANGED_EVENT,
         snapshot,
-    );
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn open_notification_route(app: &AppHandle, route: &NotificationRoute) {
@@ -440,16 +442,22 @@ pub async fn notgram_show_notification(
     app: AppHandle,
     state: State<'_, DesktopNotificationWindowState>,
     notification: DesktopNotificationRequest,
+    runtime: State<'_, crate::telegram::TelegramRuntime>,
 ) -> Result<(), String> {
     validate_request(&notification)?;
+    // Concurrent incoming messages must not build two windows with the same label or
+    // let a late dismiss hide the window after a newer notification has been queued.
+    let _delivery = state.delivery.lock().await;
     let sound = notification.sound;
-    let item = state.push(notification)?;
     if let Err(error) = notification_window(&app) {
-        let _ = state.remove(&item.id, item.updated_at_ms);
+        runtime.log_notification_delivery(0, false, 0, 0);
         return Err(error);
     }
+    state.push(notification)?;
     let snapshot = state.snapshot()?;
-    emit_snapshot(&app, &snapshot);
+    // Keep the authoritative queue on event failure; the child also polls its snapshot.
+    let emitted = emit_snapshot(&app, &snapshot).is_ok();
+    runtime.log_notification_delivery(1, emitted, snapshot.revision, snapshot.items.len());
     if sound {
         play_notification_sound(&app);
     }
@@ -464,30 +472,38 @@ pub fn notgram_desktop_notification_snapshot(
 }
 
 #[tauri::command]
-pub fn notgram_show_notification_window(
+pub async fn notgram_show_notification_window(
     app: AppHandle,
     state: State<'_, DesktopNotificationWindowState>,
     height: f64,
+    runtime: State<'_, crate::telegram::TelegramRuntime>,
 ) -> Result<bool, String> {
-    if state.snapshot()?.items.is_empty() {
+    let _delivery = state.delivery.lock().await;
+    let snapshot = state.snapshot()?;
+    if snapshot.items.is_empty() {
         return Ok(false);
     }
-    let window = notification_window(&app)?;
-    position_notification_window(&app, &window, height)?;
-    window.show().map_err(|error| error.to_string())?;
+    let result = (|| {
+        let window = notification_window(&app)?;
+        position_notification_window(&app, &window, height)?;
+        window.show().map_err(|error| error.to_string())
+    })();
+    runtime.log_notification_delivery(2, result.is_ok(), snapshot.revision, snapshot.items.len());
+    result?;
     Ok(true)
 }
 
 #[tauri::command]
-pub fn notgram_dismiss_notification(
+pub async fn notgram_dismiss_notification(
     app: AppHandle,
     state: State<'_, DesktopNotificationWindowState>,
     id: String,
     expected_updated_at_ms: u64,
 ) -> Result<DesktopNotificationSnapshot, String> {
     validate_text(&id, 64, "notification id")?;
+    let _delivery = state.delivery.lock().await;
     let snapshot = state.remove(&id, expected_updated_at_ms)?;
-    emit_snapshot(&app, &snapshot);
+    let _ = emit_snapshot(&app, &snapshot);
     if snapshot.items.is_empty()
         && let Some(window) = app.get_webview_window(NOTIFICATION_WINDOW_LABEL)
     {
@@ -583,6 +599,20 @@ mod tests {
         assert_eq!(serialized["avatar"]["label"], "N");
         assert_eq!(serialized["avatar"]["imagePath"], "C:\\avatars\\chat.jpg");
         assert!(serialized["updatedAtMs"].is_number());
+    }
+
+    #[test]
+    fn serializes_missing_avatar_paths_and_counts_unicode_scalars() {
+        let state = DesktopNotificationWindowState::default();
+        let mut request = request();
+        request.avatar.image_path = None;
+        request.title = "😀".repeat(MAX_TITLE_CHARS);
+        request.body = "😀".repeat(MAX_BODY_CHARS);
+        assert_eq!(validate_request(&request), Ok(()));
+        let item = state.push(request).expect("notification should queue");
+        let serialized = serde_json::to_value(item).expect("item should serialize");
+        assert!(serialized["avatar"]["imagePath"].is_null());
+        assert!(serialized["route"]["topicId"].is_null());
     }
 
     #[test]

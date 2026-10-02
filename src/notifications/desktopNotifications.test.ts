@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -17,8 +17,10 @@ const route = { accountId: "default", chatId: "123", messageId: "456", topicId: 
 const avatar = { label: "N", color: "#4e86b0", imagePath: "C:\\avatars\\chat.jpg" };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe("desktop notifications", () => {
   it("does not require Windows toast permission", async () => {
@@ -50,8 +52,9 @@ describe("desktop notifications", () => {
   });
 
   it("contains native command failures without breaking the app", async () => {
-    nativeInvoke.mockRejectedValueOnce(new Error("native unavailable"));
-    await expect(showDesktopNotification({
+    vi.useFakeTimers();
+    nativeInvoke.mockRejectedValue(new Error("native unavailable"));
+    const result = showDesktopNotification({
       title: "Notgram",
       body: "message",
       avatar,
@@ -59,7 +62,40 @@ describe("desktop notifications", () => {
       themeId: "notgram-light",
       reduceMotion: false,
       route,
-    })).resolves.toBe(false);
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toBe(false);
+    expect(nativeInvoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("recovers transient native creation failures and stops after acceptance", async () => {
+    vi.useFakeTimers();
+    nativeInvoke.mockRejectedValueOnce(new Error("window unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const result = showDesktopNotification({
+      title: "Notgram", body: "message", avatar, sound: false,
+      themeId: "notgram-dark", reduceMotion: true, route,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toBe(true);
+    expect(nativeInvoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry an older message after a newer conversation alert is accepted", async () => {
+    vi.useFakeTimers();
+    nativeInvoke.mockRejectedValueOnce(new Error("window unavailable")).mockResolvedValue(undefined);
+    const notification = {
+      title: "Notgram", body: "old message", avatar, sound: false,
+      themeId: "notgram-dark", reduceMotion: true, route,
+    } as const;
+    const older = showDesktopNotification(notification);
+    await Promise.resolve();
+    await expect(showDesktopNotification({
+      ...notification, body: "new message", route: { ...route, messageId: "789" },
+    })).resolves.toBe(true);
+    await vi.runAllTimersAsync();
+    await expect(older).resolves.toBe(false);
+    expect(nativeInvoke).toHaveBeenCalledTimes(2);
   });
 
   it("validates click payloads before routing them", async () => {

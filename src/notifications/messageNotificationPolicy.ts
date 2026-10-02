@@ -115,6 +115,12 @@ export const shouldNotifyMessage = ({
   !isAtOrBeforeReadCursor(messageId, lastReadInboxMessageId) &&
   !predatesNotificationSession(sentAt, notBeforeMs);
 
+const boundedPreview = (value: string, maximum: number) => {
+  // Match Rust's Unicode scalar limits, including the combined topic/sender text.
+  const characters = Array.from(value);
+  return characters.length <= maximum ? value : `${characters.slice(0, maximum - 1).join("")}…`;
+};
+
 export const notificationPresentation = ({
   showPreview,
   chatTitle,
@@ -135,7 +141,7 @@ export const notificationPresentation = ({
   const message = messageText.trim() || translate("收到一条新消息");
   const sender = senderName?.trim();
   return {
-    title: titleParts.join(" · ") || "Notgram",
-    body: sender ? `${sender}：${message}` : message,
+    title: boundedPreview(titleParts.join(" · ") || "Notgram", 200),
+    body: boundedPreview(sender ? `${sender}：${message}` : message, 1000),
   };
 };

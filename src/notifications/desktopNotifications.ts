@@ -26,6 +26,7 @@ export interface DesktopNotification {
 }
 
 const NOTIFICATION_OPEN_EVENT = "notgram://notification-open";
+const pendingNotifications = new Map<string, symbol>();
 
 const isRouteId = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0 && value.length <= 256;
@@ -63,13 +64,25 @@ export const showDesktopNotification = async ({
   reduceMotion,
   route,
 }: DesktopNotification) => {
+  const conversation = JSON.stringify([route.accountId, route.chatId, route.topicId ?? null]);
+  const attempt = Symbol();
+  pendingNotifications.set(conversation, attempt);
   try {
-    await invoke("notgram_show_notification", {
-      notification: { title, body, avatar, sound, themeId, reduceMotion, route },
-    });
-    return true;
-  } catch {
+    for (const delay of [0, 250, 750]) {
+      if (delay) await new Promise((resolve) => globalThis.setTimeout(resolve, delay));
+      // A delayed older request must not overwrite a newer card for this conversation.
+      if (pendingNotifications.get(conversation) !== attempt) return false;
+      try {
+        // Rust only rejects before accepting the item, so retries cannot duplicate its sound/queue.
+        await invoke("notgram_show_notification", {
+          notification: { title, body, avatar, sound, themeId, reduceMotion, route },
+        });
+        return true;
+      } catch { /* Retry transient window creation/IPC failures with a bounded delay. */ }
+    }
     return false;
+  } finally {
+    if (pendingNotifications.get(conversation) === attempt) pendingNotifications.delete(conversation);
   }
 };
 

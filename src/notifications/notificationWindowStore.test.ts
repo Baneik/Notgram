@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
+let {
   desktopNotificationWindowStore,
   parseDesktopNotificationWindowItem,
   removeDesktopNotificationWindowItem,
   replaceDesktopNotificationWindowSnapshot,
-} from "./notificationWindowStore";
+} = await import("./notificationWindowStore");
 
 const item = {
   id: "notification-1",
@@ -17,11 +17,27 @@ const item = {
   route: { accountId: "default", chatId: "chat-product", messageId: "p-5" },
 } as const;
 
-beforeEach(() => {
-  replaceDesktopNotificationWindowSnapshot({ revision: 0, items: [] });
+beforeEach(async () => {
+  vi.resetModules();
+  ({ desktopNotificationWindowStore, parseDesktopNotificationWindowItem,
+    removeDesktopNotificationWindowItem, replaceDesktopNotificationWindowSnapshot } = await import("./notificationWindowStore"));
 });
 
 describe("desktop notification window store", () => {
+  it("accepts the null avatar path serialized by the native queue", () => {
+    expect(parseDesktopNotificationWindowItem({
+      ...item, avatar: { label: "N", color: "#4e86b0", imagePath: null },
+      route: { ...item.route, topicId: null },
+    })).toEqual({ ...item, avatar: { label: "N", color: "#4e86b0" } });
+  });
+
+  it("uses the native Unicode character bounds for emoji previews", () => {
+    expect(parseDesktopNotificationWindowItem({
+      ...item, title: "😀".repeat(200), body: "😀".repeat(1000),
+    })).toBeDefined();
+    expect(parseDesktopNotificationWindowItem({ ...item, body: "😀".repeat(1001) })).toBeUndefined();
+  });
+
   it("accepts valid native items and rejects malformed payloads", () => {
     expect(parseDesktopNotificationWindowItem(item)).toEqual(item);
     expect(parseDesktopNotificationWindowItem({ ...item, themeId: "unknown" })).toBeUndefined();
@@ -57,6 +73,18 @@ describe("desktop notification window store", () => {
     replaceDesktopNotificationWindowSnapshot({ revision: 3, items: [item] });
     replaceDesktopNotificationWindowSnapshot({ revision: 2, items: [] });
     expect(desktopNotificationWindowStore.getSnapshot()).toEqual([item]);
+  });
+
+  it("does not publish unchanged poll snapshots or replace retained item references", () => {
+    const value = { revision: 1, items: [item] };
+    replaceDesktopNotificationWindowSnapshot(value);
+    const current = desktopNotificationWindowStore.getSnapshot();
+    const listener = vi.fn();
+    const unsubscribe = desktopNotificationWindowStore.subscribe(listener);
+    replaceDesktopNotificationWindowSnapshot(structuredClone(value));
+    expect(desktopNotificationWindowStore.getSnapshot()).toBe(current);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("does not remove a conversation notification after its content is refreshed", () => {

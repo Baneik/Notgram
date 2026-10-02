@@ -1,5 +1,190 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const installNativeNotificationMock = async (
+  page: Page,
+  options: { pauseSubscription?: boolean; pauseFrames?: boolean; showFailures?: number; nullAvatarPath?: boolean; dismissFailures?: number } = {},
+) => {
+  await page.addInitScript((options) => {
+    const callbacks = new Map<number, (event: unknown) => void>();
+    const listeners = new Map<number, number>();
+    const pendingSubscriptions: (() => void)[] = [];
+    let nextCallback = 0;
+    let revision = 0;
+    let items: unknown[] = [];
+    let showAttempts = 0;
+    let snapshotReads = 0;
+    let dismissAttempts = 0;
+    const snapshot = () => ({ revision, items });
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (id: number) => listeners.delete(id) },
+      __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "desktop-notifications" }, currentWebview: { label: "desktop-notifications" } },
+        transformCallback: (callback: (event: unknown) => void) => {
+          callbacks.set(++nextCallback, callback);
+          return nextCallback;
+        },
+        unregisterCallback: (id: number) => callbacks.delete(id),
+        invoke: async (command: string, args: { event?: string; handler?: number; eventId?: number; id?: string }) => {
+          if (command === "plugin:window|scale_factor") return 1;
+          if (command === "plugin:event|listen") {
+            const id = args.handler!;
+            if (args.event === "notgram://desktop-notifications-changed") {
+              const subscribe = () => listeners.set(id, id);
+              if (options.pauseSubscription) {
+                await new Promise<void>((resolve) => pendingSubscriptions.push(() => { subscribe(); resolve(); }));
+              } else subscribe();
+            }
+            return id;
+          }
+          if (command === "plugin:event|unlisten") {
+            listeners.delete(args.eventId!);
+            return;
+          }
+          if (command === "notgram_desktop_notification_snapshot") {
+            snapshotReads += 1;
+            return snapshot();
+          }
+          if (command === "notgram_show_notification_window") {
+            showAttempts += 1;
+            if (showAttempts <= (options.showFailures ?? 0)) throw new Error("Transient show failure");
+            return items.length > 0;
+          }
+          if (command === "notgram_dismiss_notification") {
+            dismissAttempts += 1;
+            if (dismissAttempts <= (options.dismissFailures ?? 0)) throw new Error("Transient dismiss failure");
+            items = items.filter((item) => (item as { id: string }).id !== args.id);
+            revision += 1;
+            return snapshot();
+          }
+        },
+      },
+      __notificationNative: {
+        get pendingSubscriptions() { return pendingSubscriptions.length; },
+        get showAttempts() { return showAttempts; },
+        get snapshotReads() { return snapshotReads; },
+        releaseSubscriptions: () => pendingSubscriptions.splice(0).forEach((release) => release()),
+        push: (updatedAtMs = Date.now(), emit = true) => {
+          revision += 1;
+          items = [{
+            id: "native-notification", title: "Native chat", body: "Native message",
+            avatar: { label: "N", color: "#4e86b0", ...(options.nullAvatarPath ? { imagePath: null } : {}) },
+            themeId: "notgram-dark", reduceMotion: true, updatedAtMs,
+            route: { accountId: "default", chatId: "native-chat", messageId: "1", topicId: null },
+          }];
+          if (emit) for (const [id, handler] of listeners) callbacks.get(handler)?.({ id, payload: snapshot() });
+        },
+      },
+    });
+    if (options.pauseFrames) {
+      window.requestAnimationFrame = () => 1;
+      window.cancelAnimationFrame = () => undefined;
+    }
+  }, options);
+};
+
+type NativeNotificationMock = {
+  pendingSubscriptions: number;
+  showAttempts: number;
+  snapshotReads: number;
+  releaseSubscriptions: () => void;
+  push: (updatedAtMs?: number, emit?: boolean) => void;
+};
+
+const nativeState = (page: Page) => page.evaluate(() => {
+  const state = (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative;
+  return { pendingSubscriptions: state.pendingSubscriptions, showAttempts: state.showAttempts, snapshotReads: state.snapshotReads };
+});
+
+test("native notifications with a null avatar path display their fallback avatar", async ({ page }) => {
+  await installNativeNotificationMock(page, { nullAvatarPath: true });
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).snapshotReads).toBeGreaterThan(0);
+  await page.evaluate(() => (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative.push());
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await expect.poll(async () => (await nativeState(page)).showAttempts).toBeGreaterThan(0);
+});
+
+test("native notifications arriving during listener setup are recovered by the initial snapshot", async ({ page }) => {
+  await installNativeNotificationMock(page, { pauseSubscription: true });
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).pendingSubscriptions).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const state = (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative;
+    state.push();
+    state.releaseSubscriptions();
+  });
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await expect.poll(async () => (await nativeState(page)).showAttempts).toBeGreaterThan(0);
+});
+
+test("a hidden notification WebView can show without receiving animation frames", async ({ page }) => {
+  await installNativeNotificationMock(page, { pauseFrames: true });
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).snapshotReads).toBeGreaterThan(0);
+  await page.evaluate(() => (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative.push());
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await expect.poll(async () => (await nativeState(page)).showAttempts).toBeGreaterThan(0);
+});
+
+test("native show failures retry and queued notifications get their full visible lifetime", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.clock.install();
+  await installNativeNotificationMock(page, { showFailures: 2 });
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).snapshotReads).toBeGreaterThan(0);
+  await page.evaluate(() => (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative.push(Date.now() - 60_000));
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await page.clock.runFor(2000);
+  await expect.poll(async () => (await nativeState(page)).showAttempts).toBeGreaterThanOrEqual(3);
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await page.clock.runFor(8000);
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(1);
+  await page.clock.runFor(2000);
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("snapshot polling recovers a dropped native event without renewing unchanged alerts", async ({ page }) => {
+  await page.clock.install();
+  await installNativeNotificationMock(page);
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).snapshotReads).toBeGreaterThan(0);
+  await page.evaluate(() => (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative.push(Date.now(), false));
+  await expect(page.locator(".desktop-notification-card")).toHaveCount(0);
+  await page.clock.runFor(2000);
+  const card = page.locator(".desktop-notification-card");
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute("data-notification-presented", "true");
+  const showAttempts = (await nativeState(page)).showAttempts;
+  await page.clock.runFor(9000);
+  await expect(card).toHaveCount(1);
+  expect((await nativeState(page)).showAttempts).toBe(showAttempts);
+  await page.clock.runFor(1001);
+  await expect(card).toHaveCount(0);
+});
+
+test("a failed native dismissal retains the card for a later close attempt", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.clock.install();
+  await installNativeNotificationMock(page, { dismissFailures: 1 });
+  await page.goto("/windows/notification-window.html");
+  await expect.poll(async () => (await nativeState(page)).snapshotReads).toBeGreaterThan(0);
+  await page.evaluate(() => (window as typeof window & { __notificationNative: NativeNotificationMock }).__notificationNative.push());
+  const card = page.locator(".desktop-notification-card");
+  await expect(card).toHaveAttribute("data-notification-presented", "true");
+  await page.getByRole("button", { name: "关闭通知" }).click();
+  await page.clock.runFor(1);
+  await expect(card).toHaveCount(1);
+  await expect(card).not.toHaveClass(/is-exiting/);
+  await page.getByRole("button", { name: "关闭通知" }).click();
+  await page.clock.runFor(1);
+  await expect(card).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 const injectNotifications = async (
   page: Page,
   options: { reduceMotion?: boolean } = {},

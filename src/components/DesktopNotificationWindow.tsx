@@ -30,6 +30,7 @@ import {
 
 interface DesktopNotificationCardProps {
   exiting: boolean;
+  presented: boolean;
   item: DesktopNotificationWindowItem;
   onDismiss: (item: DesktopNotificationWindowItem) => void;
   onOpen: (item: DesktopNotificationWindowItem) => void;
@@ -37,6 +38,7 @@ interface DesktopNotificationCardProps {
 
 const DesktopNotificationCard = memo(function DesktopNotificationCard({
   exiting,
+  presented,
   item,
   onDismiss,
   onOpen,
@@ -55,20 +57,20 @@ const DesktopNotificationCard = memo(function DesktopNotificationCard({
   }, [avatarSource]);
 
   useEffect(() => {
-    if (exiting) return;
-    const elapsed = Math.max(0, Date.now() - item.updatedAtMs);
+    if (exiting || !presented) return;
     const timer = globalThis.setTimeout(
       () => onDismiss(itemRef.current),
-      Math.max(0, motionLifecycleTiming.desktopNotificationIdle - elapsed),
+      motionLifecycleTiming.desktopNotificationIdle,
     );
     return () => globalThis.clearTimeout(timer);
-  }, [exiting, item.updatedAtMs, onDismiss]);
+  }, [exiting, presented, item.updatedAtMs, onDismiss]);
 
   return (
     <article
       className={`desktop-notification-card${exiting ? " is-exiting" : ""}`}
       data-notification-id={item.id}
       data-notification-updated-at={item.updatedAtMs}
+      data-notification-presented={presented}
       aria-hidden={exiting || undefined}
       inert={exiting || undefined}
     >
@@ -134,6 +136,9 @@ export function DesktopNotificationWindow() {
   const [exitingVersions, setExitingVersions] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
+  const [presentedVersions, setPresentedVersions] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
 
   const finishDismiss = useCallback((id: string, expectedUpdatedAtMs: number) => {
     const pending = exitTimersRef.current.get(id);
@@ -145,7 +150,8 @@ export function DesktopNotificationWindow() {
         }
         else replaceDesktopNotificationWindowSnapshot(snapshot);
       })
-      .catch(() => removeDesktopNotificationWindowItem(id, expectedUpdatedAtMs))
+      // Keep the native item on an IPC failure; the next timer can retry dismissal.
+      .catch(() => undefined)
       .finally(() => {
         setExitingVersions((current) => {
           if (current.get(id) !== expectedUpdatedAtMs) return current;
@@ -193,19 +199,32 @@ export function DesktopNotificationWindow() {
 
   useEffect(() => {
     let disposed = false;
+    let reading = false;
     let unlisten: () => void = () => undefined;
     const update = (snapshot: unknown) => {
       if (!disposed) replaceDesktopNotificationWindowSnapshot(snapshot);
+    };
+    const refresh = async () => {
+      if (disposed || reading) return;
+      reading = true;
+      try { update(await readDesktopNotificationWindowSnapshot()); }
+      catch { /* The next wake or poll retries the authoritative snapshot. */ }
+      finally { reading = false; }
     };
     void listenForDesktopNotificationWindowChanges(update)
       .then((stopListening) => {
         if (disposed) stopListening();
         else unlisten = stopListening;
       })
-      .catch(() => undefined);
-    void readDesktopNotificationWindowSnapshot().then(update).catch(() => undefined);
+      .catch(() => undefined)
+      .then(refresh);
+    // Events are wakeups, not a delivery guarantee. Recover missed events even when hidden.
+    const poll = isTauri() ? globalThis.setInterval(() => { void refresh(); }, 2_000) : undefined;
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       disposed = true;
+      globalThis.clearInterval(poll);
+      document.removeEventListener("visibilitychange", refresh);
       unlisten();
     };
   }, []);
@@ -229,15 +248,40 @@ export function DesktopNotificationWindow() {
       lastHeightRef.current = 0;
       return;
     }
-    let frame: number | undefined;
+    let disposed = false;
+    let inFlight = false;
+    let pending = false;
+    let forceNext = false;
+    let failures = 0;
+    let retry: ReturnType<typeof globalThis.setTimeout> | undefined;
     const updateLayout = (forcePosition: boolean) => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        frame = undefined;
-        const height = Math.ceil(stage.scrollHeight);
-        if (height <= 0 || (!forcePosition && height === lastHeightRef.current)) return;
+      if (disposed) return;
+      forceNext ||= forcePosition;
+      if (inFlight) { pending = true; return; }
+      const height = Math.ceil(stage.scrollHeight);
+      if (height <= 0 || (!forceNext && height === lastHeightRef.current)) return;
+      globalThis.clearTimeout(retry);
+      forceNext = false;
+      inFlight = true;
+      // Hidden WebView2 windows may stop rAF; showing the window must not depend on a frame.
+      void showDesktopNotificationWindow(height).then((shown) => {
+        if (disposed) return;
+        if (!shown) throw new Error("Notification window is not ready");
+        failures = 0;
         lastHeightRef.current = height;
-        void showDesktopNotificationWindow(height);
+        setPresentedVersions((current) => {
+          const next = new Map(notifications.map(({ id, updatedAtMs }) => [id, updatedAtMs]));
+          return next.size === current.size && [...next].every(([id, version]) => current.get(id) === version)
+            ? current : next;
+        });
+      }).catch(() => {
+        failures += 1;
+        if (!disposed) retry = globalThis.setTimeout(
+          () => updateLayout(true), Math.min(5000, 250 * 2 ** Math.min(failures - 1, 5)),
+        );
+      }).finally(() => {
+        inFlight = false;
+        if (pending && !disposed) { pending = false; updateLayout(false); }
       });
     };
     const observer = new ResizeObserver(() => updateLayout(false));
@@ -245,7 +289,8 @@ export function DesktopNotificationWindow() {
     updateLayout(true);
     return () => {
       observer.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
+      disposed = true;
+      globalThis.clearTimeout(retry);
     };
   }, [notifications]);
 
@@ -262,6 +307,7 @@ export function DesktopNotificationWindow() {
           key={item.id}
           item={item}
           exiting={exitingVersions.get(item.id) === item.updatedAtMs}
+          presented={presentedVersions.get(item.id) === item.updatedAtMs}
           onDismiss={dismiss}
           onOpen={open}
         />

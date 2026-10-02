@@ -24,7 +24,7 @@ export interface DesktopNotificationWindowSnapshot {
 type NotificationWindowListener = () => void;
 
 const isBoundedText = (value: unknown, maximum: number): value is string =>
-  typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
+  typeof value === "string" && value.trim().length > 0 && Array.from(value).length <= maximum;
 
 const parseDesktopNotificationAvatar = (
   value: unknown,
@@ -35,7 +35,7 @@ const parseDesktopNotificationAvatar = (
     !isBoundedText(candidate.label, 8) ||
     typeof candidate.color !== "string" ||
     !/^#[\da-f]{6}$/i.test(candidate.color) ||
-    (candidate.imagePath !== undefined && !isBoundedText(candidate.imagePath, 4_096))
+    (candidate.imagePath != null && !isBoundedText(candidate.imagePath, 4_096))
   ) return undefined;
   return {
     label: candidate.label,
@@ -108,7 +108,7 @@ const publish = () => {
 
 export const replaceDesktopNotificationWindowSnapshot = (value: unknown) => {
   const parsed = parseDesktopNotificationWindowSnapshot(value);
-  if (!parsed || parsed.revision < snapshotRevision) return snapshot;
+  if (!parsed || parsed.revision <= snapshotRevision) return snapshot;
   snapshotRevision = parsed.revision;
   snapshot = parsed.items;
   publish();
