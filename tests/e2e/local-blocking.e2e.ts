@@ -74,6 +74,8 @@ for (const width of [1280, 390]) {
     await page.evaluate(async () => {
       const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
       const state = telegramStore.getState(), messages = new Map(state.messages);
+      const users = new Map(state.users);
+      users.set("u-mia", { ...users.get("u-mia")!, displayName: "a" });
       const template = messages.get("chat-product")!.find(message => message.senderId === "u-mia")!;
       messages.set("chat-product", [0, 1, 2].map(index => ({
         ...template, id: `blocked-tag-${index}`, renderKey: undefined,
@@ -81,20 +83,30 @@ for (const width of [1280, 390]) {
         replyTo: undefined, forwardInfo: undefined, interaction: undefined, isPinned: false,
         content: { kind: "text" as const, text: "Brief message" },
       })));
-      telegramStore.setState({ messages });
+      telegramStore.setState({ messages, users });
     });
     await blockMia(page);
     const row = page.locator('[role="log"] [data-message-id="blocked-tag-0"]');
     const shell = row.locator(":scope > .message-bubble-shell");
     await expect(shell).toHaveClass(/is-local-block-concealed/);
     await expect(row.locator(".message-sender-label")).toBeHidden();
+    const alias = row.locator(".message-sender > span:not(.message-sender-size)");
+    await expect(alias).toHaveText("小熊");
+    expect(await alias.evaluate(element => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect().width - element.getBoundingClientRect().width;
+    })).toBeLessThanOrEqual(0.1);
     const masked = await row.boundingBox();
+    const maskedBubble = await shell.boundingBox();
     await shell.locator(".local-block-message-reveal").click();
     await expect(shell).not.toHaveClass(/is-local-block-concealed/);
     expect((await row.boundingBox())!.height).toBeCloseTo(masked!.height, 1);
     await page.getByRole("button", { name: /显示 小熊 的连续消息和真实身份/ }).click();
     await expect(row.locator(".message-sender-label")).toBeVisible();
+    await expect(row.locator(".message-sender > span:not(.message-sender-size)")).toHaveText("a");
     expect((await row.boundingBox())!.height).toBeCloseTo(masked!.height, 1);
+    expect((await shell.boundingBox())!.width).toBeCloseTo(maskedBubble!.width, 1);
   });
 }
 

@@ -648,7 +648,8 @@ Each account stores a per-user display mode with the existing local block record
 unknown modes retain the original `mask` behavior. Masking uses animal identities in groups and
 discussions and supports the existing temporary reveal scopes. Sender tags and album captions
 remain in layout while concealed; revealing a message or sender must not resize those surfaces.
-An invisible real-name sizing span keeps a short animal alias from changing the bubble width.
+Overlapping real-name and alias sizing spans reserve the wider identity before and after a reveal,
+so short real names cannot clip the animal alias or change the bubble width.
 Successful native metadata writes broadcast only the changed key; other windows reload the
 durable records and notify their existing subscribers. A delayed reload cannot replace a newer
 local edit. This keeps mode changes in the independent settings window visible in the chat window.

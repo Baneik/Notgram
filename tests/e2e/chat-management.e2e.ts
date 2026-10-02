@@ -537,13 +537,14 @@ test("locally masks a group member and reveals messages at the requested scope",
       fontSize: Number.parseFloat(labelStyle.fontSize),
       horizontalCenterDelta: (labelBounds.left + labelBounds.width / 2)
         - (avatarBounds.left + avatarBounds.width / 2),
-      translateY: new DOMMatrix(labelStyle.transform).m42,
+      verticalCenterDelta: (labelBounds.top + labelBounds.height / 2)
+        - (avatarBounds.top + avatarBounds.height / 2),
       backgroundColor: avatarStyle.backgroundColor,
     };
   });
   expect(animalAvatarLayout.fontSize).toBeGreaterThanOrEqual(24);
   expect(Math.abs(animalAvatarLayout.horizontalCenterDelta)).toBeLessThan(0.1);
-  expect(animalAvatarLayout.translateY).toBe(-3);
+  expect(Math.abs(animalAvatarLayout.verticalCenterDelta)).toBeLessThan(0.1);
   expect(animalAvatarLayout.backgroundColor).toBe("rgb(255, 255, 255)");
   const groupId = await animalAvatar
     .locator("xpath=ancestor::*[contains(@class, 'message-group')]")

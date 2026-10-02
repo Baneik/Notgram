@@ -2824,7 +2824,8 @@ export function Conversation({
                         senderName={isChannelConversation ? chat.title : displayedSenderName}
                         senderLabel={message.senderTag || memberLabels.get(message.senderId)}
                         senderLabelConcealed={Boolean(blockedUser && !blockedGroupRevealed)}
-                        senderLayoutName={blockedUser ? senderNameForMessage(message, users, chat, forwardTargetsById) : undefined}
+                        senderLayoutName={blockedUser ? blockedGroupRevealed ? blockedUser.alias
+                          : senderNameForMessage(message, users, chat, forwardTargetsById) : undefined}
                         senderIsAdministrator={senderIsAdministrator}
                         senderProfileAvailable={
                           !message.outgoing &&

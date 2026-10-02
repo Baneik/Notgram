@@ -608,7 +608,7 @@ export function ChannelDiscussionPanel({
                 {!comment.outgoing && comment.content.kind !== "service" && comment.content.kind !== "unsupported" && (
                   <span className="message-group-avatar">
                     <button
-                      className="message-sender-avatar"
+                      className={`message-sender-avatar ${blocked ? "is-local-block-alias" : ""}`.trim()}
                       type="button"
                       aria-label={translate("查看 {{value0}} 的资料", { value0: senderName })}
                       title={translate("查看资料")}
