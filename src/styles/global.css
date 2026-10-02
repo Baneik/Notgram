@@ -3339,6 +3339,8 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .blocked-sender-row strong, .blocked-sender-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .blocked-sender-row strong { font-size: 12px; }
 .blocked-sender-row small { color: var(--muted); font-size: 10px; }
+/* Keep two-line local block entries from shrinking inside the fixed-height list. */
+.local-blocked-user-list { grid-auto-rows: max-content; }
 .local-blocked-user-list .blocked-sender-row > select { grid-column: 2; grid-row: 2; min-width: 0; width: 100%; padding: 5px 8px; color: var(--ink); background: var(--color-bg-elevated); border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
 .local-blocked-user-list .blocked-sender-row > button { grid-column: 3; grid-row: 1 / 3; }
 .settings-empty, .settings-help { margin: 0; color: var(--muted); font-size: 12px; }
