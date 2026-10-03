@@ -122,6 +122,10 @@ virtual row. Measure the actual card/tile bounds including app zoom and device p
 asset requests generate PNG previews on a blocking worker with footprint-aware Triangle resampling;
 album tiles crop centrally before resizing, while individual cards preserve the original ratio.
 The original dimensions continue to own geometry and the viewer still requests the original file.
+The conversation photo host and its image layers fill the reserved frame out of flow.
+Paint containment and an explicit inset clip keep prepared, retained, and restored pixels
+inside that frame during decode, resize, zoom, and snapshot capture. Captions and following
+messages must never become part of a photo layer's drawable area.
 Non-native fixtures and local browser sources use a cancellable OffscreenCanvas worker with staged
 downsampling. Unsupported codecs fall back to the existing original/error recovery path.
 
