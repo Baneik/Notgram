@@ -294,7 +294,7 @@ test("stacked reply, attachments and choosers fit a narrow offline composer", as
       boxes.slice(1).every((box, index) => box.top >= boxes[index].bottom - 1) &&
       grid.scrollHeight > grid.clientHeight && card.height > 80 && wrap.scrollWidth <= wrap.clientWidth;
   })).toBe(true);
-  await expect(page.getByRole("button", { name: "发送附件", exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "发送消息", exact: true })).toBeInViewport();
 
   // Finish attachment entrance and consecutive resize-observer deliveries before
   // attributing any geometry changes to connection feedback.

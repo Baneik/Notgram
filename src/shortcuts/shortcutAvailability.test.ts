@@ -5,6 +5,13 @@ import { checkShortcutAvailability } from "./shortcutAvailability";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn(() => true) }));
 afterEach(() => vi.clearAllMocks());
 
+it("accepts local Tab without probing or registering a global hotkey", async () => {
+  vi.mocked(isTauri).mockReturnValue(false);
+  await expect(checkShortcutAvailability("Tab")).resolves.toBe("available");
+  expect(invoke).not.toHaveBeenCalled();
+  vi.mocked(isTauri).mockReturnValue(true);
+});
+
 it("passes normalized modifiers to the native check and preserves conflicts", async () => {
   vi.mocked(invoke).mockResolvedValue("conflict");
   await expect(checkShortcutAvailability("Ctrl+Shift+KeyG")).resolves.toBe("conflict");

@@ -25,7 +25,12 @@ Preferences persist bindings and synchronize them with the standalone settings
 window. Navigation dispatch lives in `useAppShortcuts`; it only consumes a matching
 combination, and preserves composition, active dialogs and menus. A usable cached
 workspace accepts navigation while the transport reconnects. Tab remains reserved
-for explicit completion and cannot be assigned to a navigation action.
+for explicit completion and cannot be assigned to a navigation action. The local
+"Toggle media send mode" action defaults to bare Tab. It operates only within an
+active composer's staged attachments when the whole batch supports media. It yields
+to IME, text completion, foreground choosers, menus and modals, ignores key repeat,
+and leaves modified Tab and the existing WebView Tab behavior intact. Entering file
+mode clears spoiler and mute-video options, matching the radio controls.
 
 The recorder consumes keys before editor/search commands and the WebView guard.
 Escape, blur, switching controls and unmount invalidate pending checks. Saving
@@ -34,6 +39,7 @@ on a dedicated thread and immediately unregisters it. These are foreground app
 shortcuts; the probe never installs a persistent global binding. The probe detects
 registered global hotkeys at that instant, not arbitrary keyboard hooks or later
 registrations. Unsupported environments and native errors must not report success.
+Bare Tab is checked locally and never probed or registered as a global hotkey.
 
 Folder buttons and shortcuts change only the sidebar folder and close search;
 the open conversation, draft, reading position and forum topic remain in place,
@@ -126,6 +132,11 @@ sending cannot consume the edit text. Choosers anchor above the actual editor he
 and fit below the owning conversation header. Only the foreground chooser handles
 selection keys; opening the emoji picker suspends text suggestions until it closes.
 Constrained attachment grids scroll without shrinking cards or hiding send controls.
+Staging contains only previews, send options and exceptional limit feedback; sending
+uses the composer button or its existing Enter shortcut. Escape within this surface
+discards all staged attachments, closes their preview session, revokes preview URLs,
+clears the durable attachment draft and restores composer focus. Caption text and
+reply context remain available. Sending/restoration and active modals retain key ownership.
 
 Draft synchronization compares text entities by their content, independent of object
 field order and entity order from the editor or native mapper. Matching server echoes

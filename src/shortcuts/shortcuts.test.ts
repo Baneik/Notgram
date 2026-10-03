@@ -9,6 +9,7 @@ describe("application shortcut bindings", () => {
     expect(shortcutActionForEvent(key("ArrowUp"), defaultShortcutBindings)).toBe("previousChat");
     expect(shortcutActionForEvent(key("PageDown"), defaultShortcutBindings)).toBe("nextFolder");
     expect(shortcutActionForEvent(key("KeyR"), defaultShortcutBindings)).toBe("editLastMessage");
+    expect(shortcutActionForEvent(key("Tab", { ctrlKey: false }), defaultShortcutBindings)).toBe("toggleMediaSendMode");
     expect(shortcutActionForEvent(key("ArrowUp", { shiftKey: true }), defaultShortcutBindings)).toBeUndefined();
     expect(shortcutActionForEvent(key("ArrowUp", { ctrlKey: false }), defaultShortcutBindings)).toBeUndefined();
     expect(formatShortcut(defaultShortcutBindings.previousChat)).toBe("Ctrl + ↑");
@@ -29,7 +30,7 @@ describe("application shortcut bindings", () => {
   it("migrates absent data and sanitizes corrupt and duplicate bindings", () => {
     expect(normalizeShortcutBindings(undefined)).toEqual(defaultShortcutBindings);
     expect(normalizeShortcutBindings({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: "Ctrl+ArrowUp", nextFolder: "oops" }))
-      .toEqual({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: null, nextFolder: "Ctrl+PageDown", editLastMessage: "Ctrl+KeyR" });
+      .toEqual({ previousChat: null, nextChat: "Ctrl+ArrowUp", previousFolder: null, nextFolder: "Ctrl+PageDown", editLastMessage: "Ctrl+KeyR", toggleMediaSendMode: "Tab" });
     expect(parseShortcut("Shift+Ctrl+KeyG")).toBeUndefined();
     expect(parseShortcut("Ctrl+Ctrl+KeyG")).toBeUndefined();
   });
@@ -38,5 +39,16 @@ describe("application shortcut bindings", () => {
     expect(normalizeShortcutBindings({ editLastMessage: null }).editLastMessage).toBeNull();
     expect(shortcutValidationError("Ctrl+Shift+KeyR")).toBeTruthy();
     expect(normalizeShortcutBindings({ previousChat: "Ctrl+KeyR" }).editLastMessage).toBeNull();
+  });
+  it("permits bare Tab only for media mode and migrates existing bindings", () => {
+    expect(shortcutValidationError("Tab", "toggleMediaSendMode")).toBeUndefined();
+    expect(shortcutValidationError("Tab", "previousChat")).toBeTruthy();
+    expect(shortcutValidationError("Shift+Tab", "toggleMediaSendMode")).toBeTruthy();
+    expect(shortcutValidationError("Ctrl+Tab", "toggleMediaSendMode")).toBeTruthy();
+    expect(normalizeShortcutBindings({ previousChat: "Tab" }).previousChat).toBe("Ctrl+ArrowUp");
+    expect(normalizeShortcutBindings({ editLastMessage: null }).toggleMediaSendMode).toBe("Tab");
+    expect(normalizeShortcutBindings({ toggleMediaSendMode: "Ctrl+Shift+KeyG" }).toggleMediaSendMode).toBe("Ctrl+Shift+KeyG");
+    expect(normalizeShortcutBindings({ toggleMediaSendMode: null }).toggleMediaSendMode).toBeNull();
+    expect(normalizeShortcutBindings({ nextChat: "Ctrl+Shift+KeyG", toggleMediaSendMode: "Ctrl+Shift+KeyG" }).toggleMediaSendMode).toBeNull();
   });
 });

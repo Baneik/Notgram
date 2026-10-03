@@ -34,7 +34,7 @@ test("offline attachments survive restart and can be cancelled", { tag: "@smoke"
     }));
   });
   await composer.fill("离线附件说明");
-  await page.getByRole("button", { name: "发送附件" }).click();
+  await page.getByRole("button", { name: "发送消息" }).click();
 
   await expect(page.locator(".composer-outbox-status"))
     .toContainText("1 个附件将在联网后上传");

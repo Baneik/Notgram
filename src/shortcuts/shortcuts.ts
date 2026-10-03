@@ -6,6 +6,7 @@ export const shortcutActions = [
   { id: "previousFolder", label: () => translate("上一个文件夹"), defaultBinding: "Ctrl+PageUp" },
   { id: "nextFolder", label: () => translate("下一个文件夹"), defaultBinding: "Ctrl+PageDown" },
   { id: "editLastMessage", label: () => translate("重新编辑上一条消息"), defaultBinding: "Ctrl+KeyR" },
+  { id: "toggleMediaSendMode", label: () => translate("切换媒体发送模式"), defaultBinding: "Tab" },
 ] as const;
 
 export type ShortcutAction = typeof shortcutActions[number]["id"];
@@ -16,7 +17,7 @@ export const defaultShortcutBindings = Object.fromEntries(
 
 type KeyEvent = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey" | "isComposing" | "keyCode"> &
   Partial<Pick<KeyboardEvent, "getModifierState">>;
-const supportedCode = /^(Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|2[0-4])|Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End|Insert|Delete|Backspace|Space)$/;
+const supportedCode = /^(Key[A-Z]|Digit[0-9]|F([1-9]|1[0-9]|2[0-4])|Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End|Insert|Delete|Backspace|Space|Tab)$/;
 const modifierOrder = ["Ctrl", "Alt", "Shift", "Meta"];
 
 export const shortcutFromEvent = (event: KeyEvent): string | undefined => {
@@ -39,9 +40,13 @@ export const parseShortcut = (binding: string) => {
 };
 
 // Preserve text editing, composer formatting and the application's existing commands.
-export const shortcutValidationError = (binding: string): string | undefined => {
+export const shortcutValidationError = (binding: string, action?: ShortcutAction): string | undefined => {
   const parsed = parseShortcut(binding);
   if (!parsed) return translate("请选择组合键或功能键");
+  if (parsed.code === "Tab") {
+    return action === "toggleMediaSendMode" && binding === "Tab"
+      ? undefined : translate("此快捷键已被应用占用");
+  }
   if (parsed.meta || parsed.code === "F12" ||
     (parsed.alt && ["F4", "Space"].includes(parsed.code)) ||
     (parsed.ctrl && parsed.alt && parsed.code === "Delete")) return translate("此快捷键由系统保留");
@@ -60,7 +65,7 @@ export const normalizeShortcutBindings = (value: unknown): ShortcutBindings => {
   const used = new Set<string>();
   for (const action of shortcutActions) {
     const binding = source[action.id];
-    const candidate = binding === null ? null : typeof binding === "string" && !shortcutValidationError(binding)
+    const candidate = binding === null ? null : typeof binding === "string" && !shortcutValidationError(binding, action.id)
       ? binding : action.defaultBinding;
     result[action.id] = candidate && used.has(candidate) ? null : candidate;
     if (result[action.id]) used.add(result[action.id]!);

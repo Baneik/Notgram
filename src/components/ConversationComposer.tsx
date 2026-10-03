@@ -47,6 +47,8 @@ import {
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { shortcutActionForEvent } from "../shortcuts/shortcuts";
 import { equalFormattedText } from "../utils/formattedText";
+import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
+import { isBlockedWebviewShortcut } from "../utils/webviewGuards";
 import { useTelegramStore } from "../store/telegramStore";
 import { colorThemeForThemeId } from "../theme/theme";
 import type { AttachmentSendMode, BotCommandSuggestion, ConnectionStatus, InlineQueryResultPage, Message, MessageReplyQuote, MessageTextEntity, OutgoingAttachment, User } from "../telegram/types";
@@ -991,6 +993,19 @@ export const ConversationComposer = memo(function ConversationComposer({
     focusComposer();
   }, [closeAttachmentPreviewSession, focusComposer, persistPendingAttachments, updateAttachmentOptions]);
 
+  const discardPendingAttachments = useCallback(() => {
+    closeAttachmentPreviewSession();
+    for (const pending of pendingAttachmentsRef.current) {
+      if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+    }
+    pendingAttachmentsRef.current = [];
+    setPendingAttachments([]);
+    setAttachmentNotice(undefined);
+    persistPendingAttachments([]);
+    updateAttachmentOptions({ mode: "media", hasSpoiler: false, muteVideos: false });
+    focusComposer();
+  }, [closeAttachmentPreviewSession, focusComposer, persistPendingAttachments, updateAttachmentOptions]);
+
   const sendPendingAttachments = async () => {
     if (editingMessage || sending || attachmentPending || pendingAttachments.length === 0) return;
     const restoreFocus = focus.capture();
@@ -1257,6 +1272,25 @@ export const ConversationComposer = memo(function ConversationComposer({
       onDragOver={handleFileDragOver}
       onDragLeave={handleFileDragLeave}
       onDrop={handleFileDrop}
+      onKeyDownCapture={(event) => {
+        const native = event.nativeEvent;
+        if (inert || editingMessage || sending || attachmentPending || pendingAttachments.length === 0 ||
+          native.isComposing || native.keyCode === 229 || composingRef.current || activeModal() ||
+          [...document.querySelectorAll<HTMLElement>('[role="menu"]')].some(isAvailableFocusTarget)) return;
+        // The WebView guard cancels Tab/browser defaults but forwards local actions.
+        if (event.defaultPrevented && event.key !== "Tab" && !isBlockedWebviewShortcut(native)) return;
+        const escape = event.key === "Escape" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+        const toggle = shortcutActionForEvent(native, preferencesStore.getState().shortcuts) === "toggleMediaSendMode";
+        if (!escape && (!toggle || !mediaModeAvailable)) return;
+        if (emojiPickerOpen || (event.target === inputRef.current && event.key === "Tab" &&
+          (showMentionPanel || showBotPanel || showInlinePanel))) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (escape) discardPendingAttachments();
+        else updateAttachmentOptions(attachmentModeRef.current === "media"
+          ? { mode: "file", hasSpoiler: false, muteVideos: false } : { mode: "media" });
+      }}
     >
       <MotionPresence present={emojiPickerOpen && !editingMessage} variant="popover">
         {emojiPickerOpen && !editingMessage ? (
@@ -1338,10 +1372,6 @@ export const ConversationComposer = memo(function ConversationComposer({
       )}
       {pendingAttachments.length > 0 && !editingMessage && (
         <section className="composer-attachment-preview" aria-label={translate("待发送附件")}>
-          <header className="composer-attachment-header">
-            <strong>{translate("待发送")}</strong>
-            <span>{translate("{{value0}} 个附件", { value0: pendingAttachments.length })}</span>
-          </header>
           <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
             {pendingAttachments.map((pending) => {
               const { attachment } = pending;
@@ -1436,20 +1466,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 />{translate("作为静音动画")}</label>
             )}
           </div>
-          <footer>
-            <span role={attachmentNotice ? "alert" : "status"}>
-              {attachmentNotice ?? `${pendingAttachments.length} / ${TELEGRAM_ALBUM_MAX_ITEMS}`}
-            </span>
-            <button
-              className="dialog-primary"
-              type="button"
-              disabled={attachmentPending}
-              onClick={() => void sendPendingAttachments()}
-            >
-              {showAttachmentPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
-              <span>{translate("发送附件")}</span>
-            </button>
-          </footer>
+          {attachmentNotice && <span className="composer-attachment-notice" role="alert">{attachmentNotice}</span>}
         </section>
       )}
       <MotionPresence present={showMentionPanel} variant="popover">

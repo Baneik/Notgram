@@ -22,7 +22,7 @@ export function ShortcutSettings() {
   const save = async (action: ShortcutAction, binding: string) => {
     const id = ++request.current;
     setPending(undefined);
-    const localError = shortcutValidationError(binding);
+    const localError = shortcutValidationError(binding, action);
     const duplicate = () => shortcutActions.find(candidate => candidate.id !== action &&
       preferencesStore.getState().shortcuts[candidate.id] === binding);
     const conflict = duplicate();
@@ -84,7 +84,7 @@ export function ShortcutSettings() {
           <Keyboard size={18} strokeWidth={1.8} />
           <div>
             <h4 id="shortcuts-heading">{translate("快捷键")}</h4>
-            <span>{translate("自定义会话、文件夹切换与消息编辑按键")}</span>
+            <span>{translate("自定义会话、文件夹切换、消息编辑与媒体发送模式按键")}</span>
           </div>
         </div>
         <div className="preference-list">

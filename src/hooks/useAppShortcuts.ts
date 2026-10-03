@@ -28,7 +28,7 @@ export function useAppShortcuts(selectChat: (id: string) => void, selectFolder: 
       // WebView guards cancel browser defaults but forward registered app actions.
       if ((event.defaultPrevented && !isBlockedWebviewShortcut(event)) || composing || document.hidden) return;
       const action = shortcutActionForEvent(event, preferencesStore.getState().shortcuts);
-      if (!action || action === "editLastMessage") return;
+      if (!action || action === "editLastMessage" || action === "toggleMediaSendMode") return;
       const state = telegramStore.getState();
       if (!state.chatListReady || !["ready", "preparing"].includes(state.authorization.kind) ||
         state.accountSwitching || activeModal() ||
