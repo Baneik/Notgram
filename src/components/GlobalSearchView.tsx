@@ -7,7 +7,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { GlobalSearchState } from "../store/globalSearchState";
 import { messageContentText } from "../telegram/messageContent";
@@ -15,6 +15,7 @@ import type { Chat, GlobalSearchFilter, Message, User } from "../telegram/types"
 import { formatChatTime } from "../utils/formatters";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 import { useStableVisibility } from "../hooks/useStableVisibility";
+import { useElementVisibility } from "../hooks/useElementVisibility";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { messageSearchSender, messageSearchSource } from "./searchMessagePresentation";
@@ -45,6 +46,55 @@ const filters: Array<{ id: GlobalSearchFilter; label: string }> = [
 export interface SidebarSearchSenderOption {
   id: string;
   label: string;
+}
+
+function SearchPagination({
+  nextCursor,
+  loading,
+  error,
+  onLoadMore,
+}: {
+  nextCursor?: string;
+  loading: boolean;
+  error?: string;
+  onLoadMore: () => Promise<void>;
+}) {
+  const [sentinelRef, nearEnd] = useElementVisibility<HTMLDivElement>("0px 0px 96px 0px", ".global-search-results");
+  const sentinelElement = useRef<HTMLDivElement | null>(null);
+  const paginationRef = useCallback((element: HTMLDivElement | null) => {
+    sentinelElement.current = element;
+    return sentinelRef(element);
+  }, [sentinelRef]);
+  const requestedCursor = useRef<string | undefined>(undefined);
+  const showLoading = useStableVisibility(loading, { minimumVisible: 220 });
+
+  useEffect(() => {
+    if (!nearEnd || !nextCursor || loading || error || requestedCursor.current === nextCursor) return;
+    const list = sentinelElement.current?.closest(".global-search-results");
+    // Intersection callbacks can lag behind appended rows; check the current scroll geometry.
+    if (!list || list.scrollHeight - list.clientHeight - list.scrollTop > 96) return;
+    // A repeated cursor must not create an automatic request loop; failures use explicit retry.
+    requestedCursor.current = nextCursor;
+    void onLoadMore();
+  }, [error, loading, nearEnd, nextCursor, onLoadMore]);
+
+  const showError = Boolean(error && nextCursor);
+  return (
+    <div ref={paginationRef} className="global-search-pagination">
+      <MotionPresence present={showLoading || showError} variant="status">
+        {showError ? (
+          <div className="global-search-pagination-error" role="alert">
+            <span>{error}</span>
+            <button className="dialog-secondary" type="button" onClick={() => void onLoadMore()}>{translate("重试")}</button>
+          </div>
+        ) : showLoading ? (
+          <div className="global-search-pagination-loading" role="status" aria-label={translate("正在加载")}>
+            <LoaderCircle className="spin" size={18} />
+          </div>
+        ) : null}
+      </MotionPresence>
+    </div>
+  );
 }
 
 function ChatSearchSenderPicker({
@@ -229,10 +279,9 @@ export function ChatSearchResults({
   const total = hiddenUserIds.size > 0 ? messages.length : state.totalCount ?? messages.length;
   const primaryLoading = !stateMatchesInput || (state.loading && state.messages.length === 0);
   const showLoading = useStableVisibility(primaryLoading);
-  const showLoadingMore = useStableVisibility(state.loadingMore, { minimumVisible: 220 });
   const prompt = stateMatchesInput && !state.loading && !state.error && query.trim() === "" && !senderId;
   const empty = stateMatchesInput && !state.loading && !state.error && messages.length === 0 && Boolean(query.trim() || senderId);
-  const statusKind = showLoading ? "loading" : state.error && stateMatchesInput
+  const statusKind = showLoading ? "loading" : state.error && stateMatchesInput && !state.nextFromMessageId
     ? "error"
     : prompt ? "prompt" : empty ? "empty" : undefined;
   return (
@@ -240,7 +289,7 @@ export function ChatSearchResults({
       <div className="global-search-controls chat-search-controls">
         <ChatSearchSenderPicker senderId={senderId} options={senderOptions} onChange={onSenderChange} />
       </div>
-      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
+      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading || state.loadingMore} data-search-state={primaryLoading ? "updating" : "settled"}>
         {stateMatchesInput && !showLoading && messages.length > 0 && (
           <section className="global-result-section" aria-labelledby="chat-message-results">
             <h2 id="chat-message-results">{translate("{{value0}} 中的消息", { value0: chat.title })}<span>{total}</span></h2>
@@ -268,11 +317,14 @@ export function ChatSearchResults({
             </div>
           ) : null}
         </MotionPresence>
-        {stateMatchesInput && state.nextFromMessageId && (
-          <button className="global-search-more" type="button" disabled={state.loadingMore} onClick={() => void onLoadMore()}>
-            {showLoadingMore && <LoaderCircle className="spin" size={16} />}
-            <span>{translate("加载更多")}</span>
-          </button>
+        {stateMatchesInput && !showLoading && state.nextFromMessageId && (
+          <SearchPagination
+            key={JSON.stringify([accountId, chat.id, query.trim(), senderId])}
+            nextCursor={state.nextFromMessageId}
+            loading={state.loadingMore}
+            error={state.error}
+            onLoadMore={onLoadMore}
+          />
         )}
       </div>
     </section>
@@ -313,11 +365,10 @@ export function GlobalSearchResults({
     ...knownChats,
     ...chats.map((chat) => [chat.id, chat] as const),
   ]), [chats, knownChats]);
-  const primaryLoading = (!current || state.loading) && messages.length === 0 && matchingChats.length === 0;
+  const primaryLoading = (!current || (state.loading && !state.nextOffset)) && messages.length === 0 && matchingChats.length === 0;
   const showLoading = useStableVisibility(primaryLoading);
-  const showLoadingMore = useStableVisibility(current && state.loading && Boolean(state.nextOffset), { minimumVisible: 220 });
   const empty = current && !state.loading && !state.error && Boolean(normalizedQuery) && matchingChats.length === 0 && messages.length === 0;
-  const statusKind = showLoading ? "loading" : current && state.error ? "error" : empty ? "empty" : undefined;
+  const statusKind = showLoading ? "loading" : current && state.error && !state.nextOffset ? "error" : empty ? "empty" : undefined;
 
   useEffect(() => {
     if (!normalizedQuery || current) return;
@@ -356,7 +407,7 @@ export function GlobalSearchResults({
           ))}
         </div>
       </div>
-      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading} data-search-state={primaryLoading ? "updating" : "settled"}>
+      <div className="global-search-results" aria-live="polite" aria-busy={primaryLoading || (current && state.loading)} data-search-state={primaryLoading ? "updating" : "settled"}>
         {!showLoading && matchingChats.length > 0 && (
           <section className="global-result-section" aria-labelledby="global-chat-results">
             <h2 id="global-chat-results">{translate("聊天")}</h2>
@@ -401,16 +452,14 @@ export function GlobalSearchResults({
             </div>
           ) : null}
         </MotionPresence>
-        {current && state.nextOffset && (
-          <button
-            className="global-search-more"
-            type="button"
-            disabled={state.loading}
-            onClick={() => void onLoadMore()}
-          >
-            {showLoadingMore && <LoaderCircle className="spin" size={16} />}
-            <span>{translate("加载更多")}</span>
-          </button>
+        {current && !showLoading && state.nextOffset && (
+          <SearchPagination
+            key={JSON.stringify([accountId, normalizedQuery, filter])}
+            nextCursor={state.nextOffset}
+            loading={state.loading}
+            error={state.error}
+            onLoadMore={onLoadMore}
+          />
         )}
       </div>
     </section>

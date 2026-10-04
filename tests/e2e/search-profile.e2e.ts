@@ -11,7 +11,8 @@ test("search paginates, filters the current conversation by member, and opens ex
   await expect(search).toBeFocused();
   await search.fill("产品讨论历史消息");
   await expect(page.locator("[data-search-message-id]")).toHaveCount(30);
-  await page.getByRole("button", { name: "加载更多" }).click();
+  await expect(page.getByRole("button", { name: "加载更多" })).toHaveCount(0);
+  await page.locator(".global-search-results").evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(page.locator("[data-search-message-id]")).toHaveCount(36);
 
   await search.fill("产品讨论历史消息 36");
@@ -81,7 +82,7 @@ test("search paginates, filters the current conversation by member, and opens ex
     globalThis as typeof globalThis & { __notgramChatSearchCalls?: number }
   ).__notgramChatSearchCalls)).toBe(1);
   await expect(page.getByRole("log", { name: "消息列表" })).toBeVisible();
-  await page.locator(".chat-search-results-panel").getByRole("button", { name: "加载更多" }).click();
+  await page.locator(".chat-search-results-panel .global-search-results").evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(scopedResults).toHaveCount(36);
 
   const newestSearchResult = page.locator('.chat-search-results-panel [data-search-message-id="p-old-36"]');

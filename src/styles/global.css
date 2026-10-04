@@ -587,8 +587,8 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-search-results[data-search-state="updating"] > .global-result-section,
 .shared-media-results[data-search-state="updating"] > .shared-media-item { opacity: 0.72; }
 .global-result-section { width: min(100%, 900px); margin: 0 auto; padding-top: 15px; }
-.global-result-section h2 { margin: 0 0 7px; display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 650; }
-.global-result-section h2 span { color: var(--subtle); font-size: 10px; font-weight: 500; }
+.global-result-section h2 { margin: 0 0 7px; display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.global-result-section h2 span { color: var(--subtle); font-size: 11px; font-weight: 500; }
 .global-chat-results, .global-message-results { border-top: 1px solid var(--line); }
 .global-chat-result, .global-message-result {
   width: 100%; min-width: 0; color: var(--ink); text-align: left; background: var(--color-bg-surface); border: 0; border-bottom: 1px solid var(--line); cursor: pointer;
@@ -597,20 +597,21 @@ html.is-reordering-pinned, html.is-reordering-pinned * { cursor: grabbing !impor
 .global-chat-result { min-height: 64px; padding: 7px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .global-chat-result > span:last-child { min-width: 0; display: grid; gap: 3px; }
 .global-chat-result strong, .global-chat-result small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.global-chat-result strong { font-size: 13px; }
-.global-chat-result small { color: var(--muted); font-size: 11px; }
+.global-chat-result strong { font-size: 14px; }
+.global-chat-result small { color: var(--muted); font-size: 12px; }
 .global-message-result { min-height: 62px; padding: 8px 10px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; }
 .global-message-result > .avatar-small { width: 32px; height: 32px; }
 .global-message-result-copy { min-width: 0; display: grid; gap: 5px; }
 .global-message-result-copy > span { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.global-message-result-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.global-message-result-copy time { flex: 0 0 auto; color: var(--subtle); font-size: 10px; }
-.global-message-result-copy small { min-width: 0; display: block; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.global-message-result-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.global-message-result-copy time { flex: 0 0 auto; color: var(--subtle); font-size: 11px; }
+.global-message-result-copy small { min-width: 0; display: block; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .global-message-result-sender { color: var(--color-text-link); font-weight: 650; }
 .global-search-state { min-height: 180px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .global-search-state.is-error { color: var(--color-status-danger); }
-.global-search-more { min-width: 120px; min-height: 38px; margin: 18px auto 0; padding: 0 14px; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--accent); background: var(--color-bg-surface); border: 1px solid var(--accent); border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 650; }
-.global-search-more:disabled { opacity: 0.55; cursor: default; }
+.global-search-pagination { min-height: 1px; }
+.global-search-pagination-loading { min-height: 38px; margin-top: 10px; display: grid; place-items: center; color: var(--accent); }
+.global-search-pagination-error { padding: 12px 6px 0; display: grid; justify-items: center; gap: 9px; color: var(--color-status-danger); font-size: 12px; overflow-wrap: anywhere; }
 .global-search-results-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .global-search-results-panel .global-search-controls { padding: 0 12px 9px; }
 .global-search-results-panel .global-search-filters { width: 100%; }
