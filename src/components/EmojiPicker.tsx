@@ -3,6 +3,7 @@ import { Clock3, Images, LoaderCircle, Search, Sticker, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -86,10 +87,12 @@ function LazyEmojiAsset({
   asset,
   onSelect,
   autoplay,
+  sending,
 }: {
   asset: EmojiPickerAsset;
   onSelect: (asset: EmojiPickerAsset) => void;
   autoplay: boolean;
+  sending: boolean;
 }) {
   const label = asset.kind === "animation" ? translate("发送 GIF") : translate("发送贴纸 {{value0}}", { value0: asset.emoji ?? "" }).trim();
 
@@ -99,9 +102,12 @@ function LazyEmojiAsset({
       type="button"
       aria-label={label}
       title={label}
+      disabled={sending}
+      aria-busy={sending}
       onClick={() => onSelect(asset)}
     >
       <EmojiAssetVisual asset={asset} autoplay={autoplay} label={label} />
+      {sending && <LoaderCircle className="emoji-asset-sending spin" size={18} />}
     </button>
   );
 }
@@ -127,6 +133,7 @@ export function EmojiPicker({
   const searchStickers = useTelegramStore((state) => state.searchStickers);
   const sendSticker = useTelegramStore((state) => state.sendSticker);
   const sendAnimation = useTelegramStore((state) => state.sendAnimation);
+  const accountId = useTelegramStore((state) => state.activeAccountId);
   const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
     state.autoplayAnimations,
     state,
@@ -144,7 +151,16 @@ export function EmojiPicker({
   const [failedStickerSetIds, setFailedStickerSetIds] = useState<Set<string>>(() => new Set());
   const [searchResult, setSearchResult] = useState<{ query: string; assets?: EmojiPickerAsset[] }>();
   const [retryRevision, setRetryRevision] = useState(0);
-  const [sendingAssetId, setSendingAssetId] = useState<string>();
+  const pendingAssets = useMemo(() => new Set<number>(), [accountId, chatId]);
+  const pendingOwner = useRef(pendingAssets);
+  const [sendingAssetIds, setSendingAssetIds] = useState<ReadonlySet<number>>(() => new Set());
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    pendingOwner.current = pendingAssets;
+    setSendingAssetIds(new Set());
+    return () => { mounted.current = false; };
+  }, [pendingAssets]);
   const selectedStickerSet = getCachedStickerSet(selectedStickerSetId)
     ?? (loadedStickerSet?.id === selectedStickerSetId ? loadedStickerSet : undefined);
 
@@ -240,19 +256,25 @@ export function EmojiPicker({
   }, [onEmoji, onRequestComposerFocus, recentEmojis]);
 
   const sendAsset = useCallback(async (asset: EmojiPickerAsset) => {
-    if (sendingAssetId) return;
+    if (!mounted.current || pendingAssets.has(asset.fileId)) return;
     const restoreFocus = onCaptureComposerFocus();
-    setSendingAssetId(asset.id);
+    pendingAssets.add(asset.fileId);
+    setSendingAssetIds(new Set(pendingAssets));
     const sent = asset.kind === "animation"
       ? await sendAnimation(asset, replyToMessageId, replyQuote, chatId, disableNotification)
       : await sendSticker(asset, replyToMessageId, replyQuote, chatId, disableNotification);
-    setSendingAssetId(undefined);
+    pendingAssets.delete(asset.fileId);
+    // An acknowledgement from a closed or replaced picker cannot clear a new
+    // reply, dismiss another conversation's picker, or steal composer focus.
+    if (!mounted.current || pendingOwner.current !== pendingAssets) return;
+    setSendingAssetIds(new Set(pendingAssets));
     if (sent) {
+      mounted.current = false;
       onClose();
       onAssetSent();
       restoreFocus();
     }
-  }, [chatId, disableNotification, onAssetSent, onClose, onCaptureComposerFocus, replyQuote, replyToMessageId, sendAnimation, sendSticker, sendingAssetId]);
+  }, [chatId, disableNotification, onAssetSent, onClose, onCaptureComposerFocus, pendingAssets, replyQuote, replyToMessageId, sendAnimation, sendSticker]);
 
   const closeAndRestoreComposerFocus = () => {
     onClose();
@@ -330,7 +352,7 @@ export function EmojiPicker({
               </div>
             ) : stickerAssets.length > 0 ? (
               <div className="emoji-asset-grid">
-                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />)}
+                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} sending={sendingAssetIds.has(asset.fileId)} onSelect={(value) => void sendAsset(value)} />)}
               </div>
             ) : <div className="emoji-picker-empty">{translate("没有可用的贴纸")}</div>}
           </section>
@@ -340,7 +362,7 @@ export function EmojiPicker({
             {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).length > 0 ? (
               <div className="emoji-animation-grid">
                 {(catalog?.savedAnimations ?? []).filter((asset) => !normalizedQuery || asset.fileName.toLocaleLowerCase().includes(normalizedQuery)).map((asset) => (
-                  <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} onSelect={(value) => void sendAsset(value)} />
+                  <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} sending={sendingAssetIds.has(asset.fileId)} onSelect={(value) => void sendAsset(value)} />
                 ))}
               </div>
             ) : <div className="emoji-picker-empty">{translate("没有已保存的 GIF")}</div>}
@@ -373,8 +395,6 @@ export function EmojiPicker({
           <button className="is-active" type="button" title={translate("已保存的 GIF")}><Images size={18} /></button>
         )}
       </footer>
-
-      {sendingAssetId && <div className="emoji-picker-sending" role="status"><LoaderCircle className="spin" size={18} />{translate("正在发送")}</div>}
     </section>
   );
 }

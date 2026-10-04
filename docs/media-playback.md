@@ -20,6 +20,17 @@ requests must not occupy all twelve slots ahead of the active conversation's pos
 message preservation retains its existing urgent priority so a new remote
 deletion can still keep the media that is being received.
 
+The sticker picker reuses available local static stickers for pack covers instead
+of requesting an uncached thumbnail. When the frontend lacks a path, query
+TDLib's local file state before entering the download queue; a completed file
+must remain available even while all twelve network slots are occupied. Keep
+an available thumbnail painted until the full image or animated frame is ready.
+Preparing or decoding a preview must never be a prerequisite for sending its
+Telegram file ID. Pending sends only disable the matching file's button; other
+assets, tabs and dismissal remain usable. Guard duplicate clicks synchronously,
+allow retry after failure, and ignore UI acknowledgements after the picker closes
+or its account/conversation changes.
+
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message

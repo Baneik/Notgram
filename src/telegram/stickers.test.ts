@@ -29,7 +29,7 @@ const harness = () => {
 };
 
 describe("sticker contracts", () => {
-  it("downloads the thumbnail file independently from its animated sticker", async () => {
+  it("loads the thumbnail file independently from its animated sticker", async () => {
     const { transport, request } = harness();
     const pack = await transport.getStickerSet(rawSet.id);
     request.mockImplementation(async (input) => ({ "@type": "file", id: input.file_id,
@@ -37,7 +37,51 @@ describe("sticker contracts", () => {
     }));
     request.mockClear();
     await expect(transport.loadEmojiAsset(emojiAssetPreview(pack.stickers[0])!)).resolves.toBe("C:/cache/thumbnail.jpg");
-    expect(request.mock.calls.map(([input]) => input.file_id)).toEqual([72, 72]);
+    expect(request).toHaveBeenCalledExactlyOnceWith({ "@type": "getFile", file_id: 72 });
+  });
+
+  it("reads a locally cached sticker while all download slots are occupied", async () => {
+    const { transport, internal, request } = harness();
+    const queue = (internal as unknown as { fileDownloads: import("./fileDownloadQueue").FileDownloadQueue }).fileDownloads;
+    request.mockImplementation(async (input) => ({ "@type": "file", id: input.file_id,
+      local: input["@type"] === "getFile"
+        ? { path: "C:/cache/sticker.webp", is_downloading_completed: true }
+        : { is_downloading_completed: false, is_downloading_active: true },
+    }));
+    const downloads = Array.from({ length: 12 }, (_, index) => queue.cache(100 + index, 28).catch(() => undefined));
+    request.mockClear();
+    const loading = transport.loadEmojiAsset({ id: "cached", kind: "sticker", fileId: 71, fileName: "sticker.webp" }).catch(() => undefined);
+    try {
+      await Promise.resolve();
+      expect(request).toHaveBeenCalledExactlyOnceWith({ "@type": "getFile", file_id: 71 });
+      await expect(loading).resolves.toBe("C:/cache/sticker.webp");
+    } finally {
+      queue.reset();
+      await Promise.all([...downloads, loading]);
+    }
+  });
+
+  it("sends by file ID before a cold sticker download finishes", async () => {
+    const { transport, internal, request } = harness();
+    const queue = (internal as unknown as { fileDownloads: import("./fileDownloadQueue").FileDownloadQueue }).fileDownloads;
+    request.mockImplementation(async (input) => input["@type"] === "sendMessage" ? { "@type": "ok" } : {
+      "@type": "file", id: input.file_id, local: { is_downloading_completed: false, is_downloading_active: true },
+    });
+    const asset = { id: "cold", kind: "sticker" as const, fileId: 71, fileName: "sticker.webp" };
+    const loading = transport.loadEmojiAsset(asset).catch(() => undefined);
+    try {
+      await Promise.resolve();
+      await transport.sendSticker({ chatId: "7", asset, replyToMessageId: "12", topicId: "9", disableNotification: true });
+      expect(queue.get(71)).toBeDefined();
+      expect(request.mock.calls.find(([input]) => input["@type"] === "sendMessage")?.[0]).toMatchObject({
+        chat_id: 7, topic_id: { "@type": "messageTopicForum", forum_topic_id: 9 },
+        reply_to: { message_id: 12 }, options: { disable_notification: true },
+        input_message_content: { sticker: { sticker: { "@type": "inputFileId", id: 71 } } },
+      });
+    } finally {
+      queue.reset();
+      await loading;
+    }
   });
   it.each(["https://t.me/addstickers/test_pack", "telegram.me/addstickers/test_pack", "tg://addstickers?set=test_pack"])("resolves %s to the reusable pack preview", async (url) => {
     expect(telegramStickerSetName(url)).toBe("test_pack");

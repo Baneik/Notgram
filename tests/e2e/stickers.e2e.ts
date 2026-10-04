@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { gzipSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 import type { EmojiPickerAsset, EmojiPickerCatalog, Message, StickerSet } from "../../src/telegram/types";
 
 type StoreModule = typeof import("../../src/store/telegramStore");
@@ -8,9 +9,159 @@ const storePath = "/src/store/telegramStore.ts";
 const outline = "M40 180C40 70 120 20 256 20C392 20 472 70 472 180L472 332C472 442 392 492 256 492C120 492 40 442 40 332Z";
 const ready = async (page: Page) => {
   await page.goto("/");
+  if ((page.viewportSize()?.width ?? 1280) < 768) {
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  }
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
 };
 const picker = (page: Page) => page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+
+test("cached static stickers paint pack covers without downloading a thumbnail", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as StoreModule;
+    const asset: EmojiPickerAsset = { id: "cached-cover", kind: "sticker", fileId: 99101, previewFileId: 99102,
+      fileName: "cached.webp", mimeType: "image/webp", localPath: "/mock-video-poster.jpg" };
+    const catalog: EmojiPickerCatalog = { recentStickers: [], savedAnimations: [], stickerSets: [
+      { id: "cached-pack", name: "cached_pack", title: "Cached pack", size: 1, covers: [asset] },
+    ] };
+    Object.assign(globalThis, { stickerAudit: { loads: [], searches: [], recovered: false } satisfies Audit });
+    telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
+      getCachedEmojiAsset: (asset) => asset.localPath,
+      loadEmojiAsset: async (asset) => {
+        (globalThis as typeof globalThis & { stickerAudit: Audit }).stickerAudit.loads.push(asset.fileId);
+        return new Promise(() => undefined);
+      },
+    });
+  }, storePath);
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  await expect(picker(page).getByTitle("Cached pack").locator('img[data-image-state="ready"]')).toBeVisible({ timeout: 1500 });
+  expect(await page.evaluate(() => (globalThis as typeof globalThis & { stickerAudit: Audit }).stickerAudit.loads)).toEqual([]);
+});
+
+test("a ready thumbnail stays painted while the full sticker decodes", async ({ page }) => {
+  let releaseFull!: () => void;
+  const pending = new Promise<void>((resolve) => { releaseFull = resolve; });
+  await page.route("**/delayed-full-sticker.jpg", async (route) => {
+    await pending;
+    const response = await route.fetch({ url: new URL("/mock-video-poster.jpg", route.request().url()).href });
+    await route.fulfill({ response });
+  });
+  try {
+    await ready(page);
+    await page.evaluate(async (storePath) => {
+      const { telegramStore } = await import(storePath) as StoreModule;
+      const asset: EmojiPickerAsset = { id: "delayed-full", kind: "sticker", fileId: 99103, previewFileId: 99104,
+        fileName: "sticker.webp", mimeType: "image/webp", previewMimeType: "image/jpeg" };
+      const catalog: EmojiPickerCatalog = { recentStickers: [asset], stickerSets: [], savedAnimations: [] };
+      telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
+        getCachedEmojiAsset: () => undefined,
+        loadEmojiAsset: async (asset) => asset.fileId === 99103 ? "/delayed-full-sticker.jpg" : "/mock-video-poster.jpg",
+      });
+    }, storePath);
+    await page.getByRole("button", { name: "表情", exact: true }).click();
+    const visual = picker(page).locator('[data-asset-id="delayed-full"]');
+    await expect(visual.locator('img[src="/mock-video-poster.jpg"][data-image-state="ready"]')).toBeVisible({ timeout: 1500 });
+    await expect(visual.locator(".sticker-placeholder")).toHaveCount(0);
+    releaseFull();
+    await expect(visual.locator('img[src="/delayed-full-sticker.jpg"][data-image-state="ready"]')).toBeVisible();
+    await expect(visual.locator('img[src="/mock-video-poster.jpg"]')).toHaveCount(0);
+  } finally { releaseFull(); }
+});
+
+test("cold sticker sends bypass media loading and do not block the rest of the picker", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as StoreModule;
+    const stickers: EmojiPickerAsset[] = [99105, 99106].map((fileId, index) => ({
+      id: `cold-${fileId}`, kind: "sticker", fileId, fileName: "sticker.webp", mimeType: "image/webp", emoji: index ? "🙂" : "😊",
+    }));
+    const catalog: EmojiPickerCatalog = { recentStickers: stickers, stickerSets: [], savedAnimations: [] };
+    Object.assign(globalThis, { coldStickerSends: [] as number[] });
+    telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
+      getCachedEmojiAsset: () => undefined, loadEmojiAsset: async () => new Promise(() => undefined),
+      sendSticker: async (asset) => {
+        (globalThis as typeof globalThis & { coldStickerSends: number[] }).coldStickerSends.push(asset.fileId);
+        return new Promise(() => undefined);
+      },
+    });
+  }, storePath);
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  const first = picker(page).getByRole("button", { name: "发送贴纸 😊", exact: true });
+  await first.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+  await expect.poll(() => page.evaluate(() => (globalThis as typeof globalThis & { coldStickerSends: number[] }).coldStickerSends)).toEqual([99105]);
+  await expect(first).toBeDisabled();
+  await picker(page).getByRole("button", { name: "发送贴纸 🙂", exact: true }).click({ timeout: 1500 });
+  expect(await page.evaluate(() => (globalThis as typeof globalThis & { coldStickerSends: number[] }).coldStickerSends)).toEqual([99105, 99106]);
+  await expect(picker(page).locator(".sticker-placeholder")).toHaveCount(2);
+  await picker(page).getByRole("button", { name: "关闭表情面板" }).click();
+  await expect(picker(page)).toHaveCount(0);
+});
+
+test("a failed cold send can retry, and an old acknowledgement cannot close a reopened picker", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async (storePath) => {
+    const { telegramStore } = await import(storePath) as StoreModule;
+    const asset: EmojiPickerAsset = { id: "cold-retry", kind: "sticker", fileId: 99107, fileName: "sticker.webp", mimeType: "image/webp", emoji: "😊" };
+    const catalog: EmojiPickerCatalog = { recentStickers: [asset], stickerSets: [], savedAnimations: [] };
+    const audit = { sends: 0, finish: undefined as ((sent: boolean) => void) | undefined };
+    Object.assign(globalThis, { coldSendAudit: audit });
+    telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
+      getCachedEmojiAsset: () => undefined, loadEmojiAsset: async () => new Promise(() => undefined),
+      sendSticker: async () => ++audit.sends === 1 ? false : new Promise<boolean>((resolve) => { audit.finish = resolve; }),
+    });
+  }, storePath);
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  const send = picker(page).getByRole("button", { name: "发送贴纸 😊", exact: true });
+  await send.click();
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(send).toBeDisabled();
+  await picker(page).getByRole("button", { name: "关闭表情面板" }).click();
+  await expect(picker(page)).toHaveCount(0);
+  await page.getByRole("button", { name: "表情", exact: true }).click();
+  await page.evaluate(() => {
+    (globalThis as typeof globalThis & { coldSendAudit: { finish: (sent: boolean) => void } }).coldSendAudit.finish(true);
+  });
+  await expect(picker(page)).toBeVisible();
+  await expect(send).toBeEnabled();
+});
+
+for (const width of [1366, 390]) {
+  test(`a local WebM thumbnail remains visible until its animated frame is ready at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    let releaseVideo!: () => void;
+    const pending = new Promise<void>((resolve) => { releaseVideo = resolve; });
+    await page.route("**/delayed-sticker.webm", async (route) => {
+      await pending;
+      await route.fulfill({ contentType: "video/webm", body: readFileSync("tests/fixtures/sticker.webm") });
+    });
+    try {
+      await ready(page);
+      await page.evaluate(async (storePath) => {
+        const { telegramStore } = await import(storePath) as StoreModule;
+        const asset: EmojiPickerAsset = { id: "local-webm", kind: "sticker", fileId: 99108, previewFileId: 99109,
+          fileName: "sticker.webm", mimeType: "video/webm", localPath: "/delayed-sticker.webm", previewPath: "/mock-video-poster.jpg" };
+        const catalog: EmojiPickerCatalog = { recentStickers: [asset], stickerSets: [], savedAnimations: [] };
+        telegramStore.setState({ getCachedEmojiPicker: () => catalog, loadEmojiPicker: async () => catalog,
+          getCachedEmojiAsset: (asset) => asset.localPath,
+          loadEmojiAsset: async () => { throw new Error("A local sticker must not request a download"); },
+        });
+      }, storePath);
+      await page.getByRole("button", { name: "表情", exact: true }).click();
+      const visual = picker(page).locator('[data-asset-id="local-webm"]');
+      await expect(visual.locator('img[data-image-state="ready"]')).toBeVisible();
+      await expect(visual.locator(".sticker-placeholder")).toHaveCount(0);
+      await expect(visual.locator("video")).toHaveJSProperty("muted", true);
+      await expect(visual.locator(".emoji-asset-full")).toHaveAttribute("data-asset-state", "loading");
+      releaseVideo();
+      await expect(visual.locator(".emoji-asset-full")).toHaveAttribute("data-asset-state", "ready");
+      await expect(visual.locator("video")).toBeVisible();
+      await expect(visual.locator("img")).toHaveCount(0);
+      await page.screenshot({ path: `artifacts/sticker-optimization/picker-${width}.png` });
+    } finally { releaseVideo(); }
+  });
+}
 
 test("unloaded stickers show their outline without download controls", async ({ page }) => {
   await ready(page);

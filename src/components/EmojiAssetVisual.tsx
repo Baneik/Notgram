@@ -33,7 +33,8 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   const accountId = useTelegramStore((state) => state.activeAccountId);
   const emojiRevision = useTelegramStore((state) => state.emojiRevision);
   const [visualRef, visible] = useElementVisibility<HTMLSpanElement>("180px");
-  const [readySource, setReadySource] = useState<string>();
+  const [readyFullSource, setReadyFullSource] = useState<string>();
+  const [readyPreviewSource, setReadyPreviewSource] = useState<string>();
   const [failedSources, setFailedSources] = useState<ReadonlySet<string>>(() => new Set());
   const [readRevision, setReadRevision] = useState(0);
   const recoveredFiles = useRef(new Set<number>());
@@ -46,13 +47,14 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   const preview = useMemo(() => emojiAssetPreview(asset), [asset]);
   const animated = asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm" || asset.kind === "animation";
   const hasPreview = Boolean(preview || asset.previewPath || asset.previewDataUrl);
-  const wantsFull = previewOnly ? !animated && !hasPreview : !animated || autoplay || eager || !hasPreview;
-  const cachedFull = wantsFull ? getCachedEmojiAsset(asset) : undefined;
+  const cachedFull = getCachedEmojiAsset(asset);
+  const wantsFull = previewOnly ? !animated && (!hasPreview || Boolean(cachedFull)) : !animated || autoplay || eager || !hasPreview;
+  const cachedPreview = preview ? getCachedEmojiAsset(preview) : undefined;
   const key = accountId + ":" + emojiRevision + ":" + readRevision;
   const thumbnail = useVisibleResource(
-    preview && (!wantsFull || !cachedFull) ? key + ":preview:" + preview.fileId : undefined,
+    preview && (!wantsFull || !cachedFull || cachedPreview) ? key + ":preview:" + preview.fileId : undefined,
     visible,
-    preview ? getCachedEmojiAsset(preview) : undefined,
+    cachedPreview,
     () => preview ? loadEmojiAsset(preview) : Promise.resolve(undefined),
   );
   const full = useVisibleResource(
@@ -66,13 +68,12 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   const rawPreviewSource = assetSource(thumbnail.value ?? asset.previewPath);
   const fullSource = useCachedEmojiSource(rawFullSource, asset.kind === "sticker" && asset.mimeType !== "application/x-tgsticker", visible, readRevision);
   const previewSource = useCachedEmojiSource(rawPreviewSource, true, visible, readRevision) ?? asset.previewDataUrl;
-  const source = (fullSource && !failedSources.has(fullSource) ? fullSource : undefined)
-    ?? (previewSource && !failedSources.has(previewSource) ? previewSource : undefined);
-  const usingFull = Boolean(source && source === fullSource);
-  const ready = Boolean(source && readySource === source);
-  const markReady = () => { if (source) setReadySource(source); };
-  const markFailed = () => {
-    if (!source) return;
+  const usableFull = fullSource && !failedSources.has(fullSource) ? fullSource : undefined;
+  const usablePreview = previewSource && !failedSources.has(previewSource) ? previewSource : undefined;
+  const fullReady = Boolean(usableFull && readyFullSource === usableFull);
+  const previewReady = Boolean(usablePreview && readyPreviewSource === usablePreview);
+  const ready = fullReady || previewReady;
+  const markFailed = (source: string, usingFull: boolean) => {
     setFailedSources((current) => new Set(current).add(source));
     if (!isTauri()) return;
     const fileId = usingFull ? asset.fileId : asset.previewFileId;
@@ -90,11 +91,15 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
 
   return <span ref={visualRef} className={("emoji-asset-visual " + className).trim()} data-asset-id={asset.id}>
     {!ready && <StickerPlaceholder fileId={asset.kind === "sticker" ? asset.fileId : undefined} width={asset.width} height={asset.height} emoji={asset.emoji} />}
-    {source && (usingFull && asset.mimeType === "application/x-tgsticker" ? (
-      <TgsSticker src={source} label={label} autoplay={autoplay} onError={markFailed} onReady={markReady} />
-    ) : usingFull && (asset.mimeType === "video/webm" || asset.kind === "animation") ? (
-      <AutoplayVideo retainOnRemount={asset.kind === "sticker"} src={source} muted autoplay={autoplay} loop playsInline aria-label={label} onError={markFailed} onReady={markReady} />
-    ) : <StableImage retainOnRemount={asset.kind === "sticker"} src={source} alt="" draggable={false} onError={markFailed} onReady={markReady} />)}
+    {usablePreview && !fullReady && <StableImage retainOnRemount={asset.kind === "sticker"} src={usablePreview} alt="" draggable={false}
+      onError={() => markFailed(usablePreview, false)} onReady={() => setReadyPreviewSource(usablePreview)} />}
+    {usableFull && <span className="emoji-asset-full" data-asset-state={fullReady ? "ready" : "loading"}>
+      {asset.mimeType === "application/x-tgsticker" ? (
+        <TgsSticker src={usableFull} label={label} autoplay={autoplay} onError={() => markFailed(usableFull, true)} onReady={() => setReadyFullSource(usableFull)} />
+      ) : asset.mimeType === "video/webm" || asset.kind === "animation" ? (
+        <AutoplayVideo retainOnRemount={asset.kind === "sticker"} src={usableFull} muted autoplay={autoplay} loop playsInline aria-label={label} onError={() => markFailed(usableFull, true)} onReady={() => setReadyFullSource(usableFull)} />
+      ) : <StableImage retainOnRemount={asset.kind === "sticker"} src={usableFull} alt="" draggable={false} onError={() => markFailed(usableFull, true)} onReady={() => setReadyFullSource(usableFull)} />}
+    </span>}
     {(full.failed || thumbnail.failed || failedSources.size > 0) && !ready && <span className="emoji-asset-error" title={failedSources.size > 0 ? translate("贴纸暂不可用") : translate("贴纸加载失败，正在重试")}><AlertCircle size={14} /></span>}
   </span>;
 }
