@@ -32,6 +32,51 @@ const createHarness = () => {
 };
 
 describe("tauri search service", () => {
+  it.each([0, "0"])("ends member message search when TDLib returns the terminal cursor %s", async (cursor) => {
+    const harness = createHarness();
+    vi.mocked(harness.context.request).mockResolvedValue({
+      "@type": "foundChatMessages",
+      total_count: 2,
+      messages: [{ id: 89, chat_id: 7 }, { id: 81, chat_id: 7 }],
+      next_from_message_id: cursor,
+    });
+    vi.mocked(harness.context.mapMessage).mockImplementation(raw => ({
+      id: String(raw.id), chatId: "7", senderId: "11", outgoing: false,
+      sentAt: "2026-08-09T04:00:00.000Z", delivery: "sent",
+      content: { kind: "text", text: "result" },
+    } satisfies Message));
+
+    const page = await harness.service.searchChatMessages({ chatId: "7", senderId: "11" });
+
+    expect(page.messages).toHaveLength(2);
+    expect(page.nextFromMessageId).toBeUndefined();
+    expect(page.hasMore).toBe(false);
+  });
+
+  it("ends chat message search when TDLib repeats the requested cursor", async () => {
+    const harness = createHarness();
+    vi.mocked(harness.context.request).mockResolvedValue({
+      "@type": "foundChatMessages", messages: [], next_from_message_id: 81,
+    });
+
+    const page = await harness.service.searchChatMessages({ chatId: "7", senderId: "11", fromMessageId: "81" });
+
+    expect(page.nextFromMessageId).toBeUndefined();
+    expect(page.hasMore).toBe(false);
+  });
+
+  it.each([0, "0", 81])("ends shared media pagination for a terminal or repeated cursor %s", async cursor => {
+    const harness = createHarness();
+    vi.mocked(harness.context.request).mockResolvedValue({
+      "@type": "foundChatMessages", messages: [], next_from_message_id: cursor,
+    });
+
+    const page = await harness.service.searchSharedMedia({ chatId: "7", category: "media", fromMessageId: "81" });
+
+    expect(page.nextFromMessageId).toBeUndefined();
+    expect(page.hasMore).toBe(false);
+  });
+
   it("bounds server chat search and hydrates returned chat ids", async () => {
     const harness = createHarness();
     vi.mocked(harness.context.request)

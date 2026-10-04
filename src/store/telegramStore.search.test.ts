@@ -56,6 +56,39 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
 afterEach(() => vi.useRealTimers());
 
 describe("telegram store search controller", () => {
+  it.each([
+    { hasMore: false, nextFromMessageId: "81" },
+    { hasMore: true, nextFromMessageId: "0" },
+  ])("does not request another member page after a terminal transport result %j", async cursor => {
+    const harness = createHarness();
+    vi.mocked(harness.transport.searchChatMessages).mockResolvedValue({
+      messages: [resultMessage("2"), resultMessage("1")], totalCount: 2, ...cursor,
+    });
+
+    await harness.controller.searchChatMessages({ chatId: "chat-1", senderId: "user-1" });
+    await harness.controller.loadMoreChatMessages();
+
+    expect(harness.transport.searchChatMessages).toHaveBeenCalledTimes(1);
+    expect(harness.getState().chatMessageSearch.nextFromMessageId).toBeUndefined();
+    expect(harness.getState().chatMessageSearch.loadingMore).toBe(false);
+  });
+
+  it("ends pagination when a member page repeats the same cursor without restarting search", async () => {
+    const harness = createHarness();
+    vi.mocked(harness.transport.searchChatMessages)
+      .mockResolvedValueOnce({ messages: [resultMessage("2")], nextFromMessageId: "1", hasMore: true })
+      .mockResolvedValueOnce({ messages: [resultMessage("1")], nextFromMessageId: "1", hasMore: true });
+
+    await harness.controller.searchChatMessages({ chatId: "chat-1", senderId: "user-1" });
+    await harness.controller.loadMoreChatMessages();
+    await harness.controller.loadMoreChatMessages();
+
+    expect(harness.transport.searchChatMessages).toHaveBeenCalledTimes(2);
+    expect(harness.getState().chatMessageSearch.messages.map(message => message.id)).toEqual(["2", "1"]);
+    expect(harness.getState().chatMessageSearch.nextFromMessageId).toBeUndefined();
+    expect(harness.getState().chatMessageSearch.loadingMore).toBe(false);
+  });
+
   it("ignores an older global search response after a newer query starts", async () => {
     const first = deferred<{ chats: []; messages: []; totalCount: number }>();
     const second = deferred<{ chats: []; messages: []; totalCount: number }>();

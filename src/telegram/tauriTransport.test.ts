@@ -1659,6 +1659,8 @@ describe("TauriTelegramTransport startup", () => {
     expect(page.totalCount).toBeUndefined();
     expect(pageForChat.messages.map(({ id }) => id)).toEqual(["90", "81"]);
     expect(pageForChat.totalCount).toBe(2);
+    expect(pageForChat.nextFromMessageId).toBeUndefined();
+    expect(pageForChat.hasMore).toBe(false);
     expect(events).toEqual([]);
     expect(requests.filter((request) => request["@type"] === "searchChatsOnServer"))
       .toMatchObject([{ query: "message 9" }]);

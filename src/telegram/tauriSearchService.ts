@@ -85,6 +85,12 @@ const messageSenderObject = (senderId?: string): TdObject | null => {
 
 const unixDate = (message: Message) => Math.floor(Date.parse(message.sentAt) / 1000);
 
+const nextSearchMessageId = (value: unknown, fromMessageId: number): string | undefined => {
+  const next = tdNumber(value) ?? 0;
+  // TDLib uses zero for exhaustion; sending it back would restart at the newest message.
+  return next > 0 && next !== fromMessageId ? String(next) : undefined;
+};
+
 export class TauriSearchService {
   constructor(private readonly context: TauriSearchServiceContext) {}
 
@@ -258,7 +264,7 @@ export class TauriSearchService {
       (!input.minDate || unixDate(message) >= input.minDate) &&
       (!input.maxDate || unixDate(message) <= input.maxDate)
     ));
-    const nextFromMessageId = tdId(result.next_from_message_id) || undefined;
+    const nextFromMessageId = nextSearchMessageId(result.next_from_message_id, fromMessageId);
     const reachedMinimumDate = Boolean(
       input.minDate && mappedMessages.some((message) => unixDate(message) < input.minDate!),
     );
@@ -281,13 +287,14 @@ export class TauriSearchService {
       audio: "searchMessagesFilterAudio",
     }[input.category];
     const limit = Math.max(1, Math.min(input.limit ?? 40, 100));
+    const fromMessageId = input.fromMessageId ? numericId(input.fromMessageId) : 0;
     const result = await this.context.request({
       "@type": "searchChatMessages",
       chat_id: numericId(input.chatId),
       topic_id: null,
       query: input.query?.trim() ?? "",
       sender_id: null,
-      from_message_id: input.fromMessageId ? numericId(input.fromMessageId) : 0,
+      from_message_id: fromMessageId,
       offset: 0,
       limit,
       filter: { "@type": filter },
@@ -296,7 +303,7 @@ export class TauriSearchService {
     const messages = rawMessages.map((raw) => this.context.mapMessage(raw))
       .filter((message): message is Message => Boolean(message && message.chatId === input.chatId));
     this.context.emitMessages(rawMessages);
-    const nextFromMessageId = tdId(result.next_from_message_id) || undefined;
+    const nextFromMessageId = nextSearchMessageId(result.next_from_message_id, fromMessageId);
     return {
       messages,
       totalCount: Math.max(0, tdNumber(result.total_count) ?? messages.length),

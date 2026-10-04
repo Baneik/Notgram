@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 type Scope = "global" | "chat";
 interface PaginationFixture {
+  messageCount?: number;
+  nativeTerminal?: boolean;
   pageSize?: number;
   failure?: boolean;
   delayed?: boolean;
@@ -26,7 +28,7 @@ const fixture = async (page: Page, scope: Scope, options: PaginationFixture = {}
       MockTelegramTransport.prototype.loadCachedSnapshot = async () => undefined;
       MockTelegramTransport.prototype.connect = async function(listener) {
         const base = this.snapshot.messages.find(m => m.chatId === "chat-product" && m.content.kind === "text");
-        this.snapshot.messages = [...this.snapshot.messages, ...Array.from({ length: 96 }, (_, index) => ({
+        this.snapshot.messages = [...this.snapshot.messages, ...Array.from({ length: options.messageCount ?? 96 }, (_, index) => ({
           ...base, id: "scroll-search-" + index, renderKey: undefined, senderId: "u-mia", outgoing: false,
           sentAt: new Date(1700000000000 + index * 1000).toISOString(), isPinned: false,
           content: { kind: "text", text: "${query} " + index + " · 一段较长的正文，检查窄侧栏中的字号与省略效果" }
@@ -51,6 +53,20 @@ const fixture = async (page: Page, scope: Scope, options: PaginationFixture = {}
       MockTelegramTransport.prototype.searchChatMessages = async function(input) {
         await beforeSearch(input.fromMessageId, input.query);
         const result = await chatSearch.call(this, { ...input, limit: options.pageSize ?? input.limit });
+        if (options.nativeTerminal) {
+          const { TauriSearchService } = await import("/src/telegram/tauriSearchService.ts");
+          const service = new TauriSearchService({
+            request: async () => ({
+              "@type": "foundChatMessages", total_count: result.totalCount,
+              messages: result.messages, next_from_message_id: 0
+            }),
+            rawChats: new Map(), rawUsers: new Map(),
+            upsertChat: () => {}, upsertUser: () => {}, mapChat: () => undefined,
+            mapMessage: raw => ({ ...raw, chatId: "7" }), emitMessages: () => {}
+          });
+          const native = await service.searchChatMessages({ ...input, chatId: "7", senderId: "11" });
+          return { ...native, messages: native.messages.map(message => ({ ...message, chatId: input.chatId })) };
+        }
         if (options.repeatedCursor && input.fromMessageId) result.nextFromMessageId = input.fromMessageId;
         return result;
       };
@@ -72,6 +88,20 @@ const calls = (page: Page) => page.evaluate(() => (
 const release = (page: Page) => page.evaluate(() => (
   globalThis as unknown as PaginationHarness
 ).__releaseSearchPage?.());
+
+test("member search with two native results stops loading at the TDLib zero cursor", async ({ page }) => {
+  const { list, results } = await fixture(page, "chat", { messageCount: 2, nativeTerminal: true });
+  await expect(results).toHaveCount(2);
+  await page.locator(".chat-search-member-trigger").click();
+  await page.getByRole("dialog", { name: "选择成员" }).getByRole("button", { name: "Mia Chen", exact: true }).click();
+  await expect(results).toHaveCount(2);
+  await expect.poll(async () => (await calls(page)).length).toBe(2);
+  await expect(list).toHaveAttribute("aria-busy", "false");
+  await expect(list.locator(".global-search-pagination")).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect((await calls(page)).filter(call => call.cursor)).toHaveLength(0);
+  await expect(list.getByRole("status", { name: "正在加载" })).toHaveCount(0);
+});
 
 for (const scope of ["global", "chat"] as const) {
   test(`${scope} search loads at the bottom once, retains the reading position, and stops at the last page`, async ({ page }, testInfo) => {

@@ -54,7 +54,8 @@ export const mergeChatMessageSearchPage = (
     ...current,
     messages,
     totalCount: page.totalCount ?? current.totalCount,
-    nextFromMessageId: page.nextFromMessageId,
+    nextFromMessageId: page.hasMore && page.nextFromMessageId !== "0" &&
+      page.nextFromMessageId !== current.nextFromMessageId ? page.nextFromMessageId : undefined,
     loading: false,
     loadingMore: false,
     error: undefined,
