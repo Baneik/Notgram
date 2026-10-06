@@ -2,13 +2,14 @@ import { translate } from "../i18n";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Children, memo, useMemo, type ReactNode } from "react";
+import { Children, isValidElement, memo, useMemo, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/externalLinks";
 import { highlightTextNodes } from "../utils/textHighlight";
 import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import { createMarkdownParseCache } from "../utils/markdownParseCache";
 import { telegramStore } from "../store/telegramStore";
+import { MessagePreformatted } from "./MessagePreformatted";
 
 const markdownCache = createMarkdownParseCache();
 const remarkPlugins = [remarkGfm, markdownCache.plugin];
@@ -54,7 +55,14 @@ function MarkdownText({ text, className, highlightQuery, onCollapseQuote, onExpa
     ),
     td: ({ children }) => <td>{highlight(children)}</td>,
     th: ({ children }) => <th>{highlight(children)}</th>,
-    pre: ({ children }) => <pre>{highlight(children)}</pre>,
+    pre: ({ children }) => {
+      const code = Children.toArray(children).find((child) => isValidElement(child));
+      if (!isValidElement<{ children?: ReactNode; className?: string }>(code)) return <pre>{highlight(children)}</pre>;
+      const value = typeof code.props.children === "string" ? code.props.children : "";
+      return <MessagePreformatted text={value} language={code.props.className?.replace(/^language-/, "")}>
+        {highlight(value)}
+      </MessagePreformatted>;
+    },
   }), [text, highlightQuery, onCollapseQuote, onExpandQuote]);
   return (
     <div className={`message-rich-text ${className}`} data-rich-text="markdown">

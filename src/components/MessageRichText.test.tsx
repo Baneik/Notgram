@@ -7,6 +7,23 @@ import { MessageRichText } from "./MessageRichText";
 afterEach(() => vi.restoreAllMocks());
 
 describe("MessageRichText Telegram links", () => {
+  it("keeps one preformatted block across search matches and inline entity boundaries", () => {
+    const code = "  emoji 🐳 match\n\t中文 match  ";
+    const text = `before\n${code}\nafter`;
+    const html = renderToStaticMarkup(<MessageRichText text={text} highlightQuery="match" entities={[
+      { kind: "pre", offset: 7, length: code.length, language: "text" },
+      { kind: "bold", offset: 9, length: 5 },
+    ]} />);
+    expect(html.match(/class="message-preformatted"/g)).toHaveLength(1);
+    expect(html.match(/class="message-preformatted-copy"/g)).toHaveLength(1);
+    expect(html.match(/class="message-search-highlight"/g)).toHaveLength(2);
+    expect(html).toContain('data-language="text"');
+    expect(html).toContain("<strong>emoji</strong>");
+    expect(html).toContain("\n\t中文 ");
+    expect(html).toContain("before\n");
+    expect(html).toContain("\nafter");
+  });
+
   it.each(["管理员", "群主", ""])("uses the quoted user's role in the message's chat (label: %s)", (label) => {
     const initialState = telegramStore.getInitialState();
     vi.spyOn(telegramStore, "getInitialState").mockReturnValue({

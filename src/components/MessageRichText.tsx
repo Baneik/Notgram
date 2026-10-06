@@ -12,6 +12,7 @@ import { handleExternalLinkClick, safeExternalHref as safeHref } from "../utils/
 import { highlightedText, textHighlightRanges } from "../utils/textHighlight";
 import { TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
+import { MessagePreformatted } from "./MessagePreformatted";
 
 const MarkdownText = lazy(() => import("./MarkdownText"));
 
@@ -149,7 +150,7 @@ const wrapEntity = (
       ? <time key={key} dateTime={new Date(entity.dateTime.unixTime * 1_000).toISOString()}>{children}</time>
       : <Fragment key={key}>{children}</Fragment>;
     case "code": return <code key={key}>{children}</code>;
-    case "pre": return <code key={key} className="rich-pre" data-language={entity.language}>{children}</code>;
+    case "pre": return <Fragment key={key}>{children}</Fragment>;
     case "blockquote": return <span key={key} className="rich-blockquote">{children}</span>;
     case "hashtag": return (
       <HashtagLink key={key} value={value} onSearchHashtag={onSearchHashtag}>
@@ -195,10 +196,35 @@ const renderInlineRange = (
   onOpenMention?: (username?: string, userId?: string) => void,
   onSearchHashtag?: (hashtag: string) => void,
   chatId?: string,
-) => {
+): ReactNode[] => {
   const overlapping = entities.filter((entity) =>
     entity.offset < endOffset && entity.offset + entity.length > startOffset,
   );
+  const preformatted = overlapping.filter((entity) => entity.kind === "pre")
+    .sort((left, right) => left.offset - right.offset || right.length - left.length);
+  if (preformatted.length > 0) {
+    // Keep the block outside inline/highlight boundaries so it owns one copy action.
+    const inlineEntities = entities.filter((entity) => entity.kind !== "pre");
+    const nodes: ReactNode[] = [];
+    let cursor = startOffset;
+    for (const entity of preformatted) {
+      const start = Math.max(cursor, entity.offset);
+      const end = Math.min(endOffset, entity.offset + entity.length);
+      if (end <= start) continue;
+      nodes.push(...renderInlineRange(text, inlineEntities, cursor, start, keyPrefix,
+        highlightRanges, onOpenMention, onSearchHashtag, chatId));
+      nodes.push(
+        <MessagePreformatted key={`${keyPrefix}:pre:${start}`} text={text.slice(start, end)} language={entity.language}>
+          {renderInlineRange(text, inlineEntities, start, end, keyPrefix,
+            highlightRanges, onOpenMention, onSearchHashtag, chatId)}
+        </MessagePreformatted>,
+      );
+      cursor = end;
+    }
+    nodes.push(...renderInlineRange(text, inlineEntities, cursor, endOffset, keyPrefix,
+      highlightRanges, onOpenMention, onSearchHashtag, chatId));
+    return nodes;
+  }
   const atomicLinkRanges = overlapping.filter((entity) =>
     entity.kind === "hashtag" || entity.kind === "mention" || entity.kind === "mentionName" ||
     (entity.kind === "url" && Boolean(telegramUrlDisplayText(

@@ -1561,10 +1561,29 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   border-radius: 3px; font-family: Consolas, "Courier New", "Noto Color Emoji", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre, .message-rich-text .rich-pre {
-  padding: 7px 8px; display: block; overflow-x: auto; color: var(--color-text-code); background: var(--color-bg-code);
-  border-radius: 5px; white-space: pre; font-family: Consolas, "Courier New", "Noto Color Emoji", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
+  padding: 7px 8px; display: block; color: var(--color-text-code); background: var(--color-bg-code);
+  border-radius: 5px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: Consolas, "Courier New", "Noto Color Emoji", monospace; font-size: max(10px, calc(var(--chat-font-size) - 2px));
 }
 .message-rich-text pre code { padding: 0; color: inherit; background: transparent; white-space: inherit; }
+.message-preformatted { position: relative; display: block; min-width: 0; max-width: 100%; }
+.message-rich-text[data-rich-text="markdown"] .message-preformatted,
+.rich-message-content .message-preformatted { margin: 0 0 7px; }
+.message-rich-text .message-preformatted:last-child { margin-bottom: 0; }
+.message-rich-text .message-preformatted > .rich-pre { padding-right: 38px; }
+.message-preformatted-copy {
+  position: absolute; z-index: 1; top: 3px; right: 3px; display: grid; place-items: center; width: 26px; height: 26px;
+  padding: 0; border: 0; border-radius: 4px; color: var(--color-text-code); background: var(--color-bg-code);
+  cursor: pointer; opacity: 0; pointer-events: none; user-select: none; -webkit-user-select: none;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.message-preformatted:hover > .message-preformatted-copy,
+.message-preformatted:focus-within > .message-preformatted-copy,
+.message-preformatted-copy.has-feedback { opacity: 1; pointer-events: auto; }
+.message-preformatted-copy:hover { background: var(--color-bg-surface-hover); }
+@media (hover: none) {
+  .message-preformatted-copy { opacity: 1; pointer-events: auto; }
+}
 .message-rich-text blockquote, .message-rich-text .rich-blockquote {
   padding-left: 8px; display: block; border-left: 3px solid var(--accent); color: var(--muted);
 }
