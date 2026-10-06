@@ -1292,7 +1292,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           ? { mode: "file", hasSpoiler: false, muteVideos: false } : { mode: "media" });
       }}
     >
-      <MotionPresence present={emojiPickerOpen && !editingMessage} variant="popover">
+      <MotionPresence present={emojiPickerOpen && !editingMessage} variant="popover" placement="above">
         {emojiPickerOpen && !editingMessage ? (
           <EmojiPicker
             chatId={chatId}
@@ -1469,7 +1469,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           {attachmentNotice && <span className="composer-attachment-notice" role="alert">{attachmentNotice}</span>}
         </section>
       )}
-      <MotionPresence present={showMentionPanel} variant="popover">
+      <MotionPresence present={showMentionPanel} variant="popover" placement="above">
         {showMentionPanel ? (
           <section className="mention-suggestion-panel" role="listbox" aria-label={translate("提及成员")}>
             {mentionSuggestions.map((user, index) => (
@@ -1494,7 +1494,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           </section>
         ) : null}
       </MotionPresence>
-      <MotionPresence present={showBotPanel} variant="popover">
+      <MotionPresence present={showBotPanel} variant="popover" placement="above">
         {showBotPanel ? (
           <section ref={botSuggestionPanelRef} className="bot-suggestion-panel" role="listbox" aria-label={translate("机器人命令建议")}>
             {botSuggestionGroups.map((group) => {
@@ -1551,7 +1551,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           </section>
         ) : null}
       </MotionPresence>
-      <MotionPresence present={showInlinePanel} variant="popover">
+      <MotionPresence present={showInlinePanel} variant="popover" placement="above">
         {showInlinePanel ? (
           <section className="inline-query-panel" aria-label={translate("Inline 查询结果")}>
             {inlineResults ? inlineResults.results.map((result) => <button key={result.id} type="button" className="inline-query-result" onClick={() => void submitInlineResult(result)}><span className="inline-query-result-kind">{result.kind === "photo" ? translate("图片") : result.kind === "file" ? translate("文件") : translate("结果")}</span><span><strong>{result.title}</strong><small>{result.description || result.messageText}</small></span></button>) : <div className="inline-query-loading"><LoaderCircle className="spin" size={18} />{translate("正在查询机器人")}</div>}

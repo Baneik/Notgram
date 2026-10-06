@@ -19,6 +19,8 @@ import type {
   StickerSet,
 } from "../telegram/types";
 import { EmojiAssetVisual } from "./EmojiAssetVisual";
+import { MotionSelectionIndicator } from "./MotionSelectionIndicator";
+import { useContentMotion } from "../hooks/useContentMotion";
 
 type PickerTab = "emoji" | "sticker" | "animation";
 
@@ -141,6 +143,8 @@ export function EmojiPicker({
   const panelRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<PickerTab>("sticker");
+  const contentRef = useRef<HTMLDivElement>(null);
+  useContentMotion(contentRef, ["emoji", "sticker", "animation"].indexOf(tab));
   const [query, setQuery] = useState("");
   const [catalog, setCatalog] = useState<EmojiPickerCatalog | undefined>(getCachedEmojiPicker);
   const [catalogLoading, setCatalogLoading] = useState(() => !getCachedEmojiPicker());
@@ -304,6 +308,7 @@ export function EmojiPicker({
         <button className="emoji-picker-close" type="button" aria-label={translate("关闭表情面板")} title={translate("关闭")} onClick={closeAndRestoreComposerFocus}>
           <X size={17} />
         </button>
+        <MotionSelectionIndicator selection={tab} selector="[role=tab][aria-selected=true]" />
       </header>
 
       <label className="emoji-picker-search">
@@ -311,7 +316,7 @@ export function EmojiPicker({
         <input ref={searchRef} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} aria-label={placeholder} />
       </label>
 
-      <div className="emoji-picker-content">
+      <div ref={contentRef} className="emoji-picker-content">
         {tab === "emoji" ? (
           visibleEmojiGroups.length > 0 ? visibleEmojiGroups.map((group) => (
             <section className="emoji-section" key={group.id}>

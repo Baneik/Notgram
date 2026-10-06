@@ -50,8 +50,8 @@ CSS tokens live at the top of `src/styles/global.css`; WAAPI and React fallback 
 `src/utils/motionTokens.ts`. Keep the duration and easing values aligned when changing the scale.
 
 - `60ms`: native/context-menu acknowledgement.
-- `120ms`: small popovers and fast feedback.
-- `180ms`: standard state transition and exit fallback.
+- `120ms`: fast feedback and popover/status exits.
+- `180ms`: anchored popover entrance, selection/content transitions and modal exits.
 - `220ms`: large surface entrance.
 - `800ms`: bounded attention feedback such as the active message target.
 - `900ms`: continuous loops such as loading indicators.
@@ -75,9 +75,25 @@ relationship, not visual preference:
 - `popover`: anchored menu, picker, or suggestion panel.
 - `status`: loading, empty, and error feedback that replaces another status in place.
 
-Exiting content is inert and hidden from the accessibility tree. Exit completion listens to the root
-animation and retains a cancelable timer only as a fallback. Do not add a second unmount delay in the
+Exiting content is inert and hidden from the accessibility tree. Exit completion waits for its managed
+layers and retains a cancelable timer only as a fallback. Supported WebViews use WAAPI completion;
+CSS uses the root animation event when element animation is unavailable. Do not add a second unmount delay in the
 calling component.
+
+Managed surfaces sample their current opacity and transform before interrupting an effect. Reopening
+creates a fresh child session for focus and local state, but starts the replacement presentation from
+those sampled values. Completion from an obsolete run cannot unmount or finish the new session.
+Backdrop opacity belongs to an independent pseudo-element, never an ancestor of the dialog content.
+Centered profile cards use the modal variant. Popovers above the composer pass `placement="above"`
+and open from their lower edge; menus below their trigger open from the upper edge. Backgrounding or
+reduced motion settles presentation immediately and cancels retained effects.
+
+Settings categories and picker tabs share one persistent `MotionSelectionIndicator`. Its direct-child
+layout offsets remain local to the navigation container during zoom, scrolling and parent entrances.
+Reorders sample the current marker transform; real resizes settle to the selected button. Content
+selection uses `useContentMotion`, keeping text opaque and state/layout/focus immediate while applying
+only a short directional translation. Initial mounting does not add a nested entrance. Narrow settings
+retain their existing whole-pane transition instead of stacking another content transition.
 
 Native Tauri context menus and standalone child windows are lifecycle exceptions. Their owner is the
 OS window or native bridge rather than the React tree, so the browser fallback has a short entry

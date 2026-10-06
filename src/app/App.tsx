@@ -2263,7 +2263,7 @@ export function App() {
           onClose={() => setPendingConfirmation(undefined)}
         /> : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(profile.target)} variant="drawer">
+      <MotionPresence present={Boolean(profile.target)}>
         {profile.target ? <ProfileDrawer
           state={profile}
           forwardTargets={forwardTargets}

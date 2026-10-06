@@ -11,7 +11,7 @@ import {
   PinOff,
   Search,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Chat } from "../telegram/types";
 import { focusFirstMenuButton, handleMenuKeyboard } from "../utils/menuKeyboard";
 
@@ -54,10 +54,8 @@ export function ChatActionMenu({
   const archived = chat.folderIds.includes("archive");
   const busy = pending || Boolean(action);
 
-  useEffect(() => {
-    const timer = globalThis.setTimeout(() => focusFirstMenuButton(menuRef.current), 0);
-    return () => globalThis.clearTimeout(timer);
-  }, []);
+  // Keyboard dismissal must work on the first visible frame, including a reopen.
+  useLayoutEffect(() => { focusFirstMenuButton(menuRef.current); }, []);
 
   const run = async (nextAction: ChatAction, operation: () => Promise<boolean>) => {
     if (busy) return;

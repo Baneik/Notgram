@@ -73,6 +73,8 @@ import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { DesktopStartupSettings } from "./DesktopStartupSettings";
 import { TelegramProtocolSettings } from "./TelegramProtocolSettings";
 import { MotionPresence } from "./MotionPresence";
+import { MotionSelectionIndicator } from "./MotionSelectionIndicator";
+import { useContentMotion } from "../hooks/useContentMotion";
 import { PerformanceMonitor } from "./PerformanceMonitor";
 import { UpdateSettings } from "./UpdateSettings";
 import { SafetySettings } from "./SafetySettings";
@@ -293,6 +295,9 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const [preferenceError, setPreferenceError] = useState<string>();
   const [pendingZalgoTextPreference, setPendingZalgoTextPreference] = useState<boolean>();
   const [settingsQuery, setSettingsQuery] = useState("");
+  const detailRef = useRef<HTMLElement>(null);
+  useContentMotion(detailRef, categories.findIndex((category) => category.id === activeCategory),
+    ":scope > :not(header)", !compactViewport);
 
   useEffect(() => {
     void load();
@@ -477,9 +482,12 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
               </button>
             );
           })}
+          <MotionSelectionIndicator selection={`${activeCategory}:${settingsQuery}`}
+            selector=".settings-category[aria-current=page]" axis="vertical" />
         </nav>
 
         <main
+          ref={detailRef}
           className={`settings-detail ${activeCategory === "advanced" ? "is-advanced" : ""}`}
           aria-hidden={storageDetailsOpen || (compactViewport && !detailOpen) || undefined}
           inert={storageDetailsOpen || (compactViewport && !detailOpen) || undefined}

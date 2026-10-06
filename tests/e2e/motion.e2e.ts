@@ -120,7 +120,9 @@ test("mobile conversation handoff keeps only the active layer interactive", asyn
   })).toEqual({ inert: true, opacity: "0" });
   await expect.poll(() => conversation.evaluate((element) => {
     const node = element as HTMLElement & { inert?: boolean };
-    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+    let opacity = 1;
+    for (let layer: Element | null = element; layer; layer = layer.parentElement) opacity *= Number(getComputedStyle(layer).opacity);
+    return { inert: node.inert === true, opacity: String(opacity) };
   })).toEqual({ inert: false, opacity: "1" });
   await expect(page.getByRole("button", { name: "返回会话列表" })).toBeFocused();
 
@@ -132,7 +134,9 @@ test("mobile conversation handoff keeps only the active layer interactive", asyn
   })).toEqual({ inert: false, opacity: "1" });
   await expect.poll(() => conversation.evaluate((element) => {
     const node = element as HTMLElement & { inert?: boolean };
-    return { inert: node.inert === true, opacity: getComputedStyle(element).opacity };
+    let opacity = 1;
+    for (let layer: Element | null = element; layer; layer = layer.parentElement) opacity *= Number(getComputedStyle(layer).opacity);
+    return { inert: node.inert === true, opacity: String(opacity) };
   })).toEqual({ inert: true, opacity: "0" });
   await expect(page.locator(".chat-list[data-active=true] .chat-row").first()).toBeFocused();
 });
