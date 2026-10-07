@@ -16,6 +16,18 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("keeps audio tags separate from the download name and caption", () => {
+    expect(mapTdMessageContent({ "@type": "messageAudio", audio: {
+      file_name: "track-01.mp3", title: " 坠落 ", performer: " Rin & ACESTEP ", duration: 150,
+      audio: { id: 42, size: 2_400_000 }, mime_type: "audio/mpeg",
+    }, caption: { text: "好听的捏" } })).toMatchObject({
+      mediaType: "audio", fileName: "track-01.mp3", title: "坠落", performer: "Rin & ACESTEP",
+      duration: 150, size: 2_400_000, caption: "好听的捏",
+    });
+    expect(mapTdMessageContent({ "@type": "messageAudio", audio: {
+      file_name: "untagged.mp3", title: "  ", performer: "  ", audio: { id: 43 },
+    } })).toMatchObject({ fileName: "untagged.mp3", title: undefined, performer: undefined });
+  });
   it.each([
     [true, false], [false, true], [true, true], [false, false], [undefined, undefined],
   ])("maps chat deletion scopes independently: self=%s, everyone=%s", (self, everyone) => {
@@ -1439,7 +1451,7 @@ describe("TDLib mapper", () => {
           },
           {
             "@type": "pageBlockAudio",
-            audio: { file_name: "demo.mp3", mime_type: "audio/mpeg", audio: file(43), duration: 12 },
+            audio: { file_name: "demo.mp3", title: " Demo ", performer: " Artist ", mime_type: "audio/mpeg", audio: file(43), duration: 12 },
             caption,
           },
           {
@@ -1509,7 +1521,7 @@ describe("TDLib mapper", () => {
       }),
       expect.objectContaining({
         kind: "media",
-        media: expect.objectContaining({ mediaType: "audio", fileId: 43, duration: 12 }),
+        media: expect.objectContaining({ mediaType: "audio", fileId: 43, duration: 12, title: "Demo", performer: "Artist" }),
       }),
       expect.objectContaining({
         kind: "media",

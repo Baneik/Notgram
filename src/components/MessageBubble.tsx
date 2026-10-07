@@ -1065,14 +1065,14 @@ function MessageBubbleComponent({
               onSearchHashtag={onSearchHashtag}
             />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
-            <div className="attachment-message">
+            <div className="attachment-message audio-attachment-message">
               <div className="audio-message">
                 <AudioPlayer
                   source={fullMediaSource}
                   playbackId={`${message.chatId}:${message.id}`}
                   label={content.fileName}
-                  displayLabel={highlightedText(content.fileName, searchQuery)}
-                  subtitle={content.sizeLabel}
+                  displayLabel={highlightedText(content.title || content.fileName, searchQuery)}
+                  subtitle={content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined)}
                   fileId={content.fileId}
                   size={content.size}
                   mimeType={content.mimeType}

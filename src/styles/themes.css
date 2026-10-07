@@ -25,6 +25,9 @@
   --color-accent: #3f729b;
   --color-accent-strong: #315f83;
   --color-accent-soft: #d5e8f6;
+  --color-audio-accent: #487755;
+  --color-audio-surface: #e8f2e3;
+  --color-audio-on-accent: #ffffff;
   --color-status-success: #3f765a;
   --color-status-warning: #8d6720;
   --color-status-danger: #a44943;
@@ -75,6 +78,9 @@
   --color-accent: #4e7796;
   --color-accent-strong: #426984;
   --color-accent-soft: #2b3944;
+  --color-audio-accent: #a0c7a1;
+  --color-audio-surface: #293c32;
+  --color-audio-on-accent: #203429;
   --color-status-success: #7faf91;
   --color-status-warning: #c1a667;
   --color-status-danger: #d48781;
@@ -135,6 +141,9 @@
     --color-accent: Highlight;
     --color-accent-strong: Highlight;
     --color-accent-soft: Canvas;
+    --color-audio-accent: Highlight;
+    --color-audio-surface: Canvas;
+    --color-audio-on-accent: HighlightText;
     --color-status-success: CanvasText;
     --color-status-warning: CanvasText;
     --color-status-danger: CanvasText;

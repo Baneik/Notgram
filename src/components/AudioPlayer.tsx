@@ -9,14 +9,13 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo } from "react";
 import {
   audioPlaybackController,
   type AudioTrackDescriptor,
   useAudioPlayback,
 } from "../media/audioPlayback";
 import { formatPlaybackTime } from "../media/mediaPlayback";
-import { AudioSpectrum } from "./AudioSpectrum";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 
@@ -109,9 +108,28 @@ export function AudioPlayer({
   const playbackLabel = canPlay
     ? playing ? translate("暂停 {{value0}}", { value0: label }) : translate("播放 {{value0}}", { value0: label })
     : translate("{{value0}} 暂不可播放", { value0: label });
+  // TDLib exposes size and duration, not the codec bitrate. Keep the estimate explicit.
+  const bitrateDuration = durationHint && durationHint > 0 ? durationHint : duration;
+  const bitrate = size && size > 0 && bitrateDuration > 0
+    ? Math.round(size * 8 / bitrateDuration / 1000)
+    : undefined;
+  const progress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0;
+  const volume = muted ? 0 : playback.volume;
 
   return (
-    <div className={`audio-player ${active ? "is-active" : ""}`} role="group" aria-label={label}>
+    <div className={`audio-player ${active ? "is-active" : ""} ${playing ? "is-playing" : ""}`} role="group" aria-label={label}>
+      <span className="audio-disc" aria-hidden="true"><span className="audio-disc-hub" /></span>
+      <div className="audio-player-body">
+        <div className="audio-player-title">
+          <strong title={label}>{displayLabel ?? label}</strong>
+          {bitrate !== undefined && bitrate > 0 && Number.isFinite(bitrate) && (
+            <small className="audio-quality" title={translate("估算平均码率：{{value0}} kbps", { value0: bitrate })}>
+              ≈{bitrate}K
+            </small>
+          )}
+        </div>
+        <span className="audio-player-artist" title={subtitle}>{subtitle || translate("未知艺术家")}</span>
+      </div>
       <button
         className="audio-play"
         type="button"
@@ -125,27 +143,21 @@ export function AudioPlayer({
           : failed || !canPlay ? <AlertCircle size={18} />
             : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
       </button>
-      <div className="audio-player-body">
-        <div className="audio-player-title">
-          <strong title={label}>{displayLabel ?? label}</strong>
-          {subtitle && <small>{subtitle}</small>}
-        </div>
-        <div className="audio-waveform-control">
-          <AudioSpectrum playbackId={playbackId} playing={playing} bars={30} />
-          <input
-            className="audio-seek"
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={Math.min(currentTime, duration || 0)}
-            aria-label={translate("播放进度")}
-            disabled={!active || duration <= 0}
-            onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
-          />
-        </div>
+      <div className="audio-player-controls">
+        <input
+          className="audio-seek"
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={Math.min(currentTime, duration || 0)}
+          style={{ "--audio-progress": `${progress}%` } as CSSProperties}
+          aria-label={translate("播放进度")}
+          disabled={!active || duration <= 0}
+          onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
+        />
         <div className="audio-player-details">
-          <span className="audio-time">{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
+          <span className="audio-time"><span>{formatPlaybackTime(currentTime)}</span> / {formatPlaybackTime(duration)}</span>
           <div className="audio-player-actions">
             <button
               className="playback-rate"
@@ -172,11 +184,13 @@ export function AudioPlayer({
                 min={0}
                 max={1}
                 step={0.01}
-                value={playback.muted ? 0 : playback.volume}
+                value={volume}
+                style={{ "--audio-progress": `${volume * 100}%` } as CSSProperties}
                 aria-label={translate("音量")}
                 disabled={!active}
                 onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
               />
+              <span className="audio-volume-value" aria-hidden="true">{Math.round(volume * 100)}%</span>
             </div>
             {onCancelDownload ? (
               <button className="audio-download" type="button" aria-label={translate("取消下载 {{value0}}", { value0: label })} title={translate("取消下载")} onClick={onCancelDownload}>

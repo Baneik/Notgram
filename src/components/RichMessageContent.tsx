@@ -262,9 +262,12 @@ function RichMediaBlock({ media, context, blockKey }: {
         source={usableSource}
         playbackId={`${context.messageId}:${blockKey}`}
         label={media.fileName}
+        displayLabel={media.title}
+        subtitle={media.performer || (media.mediaType === "voice" ? media.sizeLabel : undefined)}
         fileId={media.fileId}
         size={media.size}
         mimeType={media.mimeType}
+        durationHint={media.duration}
         downloadProgress={media.progress}
         onRequestStream={context.onStream}
         onRecoverFile={media.fileId !== undefined

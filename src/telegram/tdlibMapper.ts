@@ -413,6 +413,8 @@ const mediaContent = (
   fileName: string,
   file: unknown,
   options: {
+    title?: string;
+    performer?: string;
     caption?: string;
     captionEntities?: MessageTextEntity[];
     mimeType?: string;
@@ -670,6 +672,8 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
         typeof audio?.file_name === "string" && audio.file_name ? audio.file_name : translate("音频"),
         audio?.audio,
         {
+          title: typeof audio?.title === "string" ? audio.title.trim() || undefined : undefined,
+          performer: typeof audio?.performer === "string" ? audio.performer.trim() || undefined : undefined,
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           ...thumbnailDetails(audio?.album_cover_thumbnail),
           duration: tdNumber(audio?.duration),
@@ -1142,6 +1146,8 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         audio?.audio,
         {
           ...formattedCaption(content.caption),
+          title: typeof audio?.title === "string" ? audio.title.trim() || undefined : undefined,
+          performer: typeof audio?.performer === "string" ? audio.performer.trim() || undefined : undefined,
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
           duration: tdNumber(audio?.duration),

@@ -86,6 +86,19 @@ The controller claims playback ownership while preparing. Starting audio sends
 a pause to the viewer and cancels pending autoplay. A viewer requests permission
 to play from the coordinator; delayed state reports never reclaim ownership.
 
+## Inline audio messages
+
+The shared inline player presents the audio title and performer separately from
+the original download filename. Missing tags fall back to the filename and an
+unknown artist; voice notes retain their size subtitle. TDLib supplies no codec
+bitrate, so the compact K badge is explicitly an estimated average from file
+size and duration and is omitted when those values are unavailable.
+
+The decorative CD rotates only while its track is playing, pauses in background
+windows, and stops for either app or system reduced motion. Message and rich
+audio captions use a divider inset from both edges. Transport, seek, volume,
+download, and queue ownership remain with the existing audio controller and host.
+
 ## Sources, recovery and native leases
 
 A source is retained for its entire attempt. Completing a download does not

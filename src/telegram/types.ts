@@ -665,6 +665,8 @@ export interface MessageRichCaption {
 export interface MessageRichMedia {
   mediaType: "photo" | "video" | "audio" | "voice" | "animation";
   fileName: string;
+  title?: string;
+  performer?: string;
   sizeLabel: string;
   mimeType?: string;
   fileId?: number;
@@ -769,6 +771,8 @@ export type MessageRichBlock =
 
 interface TransferableMessageContent {
   fileName: string;
+  title?: string;
+  performer?: string;
   sizeLabel: string;
   stickerSetId?: string;
   caption?: string;

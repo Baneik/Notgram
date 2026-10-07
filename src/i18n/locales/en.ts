@@ -1,4 +1,6 @@
 export const en = {
+  "未知艺术家": "Unknown artist",
+  "估算平均码率：{{value0}} kbps": "Estimated average bitrate: {{value0}} kbps",
   "快捷键": "Keyboard shortcuts",
   "自定义会话、文件夹切换、消息编辑与媒体发送模式按键": "Customize shortcuts for switching chats and folders, editing messages and changing media send mode",
   "切换媒体发送模式": "Toggle media send mode",

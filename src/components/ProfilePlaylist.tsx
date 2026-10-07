@@ -52,8 +52,8 @@ export function ProfilePlaylist({
     <div className="profile-playlist" aria-label={translate("{{value0}}的音乐", { value0: title })}>
       {audios.map((audio, index) => {
         const content = audio.content;
-        const label = audio.title || content.fileName;
-        const subtitle = audio.performer || content.sizeLabel;
+        const label = audio.title || content.title || content.fileName;
+        const subtitle = audio.performer || content.performer;
         const fileId = content.fileId;
         return (
           <article className="profile-playlist-track" key={audio.id}>
