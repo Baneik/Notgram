@@ -655,9 +655,12 @@ coalesce requests and allow a click to retry. Search recovery must not expand th
 window or mark messages read. Navigation loads the selected message's context through the existing
 viewport owner and discards a delayed jump after another navigation or account change.
 
-Only focused, visible message rows submit mention reads. A successful view request does not itself
-clear a server-backed mention: retain the entry until TDLib reports the read, including when its
-reaction is acknowledged first. A zero chat mention count clears known mention flags and entries
+Only visible message rows in the active, visible window submit mention reads. Retained sidebar or
+search focus and message selections do not block these reads or transfer focus to the composer.
+Hidden or inert history surfaces, including those behind modal dialogs, keep their unread state.
+A successful view request does not itself clear a server-backed mention: retain the entry until
+TDLib reports the read, including when its reaction is acknowledged first. A zero chat mention
+count clears known mention flags and entries
 without consuming unrelated local replies or reactions. Late searches cannot overwrite newer
 message state, restore deleted messages, or cross account generations; a reduced aggregate count
 also invalidates a search snapshot that could contain a remotely read, uncached message.

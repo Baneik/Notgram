@@ -3,6 +3,7 @@ import { MESSAGE_VIEWPORT_PREFETCH } from "../utils/mediaPrefetch";
 import type { HistoryRetentionViewport } from "../store/historyRetention";
 import { conversationScrollMemory, scrollMemoryKey, visibleAnchor } from "../hooks/conversationScrollState";
 import { useChannelMessageViews } from "../hooks/useChannelMessageViews";
+import { isAvailableFocusTarget } from "../utils/focusPolicy";
 import { servicePersonIds } from "../telegram/serviceMessages";
 import { audioMessageNeighbors } from "../media/audioMessageQueue";
 import { ChatMembershipBar, needsMembershipBar } from "./ChatMembershipBar";
@@ -1499,10 +1500,11 @@ export function Conversation({
     const visibleIds = new Set<string>();
     const observedRows = new Set<Element>();
     const consumeVisibleAttention = () => {
+      // Window activation owns reading; retained sidebar/search focus must not block visible reads.
       if (
         !document.hasFocus() ||
         document.visibilityState !== "visible" ||
-        !conversation.contains(document.activeElement)
+        !isAvailableFocusTarget(messageListElement)
       ) return;
       const visibleAttentionIds = [...visibleIds]
         .filter((messageId) => attentionIds.has(messageId));

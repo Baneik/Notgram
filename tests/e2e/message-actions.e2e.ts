@@ -862,7 +862,8 @@ test("mention and reply notifications jump newest-first and are consumed once", 
   await expect(attentionButton).toHaveCount(0);
 });
 
-test("visible attention is consumed only while focus is inside the conversation", async ({ page }) => {
+test("visible reply attention is consumed on window return while sidebar focus is retained", async ({ page }) => {
+  await page.addInitScript(() => { document.hasFocus = () => false; });
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   const latestId = await page.locator(".message-list [data-message-id]").last()
@@ -870,20 +871,22 @@ test("visible attention is consumed only while focus is inside the conversation"
   expect(latestId).toBeTruthy();
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').focus();
   await page.evaluate(async ({ modulePath, messageId }) => {
-    const module = await import(modulePath) as {
-      telegramStore: {
-        getState: () => { unreadAttentionMessageIds: Map<string, string[]> };
-        setState: (partial: { unreadAttentionMessageIds: Map<string, string[]> }) => void;
-      };
-    };
+    const module = await import(modulePath) as typeof import("../../src/store/telegramStore");
     const state = module.telegramStore.getState();
+    const messages = new Map(state.messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === messageId
+      ? { ...message, outgoing: false, containsUnreadMention: false,
+        replyTo: { kind: "message", messageId: "own-message", outgoing: true } } : message));
     const unreadAttentionMessageIds = new Map(state.unreadAttentionMessageIds);
     unreadAttentionMessageIds.set("chat-product", [messageId]);
-    module.telegramStore.setState({ unreadAttentionMessageIds });
+    module.telegramStore.setState({ messages, unreadAttentionMessageIds });
   }, { modulePath: "/src/store/telegramStore.ts", messageId: latestId! });
 
   await expect(page.locator(".jump-to-attention")).toBeVisible();
-  await page.getByRole("textbox", { name: "消息内容" }).focus();
+  await page.evaluate(() => {
+    document.hasFocus = () => true;
+    window.dispatchEvent(new Event("focus"));
+  });
   await expect.poll(() => page.evaluate(async (modulePath) => {
     const module = await import(modulePath) as {
       telegramStore: {
@@ -894,6 +897,7 @@ test("visible attention is consumed only while focus is inside the conversation"
       .get("chat-product")?.length ?? 0;
   }, "/src/store/telegramStore.ts")).toBe(0);
   await expect(page.locator(".jump-to-attention")).toHaveCount(0);
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]')).toBeFocused();
 });
 
 test("attention button occupies the lower slot and animates when latest appears", async ({ page }) => {
