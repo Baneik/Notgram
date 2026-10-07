@@ -88,8 +88,14 @@ to play from the coordinator; delayed state reports never reclaim ownership.
 
 ## Inline audio messages
 
-The shared inline player presents the audio title and performer separately from
-the original download filename. Missing tags fall back to the filename and an
+The inline and floating players share `AudioTrackInfo` for their CD, title,
+performer, and estimated bitrate. Queue descriptors retain the same title and
+subtitle so floating playback keeps the metadata after message views unmount.
+The compact floating player retains the CD and both text rows. Width and drag
+coordinates use the conversation bounds in pre-zoom CSS pixels; when mobile
+navigation hides the conversation, the app bounds keep playback controls visible.
+The player presents the audio title and performer separately from the original
+download filename. Missing tags fall back to the filename and an
 unknown artist; voice notes retain their size subtitle. TDLib supplies no codec
 bitrate, so the compact K badge is explicitly an estimated average from file
 size and duration and is omitted when those values are unavailable.

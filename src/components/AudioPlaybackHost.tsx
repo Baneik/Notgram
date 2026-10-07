@@ -40,7 +40,7 @@ import {
 } from "../media/mediaPlayback";
 import { updateMediaStreamPlayback } from "../media/mediaStream";
 import { logPerformance } from "../utils/performanceMonitor";
-import { AudioSpectrum } from "./AudioSpectrum";
+import { AudioTrackInfo } from "./AudioTrackInfo";
 import { MediaProgressRing } from "./MediaProgressRing";
 
 function PersistentAudioEngine() {
@@ -481,17 +481,22 @@ function AudioFloatingController() {
     const controller = controllerRef.current;
     if (!controller) return undefined;
     const app = document.querySelector<HTMLElement>(".app-shell");
-    const boundary = app?.querySelector<HTMLElement>(
+    const conversation = app?.querySelector<HTMLElement>(
       ".conversation, .forum-topics-view",
     );
+    const conversationBounds = conversation?.getBoundingClientRect();
+    const boundary = conversationBounds?.width && conversationBounds.height ? conversation : app;
     if (!boundary) return undefined;
     boundaryRef.current = boundary;
     const bounds = boundary.getBoundingClientRect();
+    // Pointer/DOM bounds are screen pixels; fixed positioning uses pre-zoom CSS pixels.
+    const scale = Number(getComputedStyle(document.documentElement).zoom) || 1;
+    controller.style.setProperty("--audio-floating-available-width", `${Math.max(0, bounds.width / scale - 24)}px`);
     return {
-      left: bounds.left,
-      top: bounds.top,
-      right: bounds.right,
-      bottom: bounds.bottom,
+      left: bounds.left / scale,
+      top: bounds.top / scale,
+      right: bounds.right / scale,
+      bottom: bounds.bottom / scale,
     };
   }, []);
 
@@ -500,7 +505,8 @@ function AudioFloatingController() {
     const bounds = readBounds();
     if (!controller || !bounds) return;
     const rect = controller.getBoundingClientRect();
-    const size = { width: rect.width, height: rect.height };
+    const scale = Number(getComputedStyle(document.documentElement).zoom) || 1;
+    const size = { width: rect.width / scale, height: rect.height / scale };
     setPosition((current) => {
       const next = requested
         ? clampAudioFloatingPosition(requested, bounds, size)
@@ -536,15 +542,21 @@ function AudioFloatingController() {
   const hasPrevious = audioPlaybackController.hasTrack(track.previousId);
   const hasNext = audioPlaybackController.hasTrack(track.nextId);
   const muted = playback.muted || playback.volume <= 0;
+  const volume = muted ? 0 : playback.volume;
+  const progress = playback.duration > 0
+    ? Math.min(100, Math.max(0, playback.currentTime / playback.duration * 100)) : 0;
+  const trackInfo = <AudioTrackInfo label={track.label} title={track.title} subtitle={track.subtitle}
+    size={track.size} duration={playback.duration} durationHint={track.durationHint} playing={playback.playing} />;
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !position) return;
     const target = event.target;
     if (target instanceof Element && target.closest("input")) return;
+    const scale = Number(getComputedStyle(document.documentElement).zoom) || 1;
     dragRef.current = {
       pointerId: event.pointerId,
-      offsetX: event.clientX - position.x,
-      offsetY: event.clientY - position.y,
+      offsetX: event.clientX / scale - position.x,
+      offsetY: event.clientY / scale - position.y,
       startX: event.clientX,
       startY: event.clientY,
       dragging: false,
@@ -560,9 +572,10 @@ function AudioFloatingController() {
       event.currentTarget.setPointerCapture(event.pointerId);
       setDragging(true);
     }
+    const scale = Number(getComputedStyle(document.documentElement).zoom) || 1;
     moveInsideConversation({
-      x: event.clientX - gesture.offsetX,
-      y: event.clientY - gesture.offsetY,
+      x: event.clientX / scale - gesture.offsetX,
+      y: event.clientY / scale - gesture.offsetY,
     });
   };
 
@@ -631,6 +644,7 @@ function AudioFloatingController() {
     >
       {compact ? (
         <div className="audio-floating-compact-controls">
+          {trackInfo}
           {previousButton}
           {playButton}
           {nextButton}
@@ -645,51 +659,55 @@ function AudioFloatingController() {
       ) : (
         <>
           <header>
-            <strong title={track.label}>{track.label}</strong>
-            <button type="button" aria-label={translate("缩小播放器")} title={translate("缩小播放器")} onClick={() => setCompact(true)}>
-              <ChevronDown size={17} />
-            </button>
-            <button type="button" aria-label={translate("关闭播放")} title={translate("关闭播放")} onClick={() => audioPlaybackController.close()}>
-              <X size={16} />
-            </button>
-          </header>
-          <div className="audio-floating-visual">
-            <AudioSpectrum playbackId={track.id} playing={playback.playing} bars={40} className="is-floating" />
-            <div className="audio-floating-progress">
-              <input
-                type="range"
-                min={0}
-                max={playback.duration || 0}
-                step={0.1}
-                value={Math.min(playback.currentTime, playback.duration || 0)}
-                aria-label={translate("播放进度")}
-                onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
-              />
-              <span>{formatPlaybackTime(playback.currentTime)} / {formatPlaybackTime(playback.duration)}</span>
+            {trackInfo}
+            {playButton}
+            <div className="audio-floating-window-actions">
+              <button type="button" aria-label={translate("缩小播放器")} title={translate("缩小播放器")} onClick={() => setCompact(true)}>
+                <ChevronDown size={15} />
+              </button>
+              <button type="button" aria-label={translate("关闭播放")} title={translate("关闭播放")} onClick={() => audioPlaybackController.close()}>
+                <X size={15} />
+              </button>
             </div>
+          </header>
+          <div className="audio-floating-progress">
+            <input
+              className="audio-seek"
+              type="range"
+              min={0}
+              max={playback.duration || 0}
+              step={0.1}
+              value={Math.min(playback.currentTime, playback.duration || 0)}
+              style={{ "--audio-progress": `${progress}%` } as CSSProperties}
+              aria-label={translate("播放进度")}
+              disabled={playback.duration <= 0}
+              onChange={(event) => audioPlaybackController.seek(Number(event.currentTarget.value))}
+            />
           </div>
           <footer>
+            <span className="audio-time"><span>{formatPlaybackTime(playback.currentTime)}</span> / {formatPlaybackTime(playback.duration)}</span>
             <div className="audio-floating-transport">
               {previousButton}
-              {playButton}
               {nextButton}
             </div>
             <div className="audio-floating-utilities">
-              <div className="audio-volume-control">
+              <button className="playback-rate" type="button" aria-label={translate("播放速度 {{value0}} 倍", { value0: playback.playbackRate })} title={translate("切换播放速度")} onClick={() => audioPlaybackController.cyclePlaybackRate()}>
+                {playback.playbackRate}x
+              </button>
+              <div className="audio-inline-volume audio-volume-control">
                 {volumeButton}
                 <input
                   type="range"
                   min={0}
                   max={1}
                   step={0.01}
-                  value={playback.muted ? 0 : playback.volume}
+                  value={volume}
+                  style={{ "--audio-progress": `${volume * 100}%` } as CSSProperties}
                   aria-label={translate("音量")}
                   onChange={(event) => audioPlaybackController.setVolume(Number(event.currentTarget.value))}
                 />
+                <span className="audio-volume-value" aria-hidden="true">{Math.round(volume * 100)}%</span>
               </div>
-              <button className="playback-rate" type="button" aria-label={translate("播放速度 {{value0}} 倍", { value0: playback.playbackRate })} title={translate("切换播放速度")} onClick={() => audioPlaybackController.cyclePlaybackRate()}>
-                {playback.playbackRate}x
-              </button>
               {track.onCancelDownload ? (
                 <button type="button" aria-label={translate("取消下载 {{value0}}", { value0: track.label })} title={translate("取消下载")} onClick={track.onCancelDownload}>
                   <span className="audio-floating-transfer">

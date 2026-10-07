@@ -262,6 +262,7 @@ function RichMediaBlock({ media, context, blockKey }: {
         source={usableSource}
         playbackId={`${context.messageId}:${blockKey}`}
         label={media.fileName}
+        title={media.title}
         displayLabel={media.title}
         subtitle={media.performer || (media.mediaType === "voice" ? media.sizeLabel : undefined)}
         fileId={media.fileId}

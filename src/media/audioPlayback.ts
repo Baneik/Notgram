@@ -10,6 +10,8 @@ import {
 export interface AudioTrackDescriptor {
   id: string;
   label: string;
+  title?: string;
+  subtitle?: string;
   source?: string;
   fileId?: number;
   size?: number;

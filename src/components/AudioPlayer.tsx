@@ -17,12 +17,14 @@ import {
 } from "../media/audioPlayback";
 import { formatPlaybackTime } from "../media/mediaPlayback";
 import { MediaProgressRing } from "./MediaProgressRing";
+import { AudioTrackInfo } from "./AudioTrackInfo";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 
 interface AudioPlayerProps {
   source?: string;
   playbackId: string;
   label: string;
+  title?: string;
   displayLabel?: ReactNode;
   subtitle?: string;
   fileId?: number;
@@ -43,6 +45,7 @@ export function AudioPlayer({
   source,
   playbackId,
   label,
+  title,
   displayLabel,
   subtitle,
   fileId,
@@ -62,6 +65,8 @@ export function AudioPlayer({
   const track = useMemo<AudioTrackDescriptor>(() => ({
     id: playbackId,
     label,
+    title,
+    subtitle,
     source,
     fileId,
     size,
@@ -80,6 +85,8 @@ export function AudioPlayer({
     durationHint,
     fileId,
     label,
+    title,
+    subtitle,
     mimeType,
     nextPlaybackId,
     onCancelDownload,
@@ -108,28 +115,13 @@ export function AudioPlayer({
   const playbackLabel = canPlay
     ? playing ? translate("暂停 {{value0}}", { value0: label }) : translate("播放 {{value0}}", { value0: label })
     : translate("{{value0}} 暂不可播放", { value0: label });
-  // TDLib exposes size and duration, not the codec bitrate. Keep the estimate explicit.
-  const bitrateDuration = durationHint && durationHint > 0 ? durationHint : duration;
-  const bitrate = size && size > 0 && bitrateDuration > 0
-    ? Math.round(size * 8 / bitrateDuration / 1000)
-    : undefined;
   const progress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0;
   const volume = muted ? 0 : playback.volume;
 
   return (
     <div className={`audio-player ${active ? "is-active" : ""} ${playing ? "is-playing" : ""}`} role="group" aria-label={label}>
-      <span className="audio-disc" aria-hidden="true"><span className="audio-disc-hub" /></span>
-      <div className="audio-player-body">
-        <div className="audio-player-title">
-          <strong title={label}>{displayLabel ?? label}</strong>
-          {bitrate !== undefined && bitrate > 0 && Number.isFinite(bitrate) && (
-            <small className="audio-quality" title={translate("估算平均码率：{{value0}} kbps", { value0: bitrate })}>
-              ≈{bitrate}K
-            </small>
-          )}
-        </div>
-        <span className="audio-player-artist" title={subtitle}>{subtitle || translate("未知艺术家")}</span>
-      </div>
+      <AudioTrackInfo label={label} title={title} subtitle={subtitle} displayTitle={displayLabel}
+        size={size} duration={duration} durationHint={durationHint} playing={playing} />
       <button
         className="audio-play"
         type="button"

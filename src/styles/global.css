@@ -1947,10 +1947,10 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   z-index: 1; width: 13px; height: 13px; border: 4px solid var(--color-audio-surface); border-radius: 50%;
   background: var(--color-audio-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-audio-accent) 50%, transparent);
 }
-.audio-player.is-playing .audio-disc { animation-play-state: running; }
-.motion-background-paused .audio-player .audio-disc { animation-play-state: paused; }
-html.reduce-motion .audio-player .audio-disc { animation: none; }
-@media (prefers-reduced-motion: reduce) { .audio-player .audio-disc { animation: none; } }
+.audio-disc.is-spinning { animation-play-state: running; }
+.motion-background-paused .audio-disc { animation-play-state: paused; }
+html.reduce-motion .audio-disc { animation: none; }
+@media (prefers-reduced-motion: reduce) { .audio-disc { animation: none; } }
 .audio-player button { height: 28px; padding: 0; display: grid; place-items: center; color: var(--color-audio-accent); background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
 .audio-player button:hover { background: color-mix(in srgb, var(--color-audio-accent) 10%, transparent); }
 .audio-player button:focus-visible { box-shadow: 0 0 0 2px var(--color-audio-accent); }
@@ -1992,36 +1992,39 @@ html.reduce-motion .audio-player .audio-disc { animation: none; }
 .audio-transfer-indicator .audio-transfer-cancel { position: relative; z-index: 1; }
 .persistent-audio-engine { display: none; }
 .audio-floating-controller {
-  position: fixed; z-index: 74; top: 104px; right: 14px; width: min(336px, calc(100vw - 28px));
-  padding: 8px; display: grid; gap: 8px;
-  color: var(--ink); background: color-mix(in srgb, var(--color-bg-elevated) 93%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-border-default) 82%, transparent); border-radius: 16px;
-  box-shadow: 0 16px 42px color-mix(in srgb, var(--color-shadow) 86%, transparent), inset 0 1px color-mix(in srgb, white 9%, transparent);
+  position: fixed; z-index: 74; top: 104px; right: 14px; width: min(360px, var(--audio-floating-available-width, calc(100vw - 28px)));
+  padding: 12px; display: grid; gap: 7px;
+  color: var(--ink); background: var(--color-audio-surface);
+  border: 1px solid color-mix(in srgb, var(--color-audio-accent) 20%, transparent); border-radius: 16px;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-shadow) 65%, transparent);
   backdrop-filter: blur(18px) saturate(1.12); animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-standard) both;
   cursor: grab; touch-action: none;
 }
 .audio-floating-controller.is-dragging { cursor: grabbing; box-shadow: 0 20px 52px color-mix(in srgb, var(--color-shadow) 94%, transparent); }
-.audio-floating-controller header { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 30px 30px; align-items: center; gap: 2px; }
-.audio-floating-controller header strong { min-width: 0; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; pointer-events: none; }
-.audio-floating-controller button { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; color: var(--color-text-secondary); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
-.audio-floating-controller button:hover, .audio-floating-controller button:focus-visible { color: var(--ink); background: var(--surface-hover); outline: none; }
-.audio-floating-controller button:disabled { opacity: 0.34; cursor: default; background: transparent; }
-.audio-floating-visual { padding: 5px 9px 7px; display: grid; gap: 3px; background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 86%, transparent), color-mix(in srgb, var(--color-bg-control) 72%, transparent)); border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 12px; }
-.audio-floating-controller .audio-spectrum.is-floating { width: 100%; height: 39px; color: var(--accent); }
-.audio-floating-progress { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.audio-floating-progress input { width: 100%; min-width: 0; height: 8px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.audio-floating-progress span { color: var(--muted); font-size: 9px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.audio-floating-controller footer { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.audio-floating-controller header { min-width: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr) 38px 20px; align-items: center; gap: 8px; }
+.audio-floating-controller button { flex: 0 0 auto; width: 24px; height: 28px; padding: 0; display: grid; place-items: center; color: var(--color-audio-accent); background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
+.audio-floating-controller button:hover { background: color-mix(in srgb, var(--color-audio-accent) 10%, transparent); }
+.audio-floating-controller button:focus-visible { box-shadow: 0 0 0 2px var(--color-audio-accent); }
+.audio-floating-controller button:disabled { opacity: 0.42; cursor: default; background: transparent; }
+.audio-floating-window-actions { display: grid; gap: 3px; }
+.audio-floating-window-actions button { width: 20px; height: 20px; color: var(--muted); }
+.audio-floating-progress { min-width: 0; display: grid; }
+.audio-floating-controller footer { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .audio-floating-transport, .audio-floating-utilities { min-width: 0; display: flex; align-items: center; gap: 3px; }
-.audio-floating-controller .audio-floating-play { width: 38px; height: 38px; color: var(--color-text-on-accent); background: var(--accent); border-radius: 50%; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent); }
-.audio-floating-controller .audio-floating-play:hover, .audio-floating-controller .audio-floating-play:focus-visible { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--accent) 84%, var(--ink)); }
-.audio-floating-controller .playback-rate { width: 38px; color: var(--accent); font-size: 10px; font-weight: 700; }
-.audio-volume-control { width: 116px; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 1px; }
-.audio-volume-control button { width: 28px; }
-.audio-volume-control input { width: 100%; min-width: 0; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.audio-floating-controller.is-compact { right: auto; width: max-content; max-width: calc(100vw - 24px); padding: 5px 6px; border-radius: 26px; }
-.audio-floating-compact-controls { display: flex; align-items: center; gap: 2px; }
-.audio-floating-controller.is-compact .audio-floating-play { width: 36px; height: 36px; }
+.audio-floating-utilities { margin-left: auto; }
+.audio-floating-controller .audio-floating-play { width: 38px; height: 38px; color: var(--color-audio-on-accent); background: var(--color-audio-accent); border-radius: 50%; box-shadow: 0 3px 8px color-mix(in srgb, var(--color-audio-accent) 18%, transparent); }
+.audio-floating-controller .audio-floating-play:hover { background: color-mix(in srgb, var(--color-audio-accent) 88%, var(--ink)); }
+.audio-floating-controller .playback-rate { width: 30px; font-size: 10px; font-weight: 650; }
+.audio-floating-controller .audio-volume-control { flex: 0 0 auto; width: 144px; }
+.audio-floating-controller.is-compact { right: auto; width: min(320px, var(--audio-floating-available-width, calc(100vw - 24px))); padding: 5px 6px; border-radius: 26px; }
+.audio-floating-compact-controls { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr) 24px 34px repeat(4, 24px); align-items: center; gap: 2px; }
+.audio-floating-controller.is-compact .audio-floating-play { width: 34px; height: 34px; }
+.audio-floating-controller.is-compact .audio-disc { width: 28px; height: 28px; }
+.audio-floating-controller.is-compact .audio-disc-hub { width: 10px; height: 10px; border-width: 3px; }
+.audio-floating-controller.is-compact .audio-player-body { gap: 0; }
+.audio-floating-controller.is-compact .audio-player-title strong { font-size: 11px; line-height: 16px; }
+.audio-floating-controller.is-compact .audio-player-artist { font-size: 9px; line-height: 13px; }
+.audio-floating-controller.is-compact .audio-quality { display: none; }
 .audio-floating-transfer { position: relative; width: 22px; height: 22px; display: grid; place-items: center; }
 .audio-floating-transfer .media-progress-ring { position: absolute; inset: 0; }
 .audio-floating-transfer > svg:last-child { position: relative; z-index: 1; }

@@ -1071,6 +1071,7 @@ function MessageBubbleComponent({
                   source={fullMediaSource}
                   playbackId={`${message.chatId}:${message.id}`}
                   label={content.fileName}
+                  title={content.title}
                   displayLabel={highlightedText(content.title || content.fileName, searchQuery)}
                   subtitle={content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined)}
                   fileId={content.fileId}

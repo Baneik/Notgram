@@ -1076,6 +1076,8 @@ export function Conversation({
     return [{
       id: `${message.chatId}:${message.id}`,
       label: content.fileName,
+      title: content.title,
+      subtitle: content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined),
       source: localMediaSource(content.localPath),
       fileId: content.fileId,
       size: content.size,
