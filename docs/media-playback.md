@@ -36,6 +36,14 @@ play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message
 from a virtual list or changing conversations does not end an open viewer.
 
+Rich-message photos, videos and animations reserve their visual frame before
+previews arrive. Reuse `fitMediaLayout` with declared dimensions and the existing
+photo/video fallback ratios when dimensions are unavailable. Placeholder controls,
+images, decoded replacements and spoiler content fill that frame without taking
+part in its height calculation. A thumbnail's intrinsic size or a source upgrade
+must never resize an established virtual row or trigger another bottom correction.
+Captions remain outside the frame; audio keeps its content-driven layout.
+
 The main window owns `VideoPlaybackController` and the shared viewer session.
 The controller acquires sources, serializes acquisition/release for each file,
 remembers progress, coordinates audio ownership, and handles retries. The viewer

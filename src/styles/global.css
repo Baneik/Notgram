@@ -1679,6 +1679,17 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
   aspect-ratio: var(--rich-media-ratio, auto); background: var(--color-bg-code);
 }
 .rich-media-block .video-preview { width: min(440px, 100%); }
+/* Reserve the frame before pixels arrive; decode and preview upgrades cannot size virtual rows. */
+.rich-media-block.has-media-frame { width: var(--rich-media-width); max-width: 100%; }
+.rich-media-block.has-media-frame .rich-media-visual { min-width: 0; aspect-ratio: var(--rich-media-ratio); }
+.rich-media-block.has-media-frame .rich-media-visual > .media-spoiler { position: absolute; inset: 0; }
+.rich-media-block.has-media-frame .rich-media-content { position: absolute; inset: 0; overflow: hidden; }
+.rich-media-block.has-media-frame .rich-media-link { display: block; width: 100%; height: 100%; }
+.rich-media-block.has-media-frame .rich-media-content img,
+.rich-media-block.has-media-frame .rich-media-content video {
+  width: 100%; height: 100%; max-height: none; aspect-ratio: auto; object-fit: contain;
+}
+.rich-media-block.has-media-frame .rich-media-placeholder { height: 100%; min-height: 0; }
 .rich-media-block figcaption, .rich-collection > figcaption, .rich-map-block figcaption {
   padding-top: 4px; white-space: pre-wrap;
 }

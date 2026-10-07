@@ -30,6 +30,7 @@ import { StableImage } from "./StableImage";
 import { MediaSpoiler, TextSpoiler, TextSpoilerGroup } from "./Spoiler";
 import { CollapsibleBlockQuote, type CollapseQuoteHandler, type ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import { MessagePreformatted } from "./MessagePreformatted";
+import { fitMediaLayout } from "../utils/mediaLayout";
 
 interface RichMessageContentProps {
   blocks: MessageRichBlock[];
@@ -215,8 +216,16 @@ function RichMediaBlock({ media, context, blockKey }: {
     });
   };
   const canDownload = media.fileId !== undefined && media.canDownload !== false && !media.isDownloaded;
-  const style = media.width && media.height
-    ? { "--rich-media-ratio": `${media.width} / ${media.height}` } as CSSProperties
+  const hasDeclaredSize = Number.isFinite(media.width) && Number.isFinite(media.height) &&
+    (media.width ?? 0) > 0 && (media.height ?? 0) > 0;
+  const visualLayout = media.mediaType === "photo" || media.mediaType === "video" || media.mediaType === "animation"
+    ? fitMediaLayout(media.mediaType,
+        hasDeclaredSize ? media.width : media.mediaType === "video" ? 16 : 4,
+        hasDeclaredSize ? media.height : media.mediaType === "video" ? 9 : 3,
+        { hasReadableText: true })
+    : undefined;
+  const style = visualLayout
+    ? { "--rich-media-ratio": visualLayout.aspectRatio, "--rich-media-width": `${visualLayout.width}px` } as CSSProperties
     : undefined;
   const requestDownload = canDownload && media.fileId !== undefined
     ? () => void context.onDownload(media.fileId!, media.fileName)
@@ -332,14 +341,14 @@ function RichMediaBlock({ media, context, blockKey }: {
     ? <a className="rich-media-link" href={mediaHref} target="_blank" rel="noreferrer" onClick={handleExternalLinkClick}>{content}</a>
     : content;
   return (
-    <figure className={`rich-media-block rich-media-${media.mediaType}`} style={style}>
+    <figure className={`rich-media-block rich-media-${media.mediaType} ${visualLayout ? "has-media-frame" : ""}`} style={style}>
       <div className="rich-media-visual">
         <MediaSpoiler
           active={media.hasSpoiler}
           resetKey={`${context.messageId}:${blockKey}`}
           concealedOverlay={concealedTransferProgress}
         >
-          {mediaNode}
+          {visualLayout ? <div className="rich-media-content">{mediaNode}</div> : mediaNode}
         </MediaSpoiler>
       </div>
       <Caption caption={media.caption} context={context} captionKey={`${blockKey}:caption`} />
