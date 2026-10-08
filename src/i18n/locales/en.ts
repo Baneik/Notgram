@@ -86,6 +86,7 @@ export const en = {
   "格式": "Format",
   "输入框操作": "Composer actions",
   "无法访问剪贴板，请使用键盘快捷键": "Clipboard unavailable. Use the keyboard shortcut.",
+  "无法读取拖入的图片，请将图片保存为文件后拖入": "Unable to read the dropped image. Save it as a file and drop the file instead.",
   "全部类型": "All types",
   "群聊": "Groups",
   "全选当前结果": "Select all results",

@@ -3,6 +3,54 @@ import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message } from "../telegram/types";
 
+export const waitForClipboardFocus = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const cleanup = () => {
+    clearTimeout(timeout);
+    window.removeEventListener("focus", ready);
+    document.removeEventListener("visibilitychange", ready);
+    signal.removeEventListener("abort", cancel);
+  };
+  const cancel = () => { cleanup(); reject(new DOMException("Clipboard action cancelled", "AbortError")); };
+  const ready = () => {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    cleanup(); resolve();
+  };
+  // A native menu action reaches its opener before WebView2 restores document focus.
+  const timeout = setTimeout(() => { cleanup(); reject(new Error("Clipboard window did not regain focus")); }, 5_000);
+  window.addEventListener("focus", ready);
+  document.addEventListener("visibilitychange", ready);
+  signal.addEventListener("abort", cancel, { once: true });
+  if (signal.aborted) cancel();
+  else ready();
+});
+
+export const readClipboardContent = async (): Promise<{ text: string; files: File[] }> => {
+  const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  if (clipboard?.read) {
+    let items: ClipboardItem[] | undefined;
+    try {
+      items = await clipboard.read();
+    } catch {
+      // Some WebViews expose read() while only permitting the text-only API.
+    }
+    if (items) {
+      const files: File[] = [];
+      let text = "";
+      for (const item of items) {
+        const imageType = item.types.includes("image/png") ? "image/png" : item.types.find(type => type.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const extension = imageType.split("/")[1].replace("jpeg", "jpg");
+          files.push(new File([blob], `clipboard-${files.length + 1}.${extension}`, { type: imageType }));
+        } else if (!text && item.types.includes("text/plain")) text = await (await item.getType("text/plain")).text();
+      }
+      return { text, files };
+    }
+  }
+  if (!clipboard?.readText) throw new Error("Clipboard read is unavailable");
+  return { text: await clipboard.readText(), files: [] };
+};
+
 export const writeClipboardText = async (text: string) => {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
@@ -37,24 +85,35 @@ const imageBlobAsPng = async (blob: Blob) => {
 
   const source = URL.createObjectURL(blob);
   try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error("Unable to decode the image"));
-      element.src = source;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Image conversion is unavailable");
-    context.drawImage(image, 0, 0);
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((png) => png ? resolve(png) : reject(new Error("Unable to encode the image")), "image/png");
-    });
+    return await rasterImageAsPng(source, new AbortController().signal);
   } finally {
     URL.revokeObjectURL(source);
   }
+};
+
+export const rasterImageAsPng = async (source: string, signal: AbortSignal) => {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    const cleanup = () => {
+      element.onload = element.onerror = null;
+      signal.removeEventListener("abort", cancel);
+    };
+    const cancel = () => { cleanup(); element.src = ""; reject(new DOMException("Image read cancelled", "AbortError")); };
+    element.onload = () => { cleanup(); resolve(element); };
+    element.onerror = () => { cleanup(); reject(new Error("Unable to decode the image")); };
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    else element.src = source;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Image conversion is unavailable");
+  context.drawImage(image, 0, 0);
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(png => png ? resolve(png) : reject(new Error("Unable to encode the image")), "image/png");
+  });
 };
 
 export const writeClipboardImage = async (source: string, text?: string) => {

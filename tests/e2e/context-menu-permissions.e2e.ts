@@ -104,6 +104,43 @@ test("native composer format menu preserves the selected range and returns typin
   await surface.close();
 });
 
+test("native composer paste waits for the main window to regain focus", async ({ page }) => {
+  await prepare(page);
+  const input = page.locator(".composer-input");
+  await input.fill("before after");
+  const surface = await nativeMenu(page);
+  await input.focus();
+  await input.evaluate(element => (element as HTMLElement & { setSelectionRange: (start: number, end: number) => void }).setSelectionRange(7, 7));
+  await page.evaluate(() => {
+    document.body.dataset.clipboardReads = "0";
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      readText: async () => {
+        document.body.dataset.clipboardReads = String(Number(document.body.dataset.clipboardReads) + 1);
+        if (!document.hasFocus()) throw new DOMException("Document is not focused", "NotAllowedError");
+        return "pasted ";
+      },
+    } });
+  });
+  await input.dispatchEvent("contextmenu", { clientX: 700, clientY: 650, button: 2 });
+  await expect(surface.getByRole("menuitem", { name: "粘贴", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+    window.dispatchEvent(new Event("blur"));
+  });
+  await surface.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+  await expect(surface.getByRole("menu", { name: "输入框操作", exact: true })).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-clipboard-reads", "0");
+  await page.bringToFront();
+  await page.evaluate(() => {
+    Reflect.deleteProperty(document, "hasFocus");
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(input).toHaveJSProperty("value", "before pasted after");
+  await expect(input).toBeFocused();
+  await expect(page.locator(".composer-clipboard-error")).toHaveCount(0);
+  await surface.close();
+});
+
 test("a delayed Ctrl+R permission response cannot replace newly typed text", async ({ page }) => {
   await prepare(page);
   const input = page.locator(".composer-input");

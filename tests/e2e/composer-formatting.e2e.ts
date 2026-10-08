@@ -384,6 +384,206 @@ test("context clipboard actions preserve selection and paste at the saved caret"
   await expect(composer).toHaveJSProperty("value", "hello world");
 });
 
+test("context paste stages clipboard images instead of inserting their fallback text", async ({ page }) => {
+  await page.addInitScript(() => {
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), character => character.charCodeAt(0));
+    Object.defineProperty(navigator, "clipboard", { value: {
+      read: async () => [{ types: ["text/plain", "image/png"], getType: async (type: string) =>
+        type === "image/png" ? new Blob([bytes], { type }) : new Blob(["image fallback"], { type }) }],
+      readText: async () => "image fallback",
+    } });
+  });
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("retain caption");
+  await composer.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+  const attachments = page.getByRole("region", { name: "待发送附件" });
+  await expect(attachments.locator(".composer-attachment-item")).toHaveCount(1);
+  await expect(attachments.locator("img")).toBeVisible();
+  await expect(composer).toHaveJSProperty("value", "retain caption");
+  await expect(composer).toBeFocused();
+});
+
+test("dropping external multiline text uses the drop caret and keeps it plain", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("before after");
+  await select(composer, 0, 6);
+  await composer.evaluate(element => {
+    const paragraph = element.querySelector("p")!;
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild!, 7); range.collapse(true);
+    const caret = range.getBoundingClientRect();
+    const data = new DataTransfer();
+    data.setData("text/plain", "line one\r\nline two");
+    data.setData("text/html", "<p><strong>line one</strong></p><p>line two</p>");
+    element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true,
+      dataTransfer: data, clientX: caret.x, clientY: caret.y + caret.height / 2 }));
+  });
+  await expect(composer).toHaveJSProperty("value", "before line one\nline twoafter");
+  await expect(composer.locator("strong")).toHaveCount(0);
+  await expect(composer).toHaveJSProperty("selectionStart", "before line one\nline two".length);
+  await composer.press("Control+z");
+  await expect(composer).toHaveJSProperty("value", "before after");
+});
+
+test("dropping a file on the editor stages it once without inserting its URL", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("retain caption");
+  await composer.evaluate(element => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), character => character.charCodeAt(0));
+    data.items.add(new File([bytes], "editor-drop.png", { type: "image/png" }));
+    data.setData("text/plain", "file:///private/editor-drop.png");
+    data.setData("text/html", '<img src="file:///private/editor-drop.png">');
+    const rect = element.getBoundingClientRect();
+    for (const type of ["dragenter", "dragover", "drop"]) element.dispatchEvent(new DragEvent(type, {
+      bubbles: true, cancelable: true, dataTransfer: data, clientX: rect.x + 10, clientY: rect.y + 10,
+    }));
+  });
+  await expect(page.getByRole("region", { name: "待发送附件" }).locator(".composer-attachment-item")).toHaveCount(1);
+  await expect(composer).toHaveJSProperty("value", "retain caption");
+  await expect(page.locator(".composer-wrap")).not.toHaveClass(/is-file-dragging/);
+});
+
+test("context paste reads an actual PNG clipboard item", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await ready(page);
+  await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 2;
+    canvas.getContext("2d")!.fillRect(0, 0, 2, 2);
+    const png = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), "image/png"));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+  });
+  const composer = input(page);
+  await composer.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+  await expect(page.getByRole("region", { name: "待发送附件" }).locator("img")).toBeVisible();
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect(page.locator(".composer-clipboard-error")).toHaveCount(0);
+});
+
+for (const destination of ["typing", "search", "conversation"] as const) {
+  test(`a delayed context paste yields to ${destination}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: {
+        readText: () => new Promise<string>(resolve => {
+          Object.assign(window, { __releaseClipboard: () => {
+            resolve("late clipboard");
+            document.body.dataset.clipboardReleased = "true";
+          } });
+          document.body.dataset.clipboardWaiting = "true";
+        }),
+      } });
+    });
+    await ready(page);
+    const composer = input(page);
+    await composer.fill("retain draft");
+    await composer.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+    await expect(page.locator("body")).toHaveAttribute("data-clipboard-waiting", "true");
+    const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
+    if (destination === "typing") { await composer.focus(); await composer.press("End"); await composer.pressSequentially(" newer"); }
+    else if (destination === "search") await search.click();
+    else await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+    await page.evaluate(async () => {
+      (window as unknown as { __releaseClipboard: () => void }).__releaseClipboard();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await expect(composer).toHaveJSProperty("value", destination === "typing" ? "retain draft newer" : destination === "search" ? "retain draft" : "");
+    await expect(page.locator(".composer-clipboard-error")).toHaveCount(0);
+    if (destination === "search") await expect(search).toBeFocused();
+    else await expect(composer).toBeFocused();
+  });
+}
+
+test("an empty context clipboard leaves the selected text intact", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "clipboard", { value: { readText: async () => "" } }));
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("retain selected text");
+  await select(composer, 0, 6);
+  await composer.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+  await expect(composer).toHaveJSProperty("value", "retain selected text");
+  await expect(composer).toHaveJSProperty("selectionStart", 0);
+  await expect(composer).toHaveJSProperty("selectionEnd", 6);
+  await expect(composer).toBeFocused();
+});
+
+for (const width of [1366, 390]) {
+  test(`dragging a displayed image to the composer stages an image at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 768 });
+    await page.goto("/");
+    if (width < 680) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+    const composer = input(page);
+    await composer.click();
+    await composer.fill("image caption");
+    await page.evaluate(width => {
+      const policy = document.createElement("meta");
+      policy.httpEquiv = "Content-Security-Policy";
+      policy.content = "connect-src 'self'; img-src 'self' data: blob:";
+      document.head.append(policy);
+      const source = document.createElement("img");
+      source.id = "image-drag-source";
+      source.alt = "Drag source";
+      source.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+      if (width === 390) {
+        const bytes = Uint8Array.from(atob(source.src.split(",")[1]), character => character.charCodeAt(0));
+        source.src = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+      }
+      source.style.cssText = "position:fixed;left:120px;top:150px;width:80px;height:80px;z-index:9999";
+      document.body.append(source);
+    }, width);
+    await page.locator("#image-drag-source").dragTo(composer);
+    const attachments = page.getByRole("region", { name: "待发送附件" });
+    await expect(attachments.locator(".composer-attachment-item")).toHaveCount(1);
+    await expect(attachments.locator("img")).toBeVisible();
+    await expect(composer).toHaveJSProperty("value", "image caption");
+    await expect(composer).toBeFocused();
+    await page.locator("#image-drag-source").evaluate(element => element.remove());
+    await page.screenshot({ path: test.info().outputPath(`composer-image-drop-${width}.png`) });
+  });
+}
+
+test("dropping an external image URL does not fetch it or insert a URL fallback", async ({ page }) => {
+  let requests = 0;
+  await page.route("https://external.test/**", route => { requests++; return route.abort(); });
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("retain draft");
+  await composer.evaluate(element => {
+    const data = new DataTransfer();
+    data.setData("text/html", '<img src="https://external.test/image.png">');
+    data.setData("text/plain", "https://external.test/image.png");
+    element.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
+  });
+  await expect(page.getByRole("alert")).toHaveText("无法读取拖入的图片，请将图片保存为文件后拖入");
+  await expect(composer).toHaveJSProperty("value", "retain draft");
+  await expect(page.getByRole("region", { name: "待发送附件" })).toHaveCount(0);
+  expect(requests).toBe(0);
+});
+
+test("protected message content cannot start an image or text drag", async ({ page }) => {
+  await ready(page);
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-4"
+      ? { ...message, canSave: false } : message));
+    telegramStore.setState({ messages });
+  });
+  await revealVirtualMessage(page, "p-4");
+  const source = page.locator('[data-message-id="p-4"] .message-bubble-shell');
+  expect(await source.evaluate(element => element.dispatchEvent(new DragEvent("dragstart", {
+    bubbles: true, cancelable: true, dataTransfer: new DataTransfer(),
+  })))).toBe(false);
+});
+
 test("Ctrl+R replaces ArrowUp for editing the latest visible outgoing message and leaves drafts alone", async ({ page }) => {
   await ready(page);
   const composer = input(page);

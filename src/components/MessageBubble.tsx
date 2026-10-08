@@ -1,4 +1,5 @@
 import { ServiceMessageContent, type ServicePerson } from "./ServiceMessageContent";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { servicePersonIds } from "../telegram/serviceMessages";
 import { MessageDeliveryStatus } from "./MessageDeliveryStatus";
 import { translate } from "../i18n";
@@ -727,6 +728,9 @@ function MessageBubbleComponent({
       <div
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
+        onDragStart={event => {
+          if (!messageCanBeSaved(message) || locallyConcealed || selectionMode) event.preventDefault();
+        }}
         tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
           contextReplyQuoteRef.current = event.button === 2

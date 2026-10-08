@@ -102,6 +102,22 @@ Restored drafts start with a collapsed selection at the end; routine focus retur
 preserve the current selection. Native and browser format menus retain the range
 that opened them and return through the same focus owner.
 
+The main Windows WebView delivers HTML drag/drop events; Tauri's native file-drop
+interceptor stays disabled for this window. External text is inserted as plain text
+at the drop caret, retaining newlines and its own undo boundary. Editor-local moves
+retain ProseMirror's formatting and move/copy behavior. Files are handled once by
+the attachment surface and never insert their URL fallback. Displayed application
+images can enter staging through existing account-authorized asset, Blob or raster
+data URLs; external image URLs require a saved file and do not widen network or
+filesystem access. Protected message content cannot begin a native drag.
+
+Clipboard menu actions wait for the main document to regain focus after the native
+menu closes. WebView2 clipboard reads are permitted only for the main application's
+exact origin; other permission kinds retain the existing policy. Paste reads image
+items before text and reuses attachment staging, including its edit-mode restriction.
+An empty clipboard leaves the selection intact. New input, a new focus destination,
+another menu action or a replacement editor invalidates a pending clipboard action.
+
 With an empty composer, the configurable "Edit the previous message" shortcut
 (Ctrl+R by default) chooses the latest editable outgoing
 message intersecting that editor's current message viewport. Virtual overscan and

@@ -1,5 +1,5 @@
 import { Editor, Extension, Mark, Node as EditorNode } from "@tiptap/core";
-import { history, redo, undo } from "@tiptap/pm/history";
+import { closeHistory, history, redo, undo } from "@tiptap/pm/history";
 import { keymap } from "@tiptap/pm/keymap";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -10,6 +10,9 @@ import { translate } from "../i18n";
 import { composerDocument, composerEntityKinds, composerFormattedText, composerFormatShortcut, isPastingIntoComposerLink, type ComposerFormat } from "../utils/composerFormatting";
 import { ComposerContextMenu, type ComposerMenuAction } from "./ComposerContextMenu";
 import type { ContextMenuPoint } from "./ContextMenuSurface";
+import { readClipboardContent, waitForClipboardFocus } from "../utils/clipboard";
+import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
+import { composerDroppedImage, readComposerDroppedImage } from "../utils/composerDrop";
 
 export interface ComposerInputElement extends HTMLDivElement {
   readonly value: string;
@@ -72,10 +75,13 @@ interface Props {
 export function ComposerInput(props: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  const clipboardActionRef = useRef<AbortController | null>(null);
+  const imageDropRef = useRef<AbortController | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
   const [menu, setMenu] = useState<{ point: ContextMenuPoint; from: number; to: number }>();
   const [clipboardError, setClipboardError] = useState(false);
+  const [imageDropError, setImageDropError] = useState(false);
   const closeMenu = useCallback(() => setMenu(undefined), []);
 
   const applyFormat = useCallback((format: ComposerFormat) => {
@@ -120,11 +126,55 @@ export function ComposerInput(props: Props) {
             if (input.isComposing || input.inputType !== "insertText" || !input.data?.includes("\n")) return false;
             event.preventDefault(); pasteText(input.data); return true;
           },
+          drop: (view, event) => {
+            const data = event.dataTransfer;
+            if (!data) return false;
+            // File drops belong to the attachment surface, including their URL fallback.
+            if (data.types.includes("Files")) { event.preventDefault(); return true; }
+            const imageSource = composerDroppedImage(data);
+            if (imageSource) {
+              event.preventDefault();
+              if (view.composing) return true;
+              imageDropRef.current?.abort();
+              const controller = new AbortController();
+              imageDropRef.current = controller;
+              const editor = editorRef.current;
+              const document = view.state.doc;
+              setImageDropError(false);
+              void readComposerDroppedImage(imageSource, controller.signal).then(file => {
+                if (!controller.signal.aborted && editor && !editor.isDestroyed && editorRef.current === editor &&
+                  view.state.doc === document && !view.composing && !activeModal() &&
+                  isAvailableFocusTarget(view.dom)) propsRef.current.onPasteFiles([file]);
+              }).catch(() => {
+                if (!controller.signal.aborted && editor && !editor.isDestroyed) setImageDropError(true);
+              }).finally(() => {
+                if (imageDropRef.current === controller) imageDropRef.current = null;
+              });
+              view.focus();
+              return true;
+            }
+            // Preserve ProseMirror's move/copy transaction and marks for its own selection.
+            if (view.dragging || !data.types.includes("text/plain")) return false;
+            event.preventDefault();
+            if (view.composing) return true;
+            const position = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            if (!position) return true;
+            const limit = view.state.doc.content.size - 1;
+            const caret = Math.max(1, Math.min(position.pos, limit));
+            view.dispatch(closeHistory(view.state.tr.setSelection(TextSelection.create(view.state.doc, caret))));
+            pasteText(data.getData("text/plain"));
+            view.dispatch(closeHistory(view.state.tr));
+            view.focus();
+            return true;
+          },
         },
         handlePaste: (_view, event) => {
           const files = Array.from(event.clipboardData?.files ?? []);
-          if (files.length && propsRef.current.onPasteFiles(files)) return true;
-          pasteText(event.clipboardData?.getData("text/plain") ?? "");
+          if (files.length) propsRef.current.onPasteFiles(files);
+          else {
+            const text = event.clipboardData?.getData("text/plain");
+            if (text) pasteText(text);
+          }
           return true;
         },
         handleKeyDown: (view, event) => {
@@ -173,6 +223,8 @@ export function ComposerInput(props: Props) {
     props.inputRef.current = input;
     input.setSelectionRange(current.value.length, current.value.length);
     return () => {
+      clipboardActionRef.current?.abort();
+      imageDropRef.current?.abort();
       if (props.inputRef.current === input) props.inputRef.current = null;
       editorRef.current = null;
       editor.destroy();
@@ -210,15 +262,36 @@ export function ComposerInput(props: Props) {
     // Clipboard access may outlive this conversation. Never mutate a replacement editor.
     const document = editor.state.doc;
     const selection = editor.state.selection;
+    clipboardActionRef.current?.abort();
+    const controller = new AbortController();
+    clipboardActionRef.current = controller;
+    const cancel = () => controller.abort();
+    const ownerDocument = editor.view.dom.ownerDocument;
+    const changeFocus = (event: Event) => { if (event.target !== editor.view.dom) cancel(); };
+    for (const type of ["pointerdown", "keydown", "compositionstart"]) ownerDocument.addEventListener(type, cancel, true);
+    ownerDocument.addEventListener("focusin", changeFocus, true);
+    const current = () => !controller.signal.aborted && !editor.isDestroyed && editorRef.current === editor &&
+      isAvailableFocusTarget(editor.view.dom) && !activeModal() && !editor.view.composing &&
+      editor.state.doc === document && editor.state.selection.eq(selection);
     try {
+      await waitForClipboardFocus(controller.signal);
+      if (!current()) return;
       if (action === "paste") {
-        const text = await navigator.clipboard.readText();
-        if (!editor.isDestroyed && editorRef.current === editor && editor.state.doc === document && editor.state.selection.eq(selection)) pasteText(text);
+        const { text, files } = await readClipboardContent();
+        if (current()) {
+          if (files.length) propsRef.current.onPasteFiles(files);
+          else if (text) pasteText(text);
+        }
       } else {
         await navigator.clipboard.writeText(editor.state.doc.textBetween(menu.from, menu.to, "", "\n"));
-        if (action === "cut" && !editor.isDestroyed && editorRef.current === editor && editor.state.doc === document && editor.state.selection.eq(selection)) editor.commands.deleteSelection();
+        if (action === "cut" && current()) editor.commands.deleteSelection();
       }
-    } catch { if (!editor.isDestroyed) setClipboardError(true); }
+    } catch { if (!controller.signal.aborted && !editor.isDestroyed) setClipboardError(true); }
+    finally {
+      for (const type of ["pointerdown", "keydown", "compositionstart"]) ownerDocument.removeEventListener(type, cancel, true);
+      ownerDocument.removeEventListener("focusin", changeFocus, true);
+      if (clipboardActionRef.current === controller) clipboardActionRef.current = null;
+    }
     restore();
   }, [applyFormat, closeMenu, menu, pasteText]);
 
@@ -249,12 +322,14 @@ export function ComposerInput(props: Props) {
       if (!editor?.view.dom.contains(event.target as globalThis.Node)) return;
       event.preventDefault();
       if (!editor || editor.view.composing) return;
+      clipboardActionRef.current?.abort();
       const from = Math.max(1, editor.state.selection.from);
       const to = Math.min(editor.state.doc.content.size - 1, editor.state.selection.to);
       setMenu({ point: { x: event.clientX, y: event.clientY }, from, to });
     }}>
     <div ref={containerRef} />
     {clipboardError && <span className="composer-clipboard-error" role="alert">{translate("无法访问剪贴板，请使用键盘快捷键")}</span>}
+    {imageDropError && <span className="composer-clipboard-error" role="alert">{translate("无法读取拖入的图片，请将图片保存为文件后拖入")}</span>}
     {menu && <ComposerContextMenu point={menu.point} selected={menu.from !== menu.to} colorTheme={props.colorTheme}
       onAction={action => void runMenuAction(action)} onClose={closeMenu} restoreFocus={restoreFocus} />}
   </div>;

@@ -24,6 +24,7 @@
         "decorations": false,
         "fullscreen": false,
         "devtools": false,
+        "dragDropEnabled": false,
         "zoomHotkeysEnabled": false
       }
     ],
