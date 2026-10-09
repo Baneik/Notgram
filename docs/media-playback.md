@@ -58,6 +58,13 @@ file. Browser window polling and native destruction events cover exits without
 a reliable `beforeunload` notification. Account transitions also clear resume
 positions. No second media element is mounted in the main window.
 
+Profile-avatar downloads may outlive the originating drawer. Both explicit and
+automatic download callbacks may refresh only the same account, target and
+drawer session while it remains open. Closing, changing profiles or reopening
+the same profile revokes the old refresh owner; a late completion must never
+reopen the drawer or replace a newer profile. Same-account file downloads may
+still finish independently of the drawer's lifetime.
+
 Native sessions opened on a photo may retain one hidden child WebView for 60 seconds
 after closing. Parking unmounts the viewer and releases its action/session owner;
 reopening receives a newer descriptor revision, fresh selection and fresh action

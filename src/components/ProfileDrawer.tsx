@@ -20,14 +20,14 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import { openMediaViewerWindow, syncMediaViewerWindow } from "../media/mediaViewerWindowBridge";
 import type { ProfileState } from "../store/profileState";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { useLocalUserBlocks } from "../store/localUserBlocks";
-import { useTelegramStore } from "../store/telegramStore";
+import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import type { Chat, ForwardMessagesResult, SharedMediaPage, SharedMediaSearchInput } from "../telegram/types";
 import type { ChatReportResult, ReportChatInput } from "../telegram/types";
 import { colorThemeForThemeId } from "../theme/theme";
@@ -158,10 +158,29 @@ export function ProfileDrawer({
     delivery: "read",
     content: photo.content,
   })), [profile?.id, profile?.kind, profile?.profilePhotos, profile?.userId]);
-  const cacheProfilePhoto = useCallback(async (fileId: number, _fileName: string) => {
-    await cacheFile(fileId, 24);
+  const photoRefreshTarget = state.target?.kind === "chat" ? `chat:${state.target.chatId}`
+    : state.target?.kind === "user" ? `user:${state.target.userId}` : state.target?.kind;
+  const photoRefreshOwner = useMemo(() => ({ active: false }), [activeAccountId, photoRefreshTarget, profile?.id]);
+  useLayoutEffect(() => {
+    photoRefreshOwner.active = true;
+    return () => { photoRefreshOwner.active = false; };
+  }, [photoRefreshOwner]);
+  const cacheProfilePhotoFile = useCallback(async (fileId: number, priority: number) => {
+    if (telegramStore.getState().activeAccountId !== activeAccountId) return;
+    await cacheFile(fileId, priority);
+    const current = telegramStore.getState();
+    const target = current.profile.target;
+    const currentTarget = target?.kind === "chat" ? `chat:${target.chatId}`
+      : target?.kind === "user" ? `user:${target.userId}` : target?.kind;
+    // The viewer keeps callbacks after the drawer closes. A late download may
+    // refresh its originating profile, but must never open or replace a drawer.
+    if (!photoRefreshOwner.active || current.activeAccountId !== activeAccountId ||
+        !target || currentTarget !== photoRefreshTarget || current.profile.value?.id !== profile?.id) return;
     onRetry();
-  }, [cacheFile, onRetry]);
+  }, [activeAccountId, cacheFile, onRetry, photoRefreshOwner, photoRefreshTarget, profile?.id]);
+  const cacheProfilePhoto = useCallback((fileId: number, _fileName: string) => (
+    cacheProfilePhotoFile(fileId, 24)
+  ), [cacheProfilePhotoFile]);
   const openProfileAvatar = useCallback(() => {
     const active = profilePhotoMessages[0];
     if (!active) return;
@@ -170,11 +189,8 @@ export function ProfileDrawer({
       activeMessageId: active.id,
       colorTheme,
       allowSave: false,
-    }, cacheProfilePhoto, async () => undefined, undefined, async (fileId, priority) => {
-      await cacheFile(fileId, priority);
-      onRetry();
-    });
-  }, [cacheFile, cacheProfilePhoto, colorTheme, onRetry, profilePhotoMessages]);
+    }, cacheProfilePhoto, async () => undefined, undefined, cacheProfilePhotoFile);
+  }, [cacheProfilePhoto, cacheProfilePhotoFile, colorTheme, profilePhotoMessages]);
   const openCommonGroup = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     const chatId = event.currentTarget.dataset.chatId;
     if (chatId) onOpenChat(chatId);
