@@ -3,6 +3,27 @@ import { MockTelegramTransport } from "./mockTransport";
 import type { Message, OutgoingAttachmentKind } from "./types";
 
 describe("Mock transport fixture contracts", () => {
+  it("loads non-forum thread comments and nested replies while excluding other chats and threads", async () => {
+    const transport = new MockTelegramTransport();
+    const internal = transport as unknown as { snapshot: { messages: Message[] } };
+    const source = internal.snapshot.messages.find(message => message.id === "release-post-1")!;
+    const root: Message = { ...source, id: "root", chatId: "discussion", isChannelPost: false };
+    const comments: Message[] = [0, 1].map(index => ({ ...root, id: `comment-${index}`,
+      sentAt: `2026-08-02T08:00:0${index}Z`, messageThreadId: root.id,
+      replyTo: { kind: "message", chatId: root.chatId, messageId: "nested-target" },
+    }));
+    internal.snapshot.messages = [root, ...comments,
+      { ...comments[0], id: "unrelated", messageThreadId: "other-root" },
+      { ...comments[0], id: "other-chat", chatId: "other-chat" },
+    ];
+    expect((await transport.getMessageThread(root.chatId, root.id))?.messages.map(message => message.id))
+      .toEqual([root.id, "comment-0", "comment-1"]);
+    const page = await transport.getMessageThreadHistory(root.chatId, root.id);
+    expect(page.messages.map(message => message.id)).toEqual(["comment-1", "comment-0", root.id]);
+    expect(await transport.getMessageThreadHistory(root.chatId, root.id, 100, root.id))
+      .toMatchObject({ messages: [root], hasMore: false });
+  });
+
   describe("bot commands and inline queries", () => {
     it("provides command hints, paginates inline results, and sends the chosen result", async () => {
       const transport = new MockTelegramTransport();

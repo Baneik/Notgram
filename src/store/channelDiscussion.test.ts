@@ -5,8 +5,51 @@ import type { Message } from "../telegram/types";
 import { channelDiscussionProjection } from "./telegramStore.messages";
 import { attachmentOutbox } from "./attachmentOutbox";
 import { cachedSnapshotFrom, migrateCachedSnapshot } from "./telegramStore.cache";
+import { mapTdMessage } from "../telegram/tdlibMapper";
 
 describe("channel discussion history", () => {
+  it.each([false, true])("shows all six TDLib thread comments after loading and cache restoration (nested replies: %s)", async (nested) => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().selectChat("chat-release");
+    const source = store.getState().messages.get("chat-release")!.find(message => message.id === "release-post-1")!;
+    const post = { ...source, interaction: { ...source.interaction!, replyCount: 6 } };
+    const rootId = 3_145_728_000;
+    const rawRoot = { id: rootId, chat_id: -99, date: 1_700_000_000, is_channel_post: false,
+      sender_id: { "@type": "messageSenderUser", user_id: 1 },
+      topic_id: { "@type": "messageTopicThread", message_thread_id: rootId },
+      content: { "@type": "messageText", text: { text: "discussion root", entities: [] } } };
+    const root = mapTdMessage(rawRoot)!;
+    const comments = Array.from({ length: 6 }, (_, index) => mapTdMessage({
+      ...rawRoot, id: rootId + (index + 1) * 1_048_576, date: rawRoot.date + index + 1,
+      ...(nested ? { reply_to: { "@type": "messageReplyToMessage", chat_id: -99, message_id: rootId + 9 * 1_048_576 } } : {}),
+      content: { "@type": "messageText", text: { text: `thread comment ${index + 1}`, entities: [] } },
+    })!);
+    const unrelated = { ...comments[0], id: "other-thread", messageThreadId: "other-root" };
+    const otherChat = { ...comments[0], id: "other-chat", chatId: "different-group" };
+    store.setState({ messages: new Map([[post.chatId, [post]], [root.chatId, [unrelated]], [otherChat.chatId, [otherChat]]]) });
+    vi.spyOn(transport, "getMessageThread").mockResolvedValue({ chatId: root.chatId, messageId: root.id, messages: [root] });
+    const history = vi.spyOn(transport, "getMessageThreadHistory").mockResolvedValue({ messages: comments, hasMore: false });
+    try {
+      const loaded = await store.getState().loadMessageThreadHistory(post.chatId, post.id);
+      expect(loaded).toMatchObject({ chatId: root.chatId, messageId: root.id, error: false });
+      expect(history).toHaveBeenCalledWith(root.chatId, root.id, 100, undefined);
+      const storedPost = store.getState().messages.get(post.chatId)!.find(message => message.id === post.id)!;
+      expect(storedPost.interaction?.replyCount).toBe(6);
+      expect(channelDiscussionProjection(storedPost, store.getState().messages).comments.map(message => message.id))
+        .toEqual(comments.map(message => message.id));
+      const snapshot = migrateCachedSnapshot(cachedSnapshotFrom(store.getState())).snapshot!;
+      const restoredMessages = new Map<string, Message[]>();
+      for (const message of snapshot.messages) {
+        restoredMessages.set(message.chatId, [...(restoredMessages.get(message.chatId) ?? []), message]);
+      }
+      const restoredPost = restoredMessages.get(post.chatId)!.find(message => message.id === post.id)!;
+      expect(channelDiscussionProjection(restoredPost, restoredMessages).comments.map(message => message.id))
+        .toEqual(comments.map(message => message.id));
+    } finally { transport.disconnect(); }
+  });
+
   it("restores separate local drafts for two posts sharing a discussion group", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

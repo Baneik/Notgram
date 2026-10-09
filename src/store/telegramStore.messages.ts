@@ -234,7 +234,9 @@ export const channelDiscussionProjection = (
       const reply = message.replyTo?.kind === "message" ? message.replyTo : undefined;
       const belongsToResolvedThread = Boolean(
         replyChatId && replyMessageId && message.chatId === replyChatId && (
-          message.topicId === replyMessageId || (
+          // Non-forum comments carry the thread identity even when they reply
+          // to another comment or have no direct reply reference.
+          message.messageThreadId === replyMessageId || message.topicId === replyMessageId || (
             reply?.messageId === replyMessageId &&
             (!reply.chatId || reply.chatId === replyChatId)
           )

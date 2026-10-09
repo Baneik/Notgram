@@ -1900,8 +1900,8 @@ export class MockTelegramTransport implements TelegramTransport {
     );
     const comments = this.snapshot.messages
       .filter((message) => {
-        if (message.isChannelPost) return false;
-        if (message.chatId === chatId && message.topicId === messageId) return true;
+        if (message.isChannelPost || (message.chatId === chatId && message.id === messageId)) return false;
+        if (message.chatId === chatId && (message.messageThreadId === messageId || message.topicId === messageId)) return true;
         if (message.replyTo?.kind !== "message") return false;
         if (message.replyTo.messageId !== messageId) return false;
         const origin = message.replyTo.origin;
@@ -1923,7 +1923,9 @@ export class MockTelegramTransport implements TelegramTransport {
     if (!root) return undefined;
     const comments = this.snapshot.messages
       .filter((message) => {
-        if (message.isChannelPost || message.replyTo?.kind !== "message") return false;
+        if (message.isChannelPost || (message.chatId === chatId && message.id === messageId)) return false;
+        if (message.chatId === chatId && (message.messageThreadId === messageId || message.topicId === messageId)) return true;
+        if (message.replyTo?.kind !== "message") return false;
         if (message.replyTo.messageId !== messageId) return false;
         const origin = message.replyTo.origin;
         return message.replyTo.chatId === chatId ||

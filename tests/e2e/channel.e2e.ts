@@ -1,6 +1,75 @@
 import { expect, test } from "@playwright/test";
 import type { Message } from "../../src/telegram/types";
 
+test("a six-comment post shows TDLib thread comments, nested replies, and live updates", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+  const post = page.locator('[data-message-id="release-post-1"]');
+  await expect(post).toBeVisible();
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const { TauriTelegramTransport } = await (0, eval)('import("/src/telegram/tauriTransport.ts")') as typeof import("../../src/telegram/tauriTransport");
+    const transport = new TauriTelegramTransport();
+    const rootId = 3_145_728_000;
+    const rawRoot = { id: rootId, chat_id: -99, date: 1_700_000_000,
+      sender_id: { "@type": "messageSenderUser", user_id: 1 },
+      topic_id: { "@type": "messageTopicThread", message_thread_id: rootId },
+      content: { "@type": "messageText", text: { text: "linked discussion root", entities: [] } } };
+    const rawComments = Array.from({ length: 6 }, (_, index) => ({ ...rawRoot,
+      id: rootId + (index + 1) * 1_048_576, date: rawRoot.date + index + 1,
+      ...(index % 2 === 0 ? { reply_to: { "@type": "messageReplyToMessage", chat_id: -99, message_id: rootId + 9 * 1_048_576 } } : {}),
+      content: { "@type": "messageText", text: { text: `TDLib comment ${index + 1}`, entities: [] } },
+    }));
+    (transport as unknown as { request: (request: { "@type"?: string }) => Promise<unknown> }).request = async request =>
+      request["@type"] === "getMessageThread"
+        ? { "@type": "messageThreadInfo", chat_id: -99, message_thread_id: rootId, messages: [rawRoot] }
+        : { "@type": "messages", messages: [...rawComments].reverse() };
+    const state = telegramStore.getState();
+    const source = state.messages.get("chat-release")!.find(message => message.id === "release-post-1")!;
+    telegramStore.setState({ messages: new Map([[source.chatId, [{ ...source,
+      discussionThread: undefined, interaction: { ...source.interaction!, replyCount: 6 },
+    }]]]) });
+    const thread = await transport.getMessageThread("7", "42");
+    const history = await transport.getMessageThreadHistory(thread.chatId, thread.messageId);
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set(source.chatId, [{ ...source, interaction: { ...source.interaction!, replyCount: 6 },
+      discussionThread: { chatId: thread.chatId, messageId: thread.messageId },
+    }]);
+    messages.set(thread.chatId, [...thread.messages, ...history.messages,
+      { ...history.messages[0], id: "other-thread", messageThreadId: "different-root",
+        content: { kind: "text", text: "unrelated thread comment" } },
+    ]);
+    telegramStore.setState({ messages,
+      loadMessageThreadHistory: async () => ({ ...history, chatId: thread.chatId, messageId: thread.messageId }),
+    });
+  });
+  await expect(post.locator(".channel-post-discussion")).toContainText("6条评论");
+  await post.locator(".channel-post-discussion").click();
+  const panel = page.locator(".channel-discussion-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator(".channel-discussion-message-group")).toHaveCount(6);
+  for (let index = 1; index <= 6; index += 1) {
+    await expect(panel.getByText(`TDLib comment ${index}`, { exact: true })).toBeVisible();
+  }
+  await expect(panel.getByText("还没有留言", { exact: true })).toHaveCount(0);
+  await expect(panel.getByText("unrelated thread comment", { exact: true })).toHaveCount(0);
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    const comments = messages.get("-99")!;
+    messages.set("-99", [...comments, { ...comments[1], id: "live-thread-comment",
+      sentAt: "2026-10-09T08:00:00Z", replyTo: undefined,
+      content: { kind: "text", text: "new thread comment without a direct reply" },
+    }]);
+    telegramStore.setState({ messages });
+  });
+  await expect(panel.locator(".channel-discussion-message-group")).toHaveCount(7);
+  await expect(panel.getByText("new thread comment without a direct reply", { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("discussion rendering failures keep the client and return action available", async ({ page }) => {
   await page.route("**/src/components/ChannelDiscussionPanel.tsx*", route => route.fulfill({
     contentType: "application/javascript", body: 'export function ChannelDiscussionPanel() { throw new Error("synthetic discussion render failure"); }',
