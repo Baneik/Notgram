@@ -11,6 +11,7 @@ import { isCaptionContent } from "../telegram/messageContent";
 import { retainedMessageQuote, retainHydratedContent } from "../telegram/retainedMessages";
 import { senderNameForMessage } from "../components/conversationMessages";
 import { MessageFileIndex } from "./messageFileIndex";
+import { IncomingMediaAlbums } from "./incomingMediaAlbums";
 import { bindMessageFile, updateMessageFile } from "../telegram/messageFileState";
 import { MediaFileRestorer } from "./mediaFileRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
@@ -1074,6 +1075,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      incomingAlbums.reset();
       boundedMessages = undefined;
       boundedMessageCount = 0;
       retentionViewports.clear();
@@ -1315,11 +1317,14 @@ export const createTelegramStore = (
     };
 
     const mergeHistoryPage = (incomingMessages: readonly Message[]) => {
-      if (incomingMessages.length === 0) return { messages: get().messages, removingMessages: get().removingMessages };
+      const committedMessages = incomingMessages.filter(message =>
+        acceptsMessage(message) && !incomingAlbums.capture(message));
+      if (committedMessages.length === 0) return { messages: get().messages,
+        removingMessages: get().removingMessages, committedMessages };
       const messages = new Map(get().messages);
       const removingMessages = new Map(get().removingMessages);
       const incomingByChat = new Map<string, Message[]>();
-      for (const message of incomingMessages) {
+      for (const message of committedMessages) {
         const incoming = incomingByChat.get(message.chatId) ?? [];
         incoming.push(message);
         incomingByChat.set(message.chatId, incoming);
@@ -1336,7 +1341,7 @@ export const createTelegramStore = (
         if (ghosts.length > 0) removingMessages.set(chatId, ghosts);
         else removingMessages.delete(chatId);
       }
-      return { messages, removingMessages };
+      return { messages, removingMessages, committedMessages };
     };
 
     const history = new ConversationHistory({
@@ -1368,8 +1373,8 @@ export const createTelegramStore = (
           messages: merged.messages, removingMessages: merged.removingMessages,
           ...(page ? { operationError: undefined } : {}),
         });
-        if (page?.messages?.length) {
-          publishMessageChange({ type: "upsert", messages: page.messages, liveMessages: [] });
+        if (merged.committedMessages.length) {
+          publishMessageChange({ type: "upsert", messages: merged.committedMessages, liveMessages: [] });
           scheduleCacheWrite();
         }
       },
@@ -1806,7 +1811,12 @@ export const createTelegramStore = (
       },
     });
 
-    const applyEvent = (event: TelegramEvent) => {
+    const incomingAlbums = new IncomingMediaAlbums((batch) => {
+      const messages = batch.messages.filter(acceptsMessage);
+      applyEvent({ type: "messages.upserted", messages, cacheRelevant: batch.cacheRelevant }, batch.liveMessages);
+    });
+
+    const applyEvent = (event: TelegramEvent, liveMessages: readonly Message[] = []) => {
       if (event.type === "emoji.catalogChanged" || event.type === "stickerSet.updated") {
         emojiPickerController.handleUpdate(event);
         return;
@@ -2240,10 +2250,12 @@ export const createTelegramStore = (
         const mergeStartedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
         const messages = new Map(get().messages);
         const incomingByChat = new Map<string, typeof event.messages>();
+        const liveIds = new Set(liveMessages.map(message => `${message.chatId}:${message.id}`));
+        const newLiveMessages: Message[] = [];
+        const removingMessages = new Map(get().removingMessages);
         let beforeCount = 0;
         for (const message of event.messages) {
-          // Bulk history preservation shares the bounded background capacity.
-          maybeAutoCacheArchiveMedia(message, 16);
+          maybeAutoCacheArchiveMedia(message, liveIds.has(`${message.chatId}:${message.id}`) ? undefined : 16);
           const chatMessages = incomingByChat.get(message.chatId) ?? [];
           chatMessages.push(message);
           incomingByChat.set(message.chatId, chatMessages);
@@ -2251,23 +2263,28 @@ export const createTelegramStore = (
         for (const [chatId, incoming] of incomingByChat) {
           const existing = messages.get(chatId) ?? [];
           for (const message of incoming) {
+            const previousMessage = findIndexedMessage(existing, message.id);
+            const live = liveIds.has(`${message.chatId}:${message.id}`);
+            if (live && !previousMessage) {
+              markMessageEntrance(message);
+              newLiveMessages.push(message);
+            }
+            if (live && !message.outgoing) setTypingUser(message.chatId, message.senderId, false);
             queueBlockedReactionReads([message]);
             reconcileMessageAttention(
               message,
-              existing.find((candidate) => candidate.id === message.id),
-              false,
+              previousMessage,
+              live,
             );
           }
           beforeCount += existing.length;
           messages.set(chatId, upsertMessages(existing, incoming.map(message => message.isRemoving ? { ...message, isRemoving: false } : message)));
-          const removingMessages = new Map(get().removingMessages);
           const incomingIds = new Set(incoming.map((message) => message.id));
           const ghosts = (removingMessages.get(chatId) ?? []).filter((message) => !incomingIds.has(message.id));
           if (ghosts.length > 0) removingMessages.set(chatId, ghosts); else removingMessages.delete(chatId);
-          set({ removingMessages });
         }
-        set({ messages });
-        publishMessageChange({ type: "upsert", messages: event.messages, liveMessages: [] });
+        set({ messages, removingMessages });
+        publishMessageChange({ type: "upsert", messages: event.messages, liveMessages: newLiveMessages });
         if (mergeStartedAt !== undefined && isPerformanceMonitoringEnabled()) logPerformance("ui_history_merge", {
           durationMs: performance.now() - mergeStartedAt,
           batchCount: event.messages.length,
@@ -2347,13 +2364,45 @@ export const createTelegramStore = (
       if (event.cacheRelevant !== false) scheduleCacheWrite();
     };
 
+    const applyIncomingEvent = (event: TelegramEvent) => {
+      if (event.type === "message.upsert") {
+        if (!acceptsMessage(event.message)) return;
+        const live = event.animateEntrance === true && !event.message.outgoing &&
+          !findIndexedMessage(get().messages.get(event.message.chatId) ?? [], event.message.id);
+        if (incomingAlbums.capture(event.message, live, event.cacheRelevant !== false)) return;
+      } else if (event.type === "messages.upserted") {
+        const cacheRelevant = event.cacheRelevant !== false;
+        const messages = event.messages.filter(message =>
+          acceptsMessage(message) && !incomingAlbums.capture(message, false, cacheRelevant));
+        if (messages.length === 0) return;
+        event = { ...event, messages };
+      } else if (event.type === "file.updated") {
+        incomingAlbums.updateFile(event.file);
+      } else if (event.type === "message.remove") {
+        const { chatId, messageId } = event;
+        incomingAlbums.discard(message => message.chatId === chatId && message.id === messageId);
+      } else if (event.type === "chat.historyDeleted") {
+        const { chatId, lastMessageId } = event;
+        incomingAlbums.discard(message => message.chatId === chatId &&
+          (lastMessageId === undefined || isInDeletedHistory(message.id, lastMessageId)));
+      } else if (event.type === "message.replace") {
+        const { oldMessageId, message } = event;
+        incomingAlbums.discard(previous => previous.chatId === message.chatId && previous.id === oldMessageId);
+      } else if (event.type === "chat.migrated") {
+        // Retire timers before migrating identities; later history owns recovery.
+        const fromChatId = event.fromChatId;
+        incomingAlbums.discard(message => message.chatId === fromChatId);
+      }
+      applyEvent(event);
+    };
+
     if (import.meta.env.VITE_WEBVIEW_STRESS === "1") {
       (
         globalThis as typeof globalThis & {
           __notgramWebviewStressDispatch?: (event: TelegramEvent) => void;
         }
       ).__notgramWebviewStressDispatch = (event) => {
-        globalThis.queueMicrotask(() => applyEvent(event));
+        globalThis.queueMicrotask(() => applyIncomingEvent(event));
       };
     }
 
@@ -2374,6 +2423,7 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       accountGeneration += 1;
+      incomingAlbums.reset();
       resetOutbox();
       mediaFileRestorer.reset();
       registeredAccountKey = undefined;
@@ -2707,11 +2757,12 @@ export const createTelegramStore = (
               set({ cacheHealth: "invalid" });
             }
           }
-          const snapshot = await transport.connect(applyEvent, { settingsOnly });
+          const snapshot = await transport.connect(applyIncomingEvent, { settingsOnly });
           const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
           const users = new Map(snapshot.users.map((user) => [user.id, user]));
           const folders = snapshot.folders;
-          const messages = messageMapFrom(snapshot.messages);
+          const messages = messageMapFrom(snapshot.messages.filter(message =>
+            acceptsMessage(message) && !incomingAlbums.capture(message)));
           const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.localKey ?? topicKey(draft.chatId, draft.topicId), draft]));
           const current = get();
           for (const [id, chat] of current.chats) chats.set(id, chat);

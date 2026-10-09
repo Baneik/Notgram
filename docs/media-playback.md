@@ -44,6 +44,16 @@ part in its height calculation. A thumbnail's intrinsic size or a source upgrade
 must never resize an established virtual row or trigger another bottom correction.
 Captions remain outside the frame; audio keeps its content-driven layout.
 
+New incoming photo/video album members are coalesced by `(chatId, mediaAlbumId)`
+before entering the timeline. TDLib supplies each member separately with no album
+completion marker, so publish after 500 ms without a new member, or at most two
+seconds after the first member. File progress, caption edits and hydration replace
+buffered values without restarting the wait. Publish the batch with all original
+live identities so entrance, attention, notifications and read scheduling retain
+their existing semantics. Ordinary messages, outgoing albums and loaded history
+remain immediate. Deletion and account changes retire pending identities/timers;
+a member arriving after the bounded wait can still require a later layout update.
+
 The main window owns `VideoPlaybackController` and the shared viewer session.
 The controller acquires sources, serializes acquisition/release for each file,
 remembers progress, coordinates audio ownership, and handles retries. The viewer
