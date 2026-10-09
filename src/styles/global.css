@@ -2217,6 +2217,7 @@ html.reduce-motion .audio-disc { animation: none; }
   background: var(--color-bg-surface); border-bottom: 0;
 }
 .message-bubble.is-channel-post-bubble .message-text-flow,
+.message-bubble.is-channel-post-bubble > .rich-message-content,
 .message-bubble.is-channel-post-bubble.is-photo .photo-caption-flow {
   padding: 0 var(--channel-post-inline-padding) 10px; background: var(--color-bg-surface);
 }
