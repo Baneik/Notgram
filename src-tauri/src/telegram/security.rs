@@ -56,6 +56,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getForumTopicHistory",
     "getForumTopics",
     "getChatInviteLinks",
+    "getChatInviteLinkCounts",
     "getChatJoinRequests",
     "getInternalLinkType",
     "getMessageLinkInfo",
@@ -124,6 +125,16 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "setAuthenticationPhoneNumber",
     "setChatDraftMessage",
     "setChatPermissions",
+    "setChatTitle",
+    "setChatDescription",
+    "setChatDiscussionGroup",
+    "setChatPhoto",
+    "toggleChatHasProtectedContent",
+    "toggleSupergroupIsForum",
+    "toggleSupergroupSignMessages",
+    "toggleSupergroupJoinByRequest",
+    "toggleSupergroupHasHiddenMembers",
+    "toggleSupergroupHasAggressiveAntiSpamEnabled",
     "setChatSlowModeDelay",
     "processChatJoinRequest",
     "processChatJoinRequests",
@@ -147,6 +158,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "toggleSupergroupIsAllHistoryAvailable",
     "toggleForumTopicIsClosed",
     "toggleForumTopicIsPinned",
+    "toggleGeneralForumTopicIsHidden",
     "unpinChatMessage",
     "readAllChatReactions",
     "viewMessages",
@@ -332,6 +344,75 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                     .is_none_or(|limit| !(1..=100).contains(&limit))
             {
                 return Err("Invalid profile media pagination".to_string());
+            }
+        }
+        "getChatInviteLinkCounts" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+        }
+        "setChatTitle" | "setChatDescription" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request_type == "setChatTitle" {
+                validate_profile_text(request, "title", 128, false, true)?;
+            } else {
+                validate_profile_text(request, "description", 255, true, false)?;
+            }
+        }
+        "setChatPhoto" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            // Uploads use the native file picker; the WebView can only remove a photo.
+            if !request.get("photo").is_some_and(Value::is_null) {
+                return Err("Chat photo uploads require native preparation".to_string());
+            }
+        }
+        "setChatDiscussionGroup" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("discussion_chat_id")
+                .and_then(Value::as_i64)
+                .is_none()
+            {
+                return Err("Discussion chat identifier is missing".to_string());
+            }
+        }
+        "toggleGeneralForumTopicIsHidden" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request.get("is_hidden").and_then(Value::as_bool).is_none() {
+                return Err("General topic visibility is missing".to_string());
+            }
+        }
+        "toggleChatHasProtectedContent" => {
+            validate_nonzero_identifier(request, "chat_id")?;
+            if request
+                .get("has_protected_content")
+                .and_then(Value::as_bool)
+                .is_none()
+            {
+                return Err("Content protection setting is missing".to_string());
+            }
+        }
+        "toggleSupergroupIsForum"
+        | "toggleSupergroupSignMessages"
+        | "toggleSupergroupJoinByRequest"
+        | "toggleSupergroupHasHiddenMembers"
+        | "toggleSupergroupHasAggressiveAntiSpamEnabled" => {
+            validate_nonzero_identifier(request, "supergroup_id")?;
+            let fields: &[&str] = match request_type {
+                "toggleSupergroupIsForum" => &["is_forum", "has_forum_tabs"],
+                "toggleSupergroupSignMessages" => &["sign_messages", "show_message_sender"],
+                "toggleSupergroupJoinByRequest" => &["join_by_request", "apply_to_invite_links"],
+                "toggleSupergroupHasHiddenMembers" => &["has_hidden_members"],
+                _ => &["has_aggressive_anti_spam_enabled"],
+            };
+            if fields
+                .iter()
+                .any(|field| request.get(*field).and_then(Value::as_bool).is_none())
+            {
+                return Err("Supergroup setting is missing".to_string());
+            }
+            if request_type == "toggleSupergroupJoinByRequest"
+                && request.get("guard_bot_user_id").and_then(Value::as_i64) != Some(0)
+            {
+                return Err("Guard bots require separate configuration".to_string());
             }
         }
         "setName" => {
@@ -749,15 +830,16 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
         }
         "setSupergroupUsername" => {
             validate_nonzero_identifier(request, "supergroup_id")?;
-            let username = validate_profile_text(request, "username", 32, false, true)?;
-            if username.chars().count() < 5
-                || !username
-                    .chars()
-                    .next()
-                    .is_some_and(|character| character.is_ascii_alphabetic())
-                || !username
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            let username = validate_profile_text(request, "username", 32, false, false)?;
+            if !username.is_empty()
+                && (username.chars().count() < 5
+                    || !username
+                        .chars()
+                        .next()
+                        .is_some_and(|character| character.is_ascii_alphabetic())
+                    || !username
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '_'))
             {
                 return Err("Invalid public chat username".to_string());
             }
@@ -1372,6 +1454,7 @@ fn validate_chat_member_status(request: &Value) -> Result<(), String> {
         .and_then(Value::as_object)
         .ok_or_else(|| "Member status is missing".to_string())?;
     match status.get("@type").and_then(Value::as_str) {
+        Some("chatMemberStatusLeft") => {}
         Some("chatMemberStatusMember") => {
             if status
                 .get("member_until_date")

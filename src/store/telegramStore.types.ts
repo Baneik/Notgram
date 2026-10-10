@@ -22,6 +22,7 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatInviteLink,
+  ChatInviteCreator,
   ChatInviteLinkPage,
   ChatJoinRequestPage,
   BotCommandSuggestion,
@@ -34,6 +35,9 @@ import type {
   PrivacyRule,
   PrivacySettingKey,
   ChatManagement,
+  GetManagedMembersInput,
+  ManagedMemberPage,
+  UpdateChatManagementInput,
   ChatMemberStatusInput,
   ChatPermissions,
   ChatDraft,
@@ -193,11 +197,13 @@ export interface TelegramState {
   registerHistoryRetentionViewport: (chatId: string, viewport: () => import("./historyRetention").HistoryRetentionViewport) => () => void;
   selectForumTopic: (topicId?: string) => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
+  loadMoreForumTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
   resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopic | undefined>;
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
   setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
+  setGeneralForumTopicHidden: (chatId: string, hidden: boolean) => Promise<boolean>;
   deleteForumTopic: (chatId: string, topicId: string) => Promise<boolean>;
   resolveTelegramLink: (url: string) => Promise<import("../telegram/types").TelegramLinkTarget | undefined>;
   joinChat: (input: import("../telegram/types").JoinChatInput) => Promise<import("../telegram/types").JoinChatResult | undefined>;
@@ -280,6 +286,8 @@ export interface TelegramState {
   startPrivateChat: (userId: string) => Promise<string | undefined>;
   createChat: (input: CreateChatInput) => Promise<string | undefined>;
   loadChatManagement: (chatId: string, memberOffset?: number) => Promise<ChatManagement | undefined>;
+  getManagedMembers: (input: GetManagedMembersInput) => Promise<ManagedMemberPage | undefined>;
+  updateChatManagement: (chatId: string, input: UpdateChatManagementInput) => Promise<boolean>;
   loadChatAdministratorLabels: (chatId: string, force?: boolean) => Promise<Record<string, string>>;
   addChatMembers: (chatId: string, userIds: string[]) => Promise<boolean>;
   setChatMemberStatus: (chatId: string, userId: string, status: ChatMemberStatusInput) => Promise<boolean>;
@@ -289,6 +297,7 @@ export interface TelegramState {
   transferChatOwnership: (chatId: string, userId: string, password: string) => Promise<boolean>;
   loadChatEventLog: (input: ChatEventLogInput) => Promise<ChatEventPage | undefined>;
   getChatInviteLinks: (input: GetChatInviteLinksInput) => Promise<ChatInviteLinkPage | undefined>;
+  getChatInviteCreators: (chatId: string) => Promise<ChatInviteCreator[] | undefined>;
   createChatInviteLink: (input: CreateChatInviteLinkInput) => Promise<ChatInviteLink | undefined>;
   editChatInviteLink: (input: CreateChatInviteLinkInput & { inviteLink: string }) => Promise<ChatInviteLink | undefined>;
   revokeChatInviteLink: (chatId: string, inviteLink: string) => Promise<boolean>;

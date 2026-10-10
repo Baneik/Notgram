@@ -35,7 +35,11 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  GetManagedMembersInput,
+  ManagedMemberPage,
+  UpdateChatManagementInput,
   ChatInviteLink,
+  ChatInviteCreator,
   ChatInviteLinkPage,
   ChatJoinRequestPage,
   CreateChatInviteLinkInput,
@@ -122,6 +126,8 @@ export interface TelegramTransport {
   createPrivateChat(userId: string): Promise<Chat>;
   createChat(input: CreateChatInput): Promise<Chat>;
   getChatManagement(chatId: string, memberOffset?: number): Promise<ChatManagement>;
+  getManagedMembers(input: GetManagedMembersInput): Promise<ManagedMemberPage>;
+  updateChatManagement(chatId: string, input: UpdateChatManagementInput): Promise<void>;
   addChatMembers(chatId: string, userIds: string[]): Promise<void>;
   setChatMemberStatus(input: { chatId: string; userId: string; status: ChatMemberStatusInput }): Promise<void>;
   setChatMemberTag(chatId: string, userId: string, tag: string): Promise<void>;
@@ -130,6 +136,7 @@ export interface TelegramTransport {
   transferChatOwnership(chatId: string, userId: string, password: string): Promise<void>;
   getChatEventLog(input: ChatEventLogInput): Promise<ChatEventPage>;
   getChatInviteLinks(input: GetChatInviteLinksInput): Promise<ChatInviteLinkPage>;
+  getChatInviteCreators(chatId: string): Promise<ChatInviteCreator[]>;
   createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink>;
   editChatInviteLink(input: CreateChatInviteLinkInput & { inviteLink: string }): Promise<ChatInviteLink>;
   revokeChatInviteLink(chatId: string, inviteLink: string): Promise<ChatInviteLink>;
@@ -189,6 +196,7 @@ export interface TelegramTransport {
   editForumTopic(chatId: string, topicId: string, name: string): Promise<void>;
   setForumTopicClosed(chatId: string, topicId: string, closed: boolean): Promise<void>;
   setForumTopicPinned(chatId: string, topicId: string, pinned: boolean): Promise<void>;
+  setGeneralForumTopicHidden(chatId: string, hidden: boolean): Promise<void>;
   deleteForumTopic(chatId: string, topicId: string): Promise<void>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;

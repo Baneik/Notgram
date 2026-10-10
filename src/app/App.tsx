@@ -246,6 +246,8 @@ export function App() {
   const addAccount = useTelegramStore((state) => state.addAccount);
   const switchAccount = useTelegramStore((state) => state.switchAccount);
   const loadForumTopics = useTelegramStore((state) => state.loadForumTopics);
+  const loadMoreForumTopics = useTelegramStore((state) => state.loadMoreForumTopics);
+  const setGeneralForumTopicHidden = useTelegramStore((state) => state.setGeneralForumTopicHidden);
   const createForumTopic = useTelegramStore((state) => state.createForumTopic);
   const editForumTopic = useTelegramStore((state) => state.editForumTopic);
   const setForumTopicClosed = useTelegramStore((state) => state.setForumTopicClosed);
@@ -262,6 +264,8 @@ export function App() {
   const loadContacts = useTelegramStore((state) => state.loadContacts);
   const createChat = useTelegramStore((state) => state.createChat);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
+  const getManagedMembers = useTelegramStore((state) => state.getManagedMembers);
+  const updateChatManagement = useTelegramStore((state) => state.updateChatManagement);
   const addChatMembers = useTelegramStore((state) => state.addChatMembers);
   const setChatMemberStatus = useTelegramStore((state) => state.setChatMemberStatus);
   const setChatMemberTag = useTelegramStore((state) => state.setChatMemberTag);
@@ -270,6 +274,7 @@ export function App() {
   const transferChatOwnership = useTelegramStore((state) => state.transferChatOwnership);
   const loadChatEventLog = useTelegramStore((state) => state.loadChatEventLog);
   const getChatInviteLinks = useTelegramStore((state) => state.getChatInviteLinks);
+  const getChatInviteCreators = useTelegramStore((state) => state.getChatInviteCreators);
   const createChatInviteLink = useTelegramStore((state) => state.createChatInviteLink);
   const editChatInviteLink = useTelegramStore((state) => state.editChatInviteLink);
   const revokeChatInviteLink = useTelegramStore((state) => state.revokeChatInviteLink);
@@ -398,6 +403,7 @@ export function App() {
   const [folderManagerOpen, setFolderManagerOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [managementChatId, setManagementChatId] = useState<string>();
+  const [managementInitialTab, setManagementInitialTab] = useState<import("../components/ChatManagementDialog").ManagementTab>("overview");
   const [folderManagerInitialId, setFolderManagerInitialId] = useState<string>();
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -727,10 +733,12 @@ export function App() {
   const openChatManagement = useCallback((chatId: string) => {
     if (chats.get(chatId)?.management?.canOpenManagement !== true) return;
     clearProfile();
+    setManagementInitialTab("overview");
     setManagementChatId(chatId);
     void loadContacts();
   }, [chats, clearProfile, loadContacts]);
   const managementChat = managementChatId ? chats.get(managementChatId) : undefined;
+  useEffect(() => { if (managementChat?.isForum) void loadForumTopics(managementChat.id); }, [managementChat?.id, managementChat?.isForum, loadForumTopics]);
   const loadManagement = useCallback((offset = 0) => managementChatId ? loadChatManagement(managementChatId, offset) : Promise.resolve(undefined), [loadChatManagement, managementChatId]);
   const addManagementMembers = useCallback((userIds: string[]) => managementChatId ? addChatMembers(managementChatId, userIds) : Promise.resolve(false), [addChatMembers, managementChatId]);
   const setManagementMemberStatus = useCallback((userId: string, status: import("../telegram/types").ChatMemberStatusInput) => managementChatId ? setChatMemberStatus(managementChatId, userId, status) : Promise.resolve(false), [managementChatId, setChatMemberStatus]);
@@ -738,8 +746,10 @@ export function App() {
   const setManagementPermissions = useCallback((permissions: import("../telegram/types").ChatPermissions) => managementChatId ? setChatPermissions(managementChatId, permissions) : Promise.resolve(false), [managementChatId, setChatPermissions]);
   const setManagementSlowMode = useCallback((seconds: number) => managementChatId ? setChatSlowModeDelay(managementChatId, seconds) : Promise.resolve(false), [managementChatId, setChatSlowModeDelay]);
   const transferManagementOwnership = useCallback((userId: string, password: string) => managementChatId ? transferChatOwnership(managementChatId, userId, password) : Promise.resolve(false), [managementChatId, transferChatOwnership]);
-  const loadManagementEvents = useCallback((fromEventId?: string) => managementChatId ? loadChatEventLog({ chatId: managementChatId, fromEventId, limit: 30 }) : Promise.resolve(undefined), [loadChatEventLog, managementChatId]);
-  const getManagementInviteLinks = useCallback((offsetDate = 0, offsetLink = "") => managementChatId ? getChatInviteLinks({ chatId: managementChatId, creatorUserId: currentUserId, revoked: false, offsetDate, offsetLink, limit: 50 }) : Promise.resolve(undefined), [currentUserId, getChatInviteLinks, managementChatId]);
+  const loadManagementEvents = useCallback((fromEventId?: string, query = "") => managementChatId ? loadChatEventLog({ chatId: managementChatId, fromEventId, query, limit: 30 }) : Promise.resolve(undefined), [loadChatEventLog, managementChatId]);
+  const updateManagementSettings = useCallback((input: import("../telegram/types").UpdateChatManagementInput) => managementChatId ? updateChatManagement(managementChatId, input) : Promise.resolve(false), [managementChatId, updateChatManagement]);
+  const getManagementInviteLinks = useCallback((offsetDate = 0, offsetLink = "", creatorUserId = currentUserId) => managementChatId ? getChatInviteLinks({ chatId: managementChatId, creatorUserId, revoked: false, offsetDate, offsetLink, limit: 50 }) : Promise.resolve(undefined), [currentUserId, getChatInviteLinks, managementChatId]);
+  const getManagementInviteCreators = useCallback(() => managementChatId ? getChatInviteCreators(managementChatId) : Promise.resolve(undefined), [getChatInviteCreators, managementChatId]);
   const saveManagementInviteLink = useCallback((input: Omit<import("../telegram/types").CreateChatInviteLinkInput, "chatId">, inviteLink?: string) => {
     if (!managementChatId) return Promise.resolve(undefined);
     return inviteLink ? editChatInviteLink({ ...input, chatId: managementChatId, inviteLink }) : createChatInviteLink({ ...input, chatId: managementChatId });
@@ -2057,7 +2067,7 @@ export function App() {
           topic={activeTopic}
           topics={activeTopics}
           onSelectTopic={openForumTopic}
-          onManageTopics={() => setForumManagerIdentity(`${activeAccountId}:${activeChatId}`)}
+          onManageTopics={() => { if (activeChat?.management?.canOpenManagement) { clearProfile(); setManagementInitialTab("topics"); setManagementChatId(activeChat.id); void loadContacts(); } else setForumManagerIdentity(`${activeAccountId}:${activeChatId}`); }}
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           scrollRequest={conversationScrollRequest}
           messages={activeDisplayMessages}
@@ -2333,7 +2343,22 @@ export function App() {
       </MotionPresence>
       <MotionPresence present={Boolean(managementChat?.management?.canOpenManagement && managementChatId)}>
         {managementChat?.management?.canOpenManagement && managementChatId ? <ChatManagementDialog
+          key={`${activeAccountId}:${managementChatId}`}
           chat={managementChat}
+          initialTab={managementInitialTab}
+          linkedChats={[...chats.values()]}
+          topics={{
+            topics: forumTopics.get(managementChatId) ?? [],
+            loading: forumTopicsLoading.has(managementChatId),
+            onSelectTopic: topicId => { setManagementChatId(undefined); void telegramStore.getState().selectChat(managementChatId, { forumTopicId: topicId }); },
+            onCreateTopic: name => createForumTopic(managementChatId, name),
+            onEditTopic: (topicId, name) => editForumTopic(managementChatId, topicId, name),
+            onSetTopicClosed: (topicId, closed) => setForumTopicClosed(managementChatId, topicId, closed),
+            onSetTopicPinned: (topicId, pinned) => setForumTopicPinned(managementChatId, topicId, pinned),
+            onDeleteTopic: topicId => deleteForumTopic(managementChatId, topicId),
+            onSetGeneralHidden: hidden => setGeneralForumTopicHidden(managementChatId, hidden),
+            onLoadMoreTopics: () => loadMoreForumTopics(managementChatId),
+          }}
           currentUserId={currentUserId}
           contacts={contacts}
           management={groupManagement?.chatId === managementChatId ? groupManagement : undefined}
@@ -2346,9 +2371,13 @@ export function App() {
           onSetMemberTag={setManagementMemberTag}
           onSetPermissions={setManagementPermissions}
           onSetSlowMode={setManagementSlowMode}
+          onSetAutoDelete={seconds => setChatMessageAutoDeleteTime(managementChatId, seconds)}
+          onSearchMembers={getManagedMembers}
+          onUpdateSettings={updateManagementSettings}
           onTransferOwnership={transferManagementOwnership}
           onLoadEvents={loadManagementEvents}
           onGetInviteLinks={getManagementInviteLinks}
+          onGetInviteCreators={getManagementInviteCreators}
           onSaveInviteLink={saveManagementInviteLink}
           onRevokeInviteLink={revokeManagementInviteLink}
           onGetJoinRequests={getManagementJoinRequests}

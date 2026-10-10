@@ -1,4 +1,5 @@
 import { chatReportRequest, mapChatReportResult } from "./chatReport";
+import { chatEventSummary } from "./chatEventSummary";
 import { ChatViewSession } from "./chatViewSession";
 import { mapChatInvitePreview, mapChatJoinResult } from "./chatJoin";
 import { telegramInviteLink } from "./telegramLinks";
@@ -87,7 +88,11 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  GetManagedMembersInput,
+  ManagedMemberPage,
+  UpdateChatManagementInput,
   ChatInviteLink,
+  ChatInviteCreator,
   ChatInviteLinkPage,
   ChatJoinRequestPage,
   CreateChatInviteLinkInput,
@@ -984,7 +989,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   async getChatManagement(chatId: string, memberOffset = 0): Promise<ChatManagement> {
-    const rawChat = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    const rawChat = await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
     this.upsertChat(rawChat);
     const type = asTdObject(rawChat.type);
     if (!type || (type["@type"] !== "chatTypeBasicGroup" && type["@type"] !== "chatTypeSupergroup")) {
@@ -1020,10 +1025,10 @@ export class TauriTelegramTransport implements TelegramTransport {
       : this.request({
           "@type": "getSupergroupMembers",
           supergroup_id: numericId(groupId), filter: null, offset, limit: 50,
-        }).then((result) => asTdObjects(result.members));
+        }).then((result) => asTdObjects(result.members)).catch(() => []);
     const membersPromise = memberValuesPromise.then((values) => this.loadManagedMembers(values));
     const ownershipTransferPromise = capabilities.canTransferOwnership
-      ? this.request({ "@type": "canTransferOwnership" })
+      ? this.request({ "@type": "canTransferOwnership" }).catch((): TdObject => ({ "@type": "canTransferOwnershipResultUnknown" }))
       : Promise.resolve(undefined);
     const [administratorLabels, full, values, members, transferResult] = await Promise.all([
       administratorLabelsPromise,
@@ -1060,7 +1065,82 @@ export class TauriTelegramTransport implements TelegramTransport {
       memberCount,
       memberOffset: offset,
       memberHasMore: values.length === 50 || (memberCount !== undefined && offset + values.length < memberCount),
+      settings: {
+        description: typeof full.description === "string" ? full.description : "",
+        username: typeof asTdObject(group.usernames)?.editable_username === "string" ? asTdObject(group.usernames)!.editable_username as string : "",
+        historyAvailable: full.is_all_history_available === true,
+        protectedContent: rawChat.has_protected_content === true,
+        isForum: group.is_forum === true,
+        signMessages: group.sign_messages === true,
+        showMessageSender: group.show_message_sender === true,
+        joinByRequest: group.join_by_request === true,
+        hiddenMembers: full.has_hidden_members === true,
+        aggressiveAntiSpam: full.has_aggressive_anti_spam_enabled === true,
+        canHideMembers: full.can_hide_members === true,
+        canToggleAntiSpam: full.can_toggle_aggressive_anti_spam === true,
+        linkedChatId: tdId(full.linked_chat_id) === "0" ? undefined : tdId(full.linked_chat_id) || undefined,
+        administratorCount: tdNumber(full.administrator_count),
+        restrictedCount: tdNumber(full.restricted_count),
+        bannedCount: tdNumber(full.banned_count),
+      },
     };
+  }
+
+  async getManagedMembers({ chatId, filter, query = "", offset = 0 }: GetManagedMembersInput): Promise<ManagedMemberPage> {
+    const raw = this.rawChats.get(chatId) ?? await this.request({ "@type": "getChat", chat_id: numericId(chatId) });
+    const type = asTdObject(raw.type);
+    const start = Math.max(0, Math.floor(offset));
+    const text = profileField(query, 128, translate("搜索"));
+    let result: TdObject;
+    let values: TdObject[];
+    if (type?.["@type"] === "chatTypeBasicGroup" || text && (filter === "administrators" || filter === "bots")) {
+      const filters = { members: "chatMembersFilterMembers", administrators: "chatMembersFilterAdministrators", restricted: "chatMembersFilterRestricted", banned: "chatMembersFilterBanned", bots: "chatMembersFilterBots" };
+      result = await this.request({ "@type": "searchChatMembers", chat_id: numericId(chatId), query: text, limit: 200, filter: { "@type": filters[filter] } });
+      values = asTdObjects(result.members).slice(start, start + 50);
+    } else if (type?.["@type"] === "chatTypeSupergroup") {
+      const filters = { members: text ? "supergroupMembersFilterSearch" : "supergroupMembersFilterRecent", administrators: "supergroupMembersFilterAdministrators", restricted: "supergroupMembersFilterRestricted", banned: "supergroupMembersFilterBanned", bots: "supergroupMembersFilterBots" };
+      result = await this.request({ "@type": "getSupergroupMembers", supergroup_id: numericId(tdId(type.supergroup_id)), filter: { "@type": filters[filter], ...(["restricted", "banned"].includes(filter) || filter === "members" && text ? { query: text } : {}) }, offset: start, limit: 50 });
+      values = asTdObjects(result.members);
+    } else throw new Error(translate("只有群组和频道支持成员管理"));
+    const totalCount = tdNumber(result.total_count);
+    const nextOffset = start + values.length;
+    return { members: await this.loadManagedMembers(values), totalCount, nextOffset, hasMore: values.length === 50 && (totalCount === undefined || nextOffset < totalCount) };
+  }
+
+  async updateChatManagement(chatId: string, input: UpdateChatManagementInput): Promise<void> {
+    const current = await this.getChatManagement(chatId);
+    const capabilities = current.capabilities;
+    const ownerKeys = ["username", "protectedContent", "isForum", "linkedChatId"] as const;
+    const moderationKeys = ["joinByRequest", "hiddenMembers", "aggressiveAntiSpam"] as const;
+    if (ownerKeys.some(key => input[key] !== undefined) && capabilities.status !== "owner") throw new Error(translate("只有所有者可以修改此设置"));
+    if (moderationKeys.some(key => input[key] !== undefined) && !capabilities.canRestrictMembers) throw new Error(translate("当前账号没有限制成员权限"));
+    if (["title", "description", "historyAvailable", "signMessages", "showMessageSender", "selectPhoto", "removePhoto"].some(key => input[key as keyof UpdateChatManagementInput] !== undefined) && !capabilities.canChangeInfo) throw new Error(translate("当前账号没有修改群资料的权限"));
+    const title = input.title === undefined ? undefined : identityTextField(input.title, 128, translate("名称"), true);
+    const description = input.description === undefined ? undefined : profileField(input.description, 255, translate("简介"));
+    const username = input.username === undefined ? undefined : profileField(input.username, 32, translate("公开用户名"));
+    if (username && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) throw new Error(translate("公开用户名需包含 5 至 32 个英文字母、数字或下划线，并以字母开头"));
+    const raw = this.rawChats.get(chatId)!;
+    const type = asTdObject(raw.type);
+    const supergroupId = tdId(type?.supergroup_id);
+    const supergroupKeys = ["username", "historyAvailable", "isForum", "signMessages", "showMessageSender", ...moderationKeys];
+    if (!supergroupId && supergroupKeys.some(key => input[key as keyof UpdateChatManagementInput] !== undefined)) throw new Error(translate("此设置只适用于超级群组或频道"));
+    if (input.linkedChatId) numericId(input.linkedChatId);
+    if (input.hiddenMembers !== undefined && !current.settings?.canHideMembers || input.aggressiveAntiSpam !== undefined && !current.settings?.canToggleAntiSpam) throw new Error(translate("Telegram 暂不支持此设置"));
+    if (title !== undefined) await this.request({ "@type": "setChatTitle", chat_id: numericId(chatId), title });
+    if (description !== undefined) await this.request({ "@type": "setChatDescription", chat_id: numericId(chatId), description });
+    if (username !== undefined) await this.request({ "@type": "setSupergroupUsername", supergroup_id: numericId(supergroupId), username });
+    if (input.protectedContent !== undefined) await this.request({ "@type": "toggleChatHasProtectedContent", chat_id: numericId(chatId), has_protected_content: input.protectedContent });
+    if (input.historyAvailable !== undefined) await this.request({ "@type": "toggleSupergroupIsAllHistoryAvailable", supergroup_id: numericId(supergroupId), is_all_history_available: input.historyAvailable });
+    if (input.isForum !== undefined) await this.request({ "@type": "toggleSupergroupIsForum", supergroup_id: numericId(supergroupId), is_forum: input.isForum, has_forum_tabs: true });
+    if (input.signMessages !== undefined || input.showMessageSender !== undefined) await this.request({ "@type": "toggleSupergroupSignMessages", supergroup_id: numericId(supergroupId), sign_messages: input.signMessages ?? (current.settings?.signMessages === true), show_message_sender: input.showMessageSender ?? (current.settings?.showMessageSender === true) });
+    if (input.joinByRequest !== undefined) await this.request({ "@type": "toggleSupergroupJoinByRequest", supergroup_id: numericId(supergroupId), join_by_request: input.joinByRequest, guard_bot_user_id: 0, apply_to_invite_links: false });
+    if (input.hiddenMembers !== undefined) await this.request({ "@type": "toggleSupergroupHasHiddenMembers", supergroup_id: numericId(supergroupId), has_hidden_members: input.hiddenMembers });
+    if (input.aggressiveAntiSpam !== undefined) await this.request({ "@type": "toggleSupergroupHasAggressiveAntiSpamEnabled", supergroup_id: numericId(supergroupId), has_aggressive_anti_spam_enabled: input.aggressiveAntiSpam });
+    if (input.linkedChatId !== undefined) await this.request({ "@type": "setChatDiscussionGroup", chat_id: numericId(chatId), discussion_chat_id: input.linkedChatId ? numericId(input.linkedChatId) : 0 });
+    if (input.selectPhoto) await this.requestPreparedChatPhoto(chatId);
+    if (input.removePhoto) await this.request({ "@type": "setChatPhoto", chat_id: numericId(chatId), photo: null });
+    this.upsertChat(await this.request({ "@type": "getChat", chat_id: numericId(chatId) }));
+    if (supergroupId) this.upsertSupergroup(await this.request({ "@type": "getSupergroup", supergroup_id: numericId(supergroupId) }));
   }
 
   async addChatMembers(chatId: string, userIds: string[]): Promise<void> {
@@ -1089,6 +1169,8 @@ export class TauriTelegramTransport implements TelegramTransport {
       statusObject = { "@type": "chatMemberStatusRestricted", is_member: true, restricted_until_date: status.untilDate ?? 0, permissions: chatPermissionsObject(status.permissions) };
     } else if (status.kind === "banned") {
       statusObject = { "@type": "chatMemberStatusBanned", banned_until_date: status.untilDate ?? 0 };
+    } else if (status.kind === "left") {
+      statusObject = { "@type": "chatMemberStatusLeft" };
     } else {
       statusObject = { "@type": "chatMemberStatusMember", member_until_date: 0 };
     }
@@ -1148,7 +1230,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const actor = actorId ? await this.loadUser(actorId) : undefined;
       const action = asTdObject(event.action);
       const kind = typeof action?.["@type"] === "string" ? action["@type"] : "event";
-      const summary = kind.replace(/^chatEventAction/, "").replace(/([A-Z])/g, " $1").trim() || translate("群组设置更新");
+      const summary = chatEventSummary(action);
       return { id: tdId(event.id) || `${event.date ?? 0}`, date: new Date((tdNumber(event.date) ?? 0) * 1000).toISOString(), actor, summary, kind };
     }));
     const nextEventId = events.at(-1)?.id;
@@ -1162,6 +1244,15 @@ export class TauriTelegramTransport implements TelegramTransport {
     const links = asTdObjects(result.invite_links).map(mapChatInviteLink).filter((link): link is ChatInviteLink => Boolean(link));
     const last = links.at(-1);
     return { links, hasMore: links.length >= Math.max(1, Math.min(limit, 100)), nextOffsetDate: last ? Math.floor(Date.parse(last.createdAt) / 1000) : undefined, nextOffsetLink: last?.inviteLink };
+  }
+
+  async getChatInviteCreators(chatId: string): Promise<ChatInviteCreator[]> {
+    const result = await this.request({ "@type": "getChatInviteLinkCounts", chat_id: numericId(chatId) });
+    const values = await Promise.all(asTdObjects(result.invite_link_counts).map(async value => {
+      const user = await this.loadUser(tdId(value.user_id));
+      return user ? { user, activeCount: tdNumber(value.invite_link_count) ?? 0, revokedCount: tdNumber(value.revoked_invite_link_count) ?? 0 } : undefined;
+    }));
+    return values.flatMap(value => value ? [value] : []);
   }
 
   async createChatInviteLink(input: CreateChatInviteLinkInput): Promise<ChatInviteLink> {
@@ -2112,6 +2203,11 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   async setForumTopicPinned(chatId: string, topicId: string, pinned: boolean) {
     return this.forumTopicService.setForumTopicPinned(chatId, topicId, pinned);
+  }
+
+  async setGeneralForumTopicHidden(chatId: string, hidden: boolean) {
+    await this.request({ "@type": "toggleGeneralForumTopicIsHidden", chat_id: numericId(chatId), is_hidden: hidden });
+    this.listener?.({ type: "forumTopics.changed", chatId });
   }
 
   async deleteForumTopic(chatId: string, topicId: string) {

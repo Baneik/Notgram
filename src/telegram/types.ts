@@ -146,10 +146,50 @@ export interface ChatManagement {
   ownershipTransfer?: OwnershipTransferAvailability;
   memberOffset?: number;
   memberHasMore: boolean;
+  settings?: ChatManagementSettings;
+}
+
+export interface ChatManagementSettings {
+  description: string;
+  username: string;
+  historyAvailable: boolean;
+  protectedContent: boolean;
+  isForum: boolean;
+  signMessages: boolean;
+  showMessageSender: boolean;
+  joinByRequest: boolean;
+  hiddenMembers: boolean;
+  aggressiveAntiSpam: boolean;
+  canHideMembers: boolean;
+  canToggleAntiSpam: boolean;
+  linkedChatId?: string;
+  administratorCount?: number;
+  restrictedCount?: number;
+  bannedCount?: number;
+}
+
+export type UpdateChatManagementInput = Partial<Pick<ChatManagementSettings,
+  "description" | "username" | "historyAvailable" | "protectedContent" | "isForum" |
+  "signMessages" | "showMessageSender" | "joinByRequest" | "hiddenMembers" | "aggressiveAntiSpam" | "linkedChatId"
+>> & { title?: string; selectPhoto?: boolean; removePhoto?: boolean };
+
+export type ManagedMemberFilter = "members" | "administrators" | "restricted" | "banned" | "bots";
+export interface GetManagedMembersInput {
+  chatId: string;
+  filter: ManagedMemberFilter;
+  query?: string;
+  offset?: number;
+}
+export interface ManagedMemberPage {
+  members: ManagedChatMember[];
+  totalCount?: number;
+  nextOffset: number;
+  hasMore: boolean;
 }
 
 export type ChatMemberStatusInput =
   | { kind: "member" }
+  | { kind: "left" }
   | { kind: "administrator"; rights: ChatAdminRights }
   | { kind: "restricted"; permissions: ChatPermissions; untilDate?: number }
   | { kind: "banned"; untilDate?: number };
@@ -223,6 +263,12 @@ export interface ChatInviteLinkPage {
   hasMore: boolean;
   nextOffsetDate?: number;
   nextOffsetLink?: string;
+}
+
+export interface ChatInviteCreator {
+  user: User;
+  activeCount: number;
+  revokedCount: number;
 }
 
 export interface CreateChatInviteLinkInput {

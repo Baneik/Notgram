@@ -9,13 +9,14 @@ import {
   Pencil,
   Pin,
   Plus,
+  Search,
   X,
   Trash2,
 } from "lucide-react";
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { messagePreviewText } from "../telegram/messageContent";
 import { useStableVisibility } from "../hooks/useStableVisibility";
-import type { Chat, ForumTopic } from "../telegram/types";
+import type { Chat, ForumTopic, ForumTopicPage } from "../telegram/types";
 import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
@@ -36,8 +37,13 @@ interface ForumTopicsViewProps {
   onSetTopicClosed: (topicId: string, closed: boolean) => Promise<boolean>;
   onSetTopicPinned: (topicId: string, pinned: boolean) => Promise<boolean>;
   onDeleteTopic: (topicId: string) => Promise<boolean>;
+  onSetGeneralHidden?: (hidden: boolean) => Promise<boolean>;
   mobileViewport?: boolean;
   mobileChatOpen?: boolean;
+  managementMode?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
+  onLoadMoreTopics?: () => Promise<ForumTopicPage | undefined>;
 }
 
 const topicIconColor = (color: number) => `#${(color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
@@ -53,8 +59,13 @@ export function ForumTopicsView({
   onSetTopicClosed,
   onSetTopicPinned,
   onDeleteTopic,
+  onSetGeneralHidden,
   mobileViewport = false,
   mobileChatOpen = false,
+  managementMode = false,
+  onDirtyChange,
+  onBusyChange,
+  onLoadMoreTopics,
 }: ForumTopicsViewProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -63,12 +74,18 @@ export function ForumTopicsView({
   const [menuTopicId, setMenuTopicId] = useState<string>();
   const [pendingTopicId, setPendingTopicId] = useState<string>();
   const [deleteTopic, setDeleteTopic] = useState<ForumTopic>();
+  const [query, setQuery] = useState("");
+  const [moreExhausted, setMoreExhausted] = useState(false);
+  useEffect(() => { onDirtyChange?.(Boolean(newName || editingTopicId)); return () => onDirtyChange?.(false); }, [newName, editingTopicId, onDirtyChange]);
+  useEffect(() => { setMoreExhausted(false); }, [topics]);
+  useEffect(() => { onBusyChange?.(Boolean(pendingTopicId)); return () => onBusyChange?.(false); }, [pendingTopicId, onBusyChange]);
   const accountId = useTelegramStore(state => state.activeAccountId);
   const topicsListRef = useRef<HTMLDivElement>(null);
   const canManage = chat.isMember !== false && chat.management?.canManageTopics === true;
   const canCreate = chat.isMember !== false && (canManage || chat.canCreateTopics === true);
   const showLoading = useStableVisibility(loading && topics.length === 0);
-  const orderedTopics = useOrderedForumTopics(accountId, chat.id, topics);
+  const visibleTopics = useOrderedForumTopics(accountId, chat.id, topics);
+  const orderedTopics = managementMode ? [...visibleTopics, ...topics.filter(topic => topic.isHidden)] : visibleTopics;
   useFlipListMotion({
     containerRef: topicsListRef,
     itemSelector: ".forum-topic-row[data-motion-key]",
@@ -80,12 +97,12 @@ export function ForumTopicsView({
     const name = newName.trim();
     if (!name) return;
     setPendingTopicId("new");
-    const topic = await onCreateTopic(name);
-    setPendingTopicId(undefined);
+    let topic: ForumTopic | undefined;
+    try { topic = await onCreateTopic(name); } finally { setPendingTopicId(undefined); }
     if (!topic) return;
     setNewName("");
     setCreating(false);
-    onSelectTopic(topic.id);
+    if (!managementMode) onSelectTopic(topic.id);
   };
 
   const submitEdit = async (event: FormEvent<HTMLFormElement>, topicId: string) => {
@@ -93,22 +110,22 @@ export function ForumTopicsView({
     const name = editingName.trim();
     if (!name) return;
     setPendingTopicId(topicId);
-    const updated = await onEditTopic(topicId, name);
-    setPendingTopicId(undefined);
+    let updated = false;
+    try { updated = await onEditTopic(topicId, name); } finally { setPendingTopicId(undefined); }
     if (updated) setEditingTopicId(undefined);
   };
 
   const toggleTopic = async (topic: ForumTopic, action: "closed" | "pinned") => {
     setPendingTopicId(topic.id);
-    if (action === "closed") await onSetTopicClosed(topic.id, !topic.isClosed);
-    else await onSetTopicPinned(topic.id, !topic.isPinned);
-    setPendingTopicId(undefined);
-    setMenuTopicId(undefined);
+    try {
+      if (action === "closed") await onSetTopicClosed(topic.id, !topic.isClosed);
+      else await onSetTopicPinned(topic.id, !topic.isPinned);
+    } finally { setPendingTopicId(undefined); setMenuTopicId(undefined); }
   };
 
   return (
     <section
-      className="forum-topics-view"
+      className={`forum-topics-view ${managementMode ? "is-management" : ""}`}
       aria-label={translate("{{value0}} 话题", { value0: chat.title })}
       aria-hidden={mobileViewport && !mobileChatOpen ? true : undefined}
       inert={mobileViewport && !mobileChatOpen ? true : undefined}
@@ -133,11 +150,13 @@ export function ForumTopicsView({
             onClick={() => setCreating(true)}
           >
             <Plus size={20} strokeWidth={2} />
+            {managementMode && <span>{translate("创建话题")}</span>}
           </button>
         )}
       </header>
 
       <div className="forum-topics-content">
+        {managementMode && <label className="management-search"><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={translate("搜索话题")} aria-label={translate("搜索话题")} /></label>}
         {creating && (
           <form className="forum-topic-form" onSubmit={submitNewTopic}>
             <Hash size={18} aria-hidden="true" />
@@ -166,7 +185,7 @@ export function ForumTopicsView({
         </MotionPresence>
         {orderedTopics.length > 0 && (
           <div className="forum-topic-list" ref={topicsListRef}>
-            {orderedTopics.map((topic) => (
+            {orderedTopics.filter(topic => !managementMode || topic.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map((topic) => (
               <article className={`forum-topic-row ${topic.isClosed ? "is-closed" : ""}`} data-motion-key={topic.id} key={topic.id}>
                 {editingTopicId === topic.id ? (
                   <form className="forum-topic-form forum-topic-edit" onSubmit={(event) => void submitEdit(event, topic.id)}>
@@ -200,7 +219,13 @@ export function ForumTopicsView({
                         )}
                       </span>
                     </button>
-                    {(chat.isMember !== false && (canManage || topic.isOutgoing || canDeleteForumTopic(chat, topic))) && <div className="forum-topic-actions">
+                    {managementMode && canManage ? <div className="management-topic-actions">
+                      {topic.isGeneral && onSetGeneralHidden && <button className="dialog-secondary" type="button" disabled={Boolean(pendingTopicId)} onClick={async () => { setPendingTopicId(topic.id); try { await onSetGeneralHidden(!topic.isHidden); } finally { setPendingTopicId(undefined); } }}>{topic.isHidden ? translate("显示默认话题") : translate("隐藏默认话题")}</button>}
+                      <button type="button" className="dialog-secondary" disabled={Boolean(pendingTopicId)} onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); }}>{translate("重命名")}</button>
+                      <button type="button" className="dialog-secondary" disabled={Boolean(pendingTopicId)} onClick={() => void toggleTopic(topic, "pinned")}>{topic.isPinned ? translate("取消置顶") : translate("置顶")}</button>
+                      <button type="button" className="dialog-secondary" disabled={Boolean(pendingTopicId)} onClick={() => void toggleTopic(topic, "closed")}>{topic.isClosed ? translate("重新开启") : translate("关闭话题")}</button>
+                      {canDeleteForumTopic(chat, topic) && <button type="button" className="management-text-danger" disabled={Boolean(pendingTopicId)} onClick={() => setDeleteTopic(topic)}>{translate("删除话题")}</button>}
+                    </div> : (chat.isMember !== false && (canManage || topic.isOutgoing || canDeleteForumTopic(chat, topic))) && <div className="forum-topic-actions">
                       <button
                         className="icon-button"
                         type="button"
@@ -227,6 +252,7 @@ export function ForumTopicsView({
           </div>
         )}
       </div>
+      {managementMode && onLoadMoreTopics && topics.length >= 100 && !moreExhausted && <button className="dialog-secondary" type="button" disabled={loading || Boolean(pendingTopicId)} onClick={async () => { const page = await onLoadMoreTopics(); if (page) setMoreExhausted(!page.hasMore); }}>{translate("加载更多话题")}</button>}
       {needsMembershipBar(chat) && <ChatMembershipBar chat={chat} />}
       {deleteTopic && <ConfirmActionDialog
         title={translate("删除话题")}

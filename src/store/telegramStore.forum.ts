@@ -17,11 +17,13 @@ type StoreSetter = (
 export interface ForumController {
   reset: () => void;
   loadForumTopics: (chatId: string, query?: string) => Promise<ForumTopicPage | undefined>;
+  loadMoreForumTopics: (chatId: string) => Promise<ForumTopicPage | undefined>;
   resolveForumTopic: (chatId: string, topicId: string) => Promise<ForumTopic | undefined>;
   createForumTopic: (chatId: string, name: string) => Promise<ForumTopicPage["topics"][number] | undefined>;
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
   setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
+  setGeneralForumTopicHidden: (chatId: string, hidden: boolean) => Promise<boolean>;
   deleteForumTopic: (chatId: string, topicId: string) => Promise<boolean>;
 }
 
@@ -48,6 +50,7 @@ export const createForumController = ({
   acceptTopicDraft,
 }: ForumControllerOptions): ForumController => {
   const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
+  const topicPages = new Map<string, ForumTopicPage>();
   const pendingTopicLoads = new Map<string, Promise<ForumTopic | undefined>>();
   let generation = 0;
 
@@ -65,6 +68,7 @@ export const createForumController = ({
       try {
         const page = await transport.getForumTopics({ chatId, query, limit: 100 });
         if (currentGeneration !== generation) return undefined;
+        if (!query) topicPages.set(chatId, page);
         const forumTopics = new Map(get().forumTopics);
         forumTopics.set(chatId, page.topics);
         const drafts = new Map(get().drafts);
@@ -124,6 +128,7 @@ export const createForumController = ({
     reset: () => {
       generation += 1;
       pendingLoads.clear();
+      topicPages.clear();
       pendingTopicLoads.clear();
       set({ forumTopicsLoading: new Set() });
     },
@@ -153,6 +158,30 @@ export const createForumController = ({
         });
       pendingTopicLoads.set(key, request);
       return request;
+    },
+
+    loadMoreForumTopics: async (chatId) => {
+      const previous = topicPages.get(chatId);
+      if (!previous?.hasMore || get().forumTopicsLoading.has(chatId)) return previous;
+      const currentGeneration = generation;
+      const loading = new Set(get().forumTopicsLoading); loading.add(chatId); set({ forumTopicsLoading: loading });
+      try {
+        const page = await transport.getForumTopics({ chatId, offsetDate: previous.nextOffsetDate, offsetMessageId: previous.nextOffsetMessageId, offsetTopicId: previous.nextOffsetTopicId, limit: 100 });
+        if (currentGeneration !== generation) return undefined;
+        const unchanged = page.nextOffsetDate === previous.nextOffsetDate && page.nextOffsetMessageId === previous.nextOffsetMessageId && page.nextOffsetTopicId === previous.nextOffsetTopicId;
+        const next = { ...page, hasMore: page.hasMore && !unchanged };
+        topicPages.set(chatId, next);
+        const forumTopics = new Map(get().forumTopics);
+        const current = forumTopics.get(chatId) ?? [];
+        forumTopics.set(chatId, [...current, ...page.topics.filter(topic => !current.some(old => old.id === topic.id))]);
+        set({ forumTopics, operationError: undefined });
+        return next;
+      } catch (error) {
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法加载话题列表")) });
+        return undefined;
+      } finally {
+        if (currentGeneration === generation) { const loading = new Set(get().forumTopicsLoading); loading.delete(chatId); set({ forumTopicsLoading: loading }); }
+      }
     },
 
     createForumTopic: async (chatId, name) => {
@@ -212,6 +241,20 @@ export const createForumController = ({
         return currentGeneration === generation;
       } catch (error) {
         if (currentGeneration === generation) set({ operationError: onError(error, translate("无法更新话题置顶")) });
+        return false;
+      }
+    },
+
+    setGeneralForumTopicHidden: async (chatId, hidden) => {
+      if (get().chats.get(chatId)?.isMember === false || get().chats.get(chatId)?.management?.canManageTopics !== true) return rejectTopicMutation(translate("当前账号没有管理话题的权限"));
+      const currentGeneration = generation;
+      try {
+        await transport.setGeneralForumTopicHidden(chatId, hidden);
+        if (currentGeneration !== generation) return false;
+        await reloadTopics(chatId);
+        return currentGeneration === generation;
+      } catch (error) {
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法更新默认话题")) });
         return false;
       }
     },

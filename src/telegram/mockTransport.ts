@@ -26,7 +26,11 @@ import type {
   ChatEventLogInput,
   ChatEventPage,
   ChatManagement,
+  GetManagedMembersInput,
+  ManagedMemberPage,
+  UpdateChatManagementInput,
   ChatInviteLink,
+  ChatInviteCreator,
   ChatInviteLinkPage,
   ChatJoinRequest,
   ChatJoinRequestPage,
@@ -1203,6 +1207,7 @@ export class MockTelegramTransport implements TelegramTransport {
 
   async getChatManagement(chatId: string, memberOffset = 0): Promise<ChatManagement> {
     const value = await this.ensureChatManagement(chatId);
+    value.settings ??= { description: "", username: "", historyAvailable: true, protectedContent: false, isForum: this.snapshot.chats.find(chat => chat.id === chatId)?.isForum === true, signMessages: false, showMessageSender: false, joinByRequest: false, hiddenMembers: false, aggressiveAntiSpam: false, canHideMembers: value.capabilities.chatType === "supergroup", canToggleAntiSpam: value.capabilities.chatType === "supergroup" };
     const offset = Math.max(0, memberOffset);
     const limit = 50;
     return clone({
@@ -1216,6 +1221,31 @@ export class MockTelegramTransport implements TelegramTransport {
       memberOffset: offset,
       memberHasMore: offset + limit < value.members.length,
     });
+  }
+
+  async getManagedMembers({ chatId, filter, query = "", offset = 0 }: GetManagedMembersInput): Promise<ManagedMemberPage> {
+    const value = await this.ensureChatManagement(chatId);
+    if (!value.capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
+    const text = query.toLocaleLowerCase().trim();
+    const members = value.members.filter(member => {
+      const matches = filter === "members" ? !["left", "banned"].includes(member.status) : filter === "administrators" ? ["owner", "administrator"].includes(member.status) : filter === "bots" ? member.user.isBot : member.status === filter;
+      return matches && (!text || `${member.user.displayName} ${member.user.username ?? ""}`.toLocaleLowerCase().includes(text));
+    });
+    const nextOffset = offset + Math.min(50, Math.max(0, members.length - offset));
+    return { members: clone(members.slice(offset, nextOffset)), totalCount: members.length, nextOffset, hasMore: nextOffset < members.length };
+  }
+
+  async updateChatManagement(chatId: string, input: UpdateChatManagementInput): Promise<void> {
+    const value = await this.ensureChatManagement(chatId);
+    await this.getChatManagement(chatId);
+    if (!value.capabilities.canOpenManagement) throw new Error("当前账号没有群组管理权限");
+    const chat = this.snapshot.chats.find(item => item.id === chatId);
+    if (chat && input.title !== undefined) chat.title = input.title.trim();
+    if (chat && input.isForum !== undefined) chat.isForum = input.isForum;
+    if (chat && input.joinByRequest !== undefined) chat.joinByRequest = input.joinByRequest;
+    Object.assign(value.settings!, input);
+    this.appendChatAudit(chatId, "更新聊天管理设置", "setting");
+    if (chat) this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
   async addChatMembers(chatId: string, userIds: string[]): Promise<void> {
@@ -1241,7 +1271,7 @@ export class MockTelegramTransport implements TelegramTransport {
     if (status.kind === "administrator" || member.status === "administrator") {
       if (!value.capabilities.canPromoteMembers || member.canBeEdited === false) throw new Error("当前账号没有管理员任免权限");
     }
-    if (status.kind === "restricted" || status.kind === "banned" || member.status === "restricted" || member.status === "banned") {
+    if (status.kind === "restricted" || status.kind === "banned" || status.kind === "left" || member.status === "restricted" || member.status === "banned") {
       if (!value.capabilities.canRestrictMembers) throw new Error("当前账号没有限制成员权限");
     }
     const user = member.user;
@@ -1258,6 +1288,9 @@ export class MockTelegramTransport implements TelegramTransport {
       member.status = "banned"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined;
       member.untilDate = status.untilDate;
       this.appendChatAudit(chatId, `封禁成员：${user.displayName}`, "memberRestriction");
+    } else if (status.kind === "left") {
+      member.status = "left"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined; member.untilDate = undefined;
+      this.appendChatAudit(chatId, `移除成员：${user.displayName}`, "memberLeave");
     } else {
       member.status = "member"; member.role = "member"; member.permissions = undefined; member.adminRights = undefined; member.untilDate = undefined;
       this.appendChatAudit(chatId, `恢复成员：${user.displayName}`, "memberJoin");
@@ -1313,6 +1346,11 @@ export class MockTelegramTransport implements TelegramTransport {
     const start = fromEventId ? Math.max(0, events.findIndex((event) => event.id === fromEventId) + 1) : 0;
     const page = events.slice(start, start + Math.min(100, Math.max(1, limit)));
     return { events: clone(page), nextEventId: page.at(-1)?.id, hasMore: start + page.length < events.length };
+  }
+
+  async getChatInviteCreators(chatId: string): Promise<ChatInviteCreator[]> {
+    const links = this.ensureInviteLinks(chatId);
+    return this.snapshot.users.flatMap(user => { const own = links.filter(link => link.creatorUserId === user.id); return own.length ? [{ user: clone(user), activeCount: own.filter(link => !link.isRevoked).length, revokedCount: own.filter(link => link.isRevoked).length }] : []; });
   }
 
   private ensureInviteLinks(chatId: string) {
@@ -1978,6 +2016,14 @@ export class MockTelegramTransport implements TelegramTransport {
     const topic = this.ensureForumTopics(chatId).find((candidate) => candidate.id === topicId);
     if (!topic) throw new Error("找不到话题");
     topic.isPinned = pinned;
+    this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
+  async setGeneralForumTopicHidden(chatId: string, hidden: boolean) {
+    const topic = this.ensureForumTopics(chatId).find(value => value.isGeneral);
+    if (!topic) throw new Error("找不到默认话题");
+    topic.isHidden = hidden;
+    if (hidden) topic.isClosed = true;
     this.listener?.({ type: "forumTopics.changed", chatId });
   }
 
