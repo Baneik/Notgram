@@ -751,15 +751,14 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation.has-forum-topic-strip { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation.is-pinned-messages-view { grid-template-rows: auto minmax(0, 1fr); }
 .forum-topic-strip {
-  min-width: 0; height: 48px; padding: 4px 10px; overflow: hidden; display: flex; align-items: center; gap: 6px;
+  min-width: 0; height: 40px; padding: 3px 6px; overflow: hidden; display: flex; align-items: center; gap: 4px;
   background: var(--color-bg-surface); border-bottom: 1px solid var(--line);
 }
 .forum-topic-tabs {
-  position: relative; min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden;
+  position: relative; min-width: 0; height: 100%; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
 }
 .forum-topic-tablist { min-width: 0; flex: 1; height: 100%; display: flex; align-items: center; gap: 5px; }
-.forum-topic-all { flex: 0 0 auto; }
 .forum-topic-manage { flex: 0 0 auto; }
 .forum-topic-tabs .forum-topic-tab { touch-action: pan-y; user-select: none; cursor: grab; }
 .forum-topic-tab.is-dragging { opacity: .65; cursor: grabbing; }
@@ -771,8 +770,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .forum-all-message-bar { min-height: 52px; display: grid; place-items: center; padding: 10px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); background: var(--color-bg-surface); }
 .forum-topic-tabs::-webkit-scrollbar { display: none; }
 .forum-topic-tab {
-  min-width: 0; max-width: 230px; height: 38px; padding: 3px 9px 3px 5px; flex: 0 0 auto;
-  display: flex; align-items: center; gap: 7px; color: var(--muted); background: transparent;
+  min-width: 0; max-width: 210px; height: 32px; padding: 3px 7px 3px 4px; flex: 0 0 auto;
+  display: flex; align-items: center; gap: 6px; color: var(--muted); background: transparent;
   border: 1px solid transparent; border-radius: 9px; cursor: pointer; scroll-snap-align: nearest;
 }
 .forum-topic-tab:hover, .forum-topic-tab:focus-visible { color: var(--ink); background: var(--surface-hover); }
@@ -780,7 +779,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .forum-topic-tab-avatar {
-  width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center;
+  position: relative; width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center;
   color: var(--color-text-on-accent); border-radius: 50%;
 }
 .forum-topic-tab-name {
@@ -788,9 +787,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   font-size: 12px; font-weight: 650;
 }
 .forum-topic-tab-count {
-  width: 26px; height: 18px; padding: 0 2px; flex: 0 0 auto; display: grid; place-items: center;
+  position: absolute; right: -3px; bottom: -2px; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center;
   color: var(--color-text-on-accent); background: var(--accent); border-radius: 9px;
-  font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums;
+  font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px var(--color-bg-surface);
 }
 .forum-topic-tab-count.has-reaction {
   color: var(--color-reaction-badge-text); background: var(--color-reaction-badge);

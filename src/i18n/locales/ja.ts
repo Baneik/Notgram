@@ -2,7 +2,6 @@ import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
   "拖拽排序，或使用 Ctrl+Shift+方向键调整位置": "ドラッグ、または Ctrl+Shift+矢印キーで並べ替え",
-  "所有": "すべて",
   "删除话题": "トピックを削除",
   "无法删除话题": "トピックを削除できません",
   "当前账号没有删除该话题的权限": "このトピックを削除する権限がありません",

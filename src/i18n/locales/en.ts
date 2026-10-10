@@ -1,6 +1,5 @@
 export const en = {
   "拖拽排序，或使用 Ctrl+Shift+方向键调整位置": "Drag to reorder, or use Ctrl+Shift+arrow keys",
-  "所有": "All",
   "删除话题": "Delete topic",
   "无法删除话题": "Unable to delete topic",
   "当前账号没有删除该话题的权限": "You don't have permission to delete this topic",

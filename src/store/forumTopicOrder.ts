@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import { useEffect, useMemo } from "react";
 import { readAccountMetadata, subscribeAccountMetadata, writeAccountMetadata } from "./accountMetadata";
 import type { ForumTopic } from "../telegram/types";
+import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
 
 interface TopicOrderRecord { accountId: string; chatId: string; topicIds: string[] }
 const STORAGE_KEY = "notgram:forum-topic-order:v1";
@@ -26,8 +27,11 @@ const readRecords = (): TopicOrderRecord[] => {
 
 // Preserve the first observed positions. Server activity and pin updates do not
 // move existing tabs; new topics are appended to the user's local order.
-export const reconcileForumTopicOrder = (order: readonly string[], topics: readonly Pick<ForumTopic, "id">[]) =>
-  [...new Set([...order, ...topics.map(topic => topic.id)])].slice(0, MAX_TOPICS);
+export const reconcileForumTopicOrder = (order: readonly string[], topics: readonly Pick<ForumTopic, "id">[], includeAll = false) =>
+  [...new Set([
+    ...(includeAll && !order.includes(FORUM_ALL_TOPIC_ID) ? [FORUM_ALL_TOPIC_ID] : []),
+    ...order, ...topics.map(topic => topic.id),
+  ])].slice(0, MAX_TOPICS);
 
 export const forumTopicOrderStore = createStore<{
   records: TopicOrderRecord[];
@@ -52,12 +56,17 @@ subscribeAccountMetadata(STORAGE_KEY, () => forumTopicOrderStore.setState({ reco
 export const useForumTopicOrder = (accountId: string, chatId: string) => useStore(forumTopicOrderStore,
   state => state.records.find(record => record.accountId === accountId && record.chatId === chatId)?.topicIds);
 
-export function useOrderedForumTopics(accountId: string, chatId: string, topics: ForumTopic[]) {
+export function useForumTopicIds(accountId: string, chatId: string, topics: ForumTopic[], includeAll = false) {
   const order = useForumTopicOrder(accountId, chatId);
-  const reconciled = useMemo(() => reconcileForumTopicOrder(order ?? [], topics), [order, topics]);
+  const reconciled = useMemo(() => reconcileForumTopicOrder(order ?? [], topics, includeAll), [order, topics, includeAll]);
   useEffect(() => {
     if (topics.length > 0) forumTopicOrderStore.getState().setOrder(accountId, chatId, reconciled);
   }, [accountId, chatId, reconciled, topics.length]);
+  return reconciled;
+}
+
+export function useOrderedForumTopics(accountId: string, chatId: string, topics: ForumTopic[]) {
+  const reconciled = useForumTopicIds(accountId, chatId, topics);
   return useMemo(() => {
     const byId = new Map(topics.map(topic => [topic.id, topic]));
     return reconciled.map(id => byId.get(id)).filter((topic): topic is ForumTopic => Boolean(topic && !topic.isHidden));

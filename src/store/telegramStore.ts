@@ -1991,10 +1991,14 @@ export const createTelegramStore = (
           }
         }
         const loadedManagement = get().groupManagement;
-        const managementChanged = Boolean(loadedManagement && incomingChats.some((chat) =>
-          chat.id === loadedManagement.chatId &&
-          JSON.stringify(previousChats.get(chat.id)?.management ?? null) !== JSON.stringify(chat.management ?? null),
-        ));
+        const managementChanged = Boolean(loadedManagement && incomingChats.some((chat) => {
+          if (chat.id !== loadedManagement.chatId) return false;
+          const previous = previousChats.get(chat.id)?.management;
+          // Chat updates carry role permissions; the management detail additionally
+          // checks password/session readiness for ownership transfer.
+          return JSON.stringify(previous ? { ...previous, canTransferOwnership: undefined } : null) !==
+            JSON.stringify(chat.management ? { ...chat.management, canTransferOwnership: undefined } : null);
+        }));
         const activeChatId = get().activeChatId;
         const previousActiveChat = activeChatId ? previousChats.get(activeChatId) : undefined;
         const chats = new Map(previousChats);

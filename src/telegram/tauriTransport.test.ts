@@ -1047,6 +1047,7 @@ describe("TauriTelegramTransport startup", () => {
       type: { "@type": "chatTypeSupergroup", supergroup_id: 91, is_channel: false },
     });
     internal.request = async (request) => {
+      if (request["@type"] === "getChat") return internal.rawChats.get("72")!;
       if (request["@type"] === "getChatAdministrators") {
         return {
           "@type": "chatAdministrators",
@@ -1129,6 +1130,7 @@ describe("TauriTelegramTransport startup", () => {
     internal.request = async (request) => {
       const type = String(request["@type"]);
       requests.push(type);
+      if (type === "getChat") return internal.rawChats.get("72")!;
       if (type === "getSupergroup") {
         return {
           "@type": "supergroup",
@@ -1142,6 +1144,7 @@ describe("TauriTelegramTransport startup", () => {
 
     const managementPromise = transport.getChatManagement("72");
     await vi.waitFor(() => expect(requests).toEqual([
+      "getChat",
       "getSupergroup",
       "getChatAdministrators",
       "getSupergroupFullInfo",

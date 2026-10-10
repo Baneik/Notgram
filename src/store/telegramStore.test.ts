@@ -4052,6 +4052,32 @@ describe("chat filtering", () => {
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 
+  it("keeps loaded administration after chat updates with role-level ownership capability", async () => {
+    const transport = new MockTelegramTransport();
+    const originalLoad = transport.getChatManagement.bind(transport);
+    vi.spyOn(transport, "getChatManagement").mockImplementation(async (...args) => {
+      const value = await originalLoad(...args);
+      return { ...value, capabilities: { ...value.capabilities, canTransferOwnership: false },
+        ownershipTransfer: { available: false, reason: "passwordNeeded" as const } };
+    });
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    await store.getState().loadChatManagement("chat-forum");
+    const publish = () => (transport as unknown as { listener?: TelegramEventListener }).listener?.({
+      type: "chat.upsert", chat: { ...store.getState().chats.get("chat-forum")!,
+        management: deriveChatManagementCapabilities("supergroup", "owner") },
+    });
+    const loaded = store.getState().groupManagement;
+    publish();
+    expect(store.getState().groupManagement).toBe(loaded);
+    await expect(store.getState().updateChatManagement("chat-forum", { description: "Updated description" })).resolves.toBe(true);
+    publish();
+    expect(store.getState().groupManagement?.settings?.description).toBe("Updated description");
+    expect(store.getState().groupManagement?.ownershipTransfer?.reason).toBe("passwordNeeded");
+    expect(store.getState().groupManagement?.capabilities.canTransferOwnership).toBe(false);
+    await expect(store.getState().getManagedMembers({ chatId: "chat-forum", filter: "members" })).resolves.toBeDefined();
+  });
+
   it("allows a limited administrator only their own invite-management scope", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

@@ -26,6 +26,12 @@ describe("local forum topic order", () => {
     expect(reconcileForumTopicOrder(["1", "12", "18"], [{ id: "18" }, { id: "1" }, { id: "12" }, { id: "30" }]))
       .toEqual(["1", "12", "18", "30"]);
   });
+  it("adds All before an older order and keeps its dragged position across partial pages", () => {
+    const topics = [{ id: "1" }, { id: "12" }];
+    expect(reconcileForumTopicOrder(["12", "1"], topics, true)).toEqual(["__all__", "12", "1"]);
+    expect(reconcileForumTopicOrder(["12", "__all__", "1"], [{ id: "1" }, { id: "18" }], true))
+      .toEqual(["12", "__all__", "1", "18"]);
+  });
   it("keeps partial pages from destroying remembered positions and isolates account and chat orders", () => {
     expect(reconcileForumTopicOrder(["18", "12", "1"], [{ id: "1" }])).toEqual(["18", "12", "1"]);
     const store = forumTopicOrderStore;
