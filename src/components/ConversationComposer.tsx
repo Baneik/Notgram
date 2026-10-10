@@ -107,8 +107,8 @@ interface ConversationComposerProps {
   failedAttachmentCount: number;
   onSendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean) => Promise<boolean>;
   onEditMessage: (messageId: string, text: string, entities?: MessageTextEntity[]) => Promise<boolean>;
-  onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
-  onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
+  onDraftChange: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], context?: { topicId?: string }) => void;
+  onTypingChange: (chatId: string, typing: boolean, context?: { topicId?: string }) => Promise<void>;
   onSendFiles: (
     attachments: OutgoingAttachment[],
     caption?: string,
@@ -595,8 +595,9 @@ export const ConversationComposer = memo(function ConversationComposer({
       pending.replyToMessageId,
       pending.replyQuote,
       pending.entities,
+      { topicId: draftKey.split(":topic:")[1] },
     );
-  }, [chatId, onDraftChange]);
+  }, [chatId, draftKey, onDraftChange]);
 
   const scheduleDraft = useCallback((
     text: string,
@@ -636,8 +637,8 @@ export const ConversationComposer = memo(function ConversationComposer({
     typingIdleRef.current = undefined;
     if (!typingActiveRef.current) return;
     typingActiveRef.current = false;
-    void onTypingChange(chatId, false);
-  }, [chatId, onTypingChange]);
+    void onTypingChange(chatId, false, { topicId: draftKey.split(":topic:")[1] });
+  }, [chatId, draftKey, onTypingChange]);
 
   const keepTyping = useCallback((text: string) => {
     if (blockTypingStatus || editingMessage || !text.trim()) {
@@ -646,14 +647,14 @@ export const ConversationComposer = memo(function ConversationComposer({
     }
     if (!typingActiveRef.current) {
       typingActiveRef.current = true;
-      void onTypingChange(chatId, true);
+      void onTypingChange(chatId, true, { topicId: draftKey.split(":topic:")[1] });
       typingRefreshRef.current = globalThis.setInterval(() => {
-        if (typingActiveRef.current) void onTypingChange(chatId, true);
+        if (typingActiveRef.current) void onTypingChange(chatId, true, { topicId: draftKey.split(":topic:")[1] });
       }, TYPING_REFRESH_MS);
     }
     if (typingIdleRef.current) globalThis.clearTimeout(typingIdleRef.current);
     typingIdleRef.current = globalThis.setTimeout(stopTyping, TYPING_IDLE_MS);
-  }, [blockTypingStatus, chatId, editingMessage, onTypingChange, stopTyping]);
+  }, [blockTypingStatus, chatId, draftKey, editingMessage, onTypingChange, stopTyping]);
 
   const commitInputSideEffects = useCallback((value: string) => {
     if (editingMessage) return;
@@ -1052,7 +1053,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       draftRef.current = "";
       mentionEntitiesRef.current = [];
       setDraft("");
-      onDraftChange(chatId, "", undefined, undefined);
+      onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
       onCancelReply();
       stopTyping();
       restoreFocus();
@@ -1111,7 +1112,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       draftRef.current = "";
       mentionEntitiesRef.current = [];
       setDraft("");
-      onDraftChange(chatId, "", undefined, undefined);
+      onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
       stopTyping();
       setSending(true);
       const sent = await onSendBotStart(startBot.botUserId, startCommand[2]);
@@ -1134,7 +1135,7 @@ export const ConversationComposer = memo(function ConversationComposer({
     draftRef.current = "";
     mentionEntitiesRef.current = [];
     setDraft("");
-    onDraftChange(chatId, "", undefined, undefined);
+    onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
     stopTyping();
     focusComposer();
     setSending(true);
@@ -1175,7 +1176,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       draftRef.current = "";
       mentionEntitiesRef.current = [];
       setDraft("");
-      onDraftChange(chatId, "", undefined);
+      onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
       setInlineResults(undefined);
       onCancelReply();
     }
@@ -1195,9 +1196,10 @@ export const ConversationComposer = memo(function ConversationComposer({
       undefined,
       undefined,
       mentionEntitiesRef.current,
+      { topicId: draftKey.split(":topic:")[1] },
     );
     onCancelReply();
-  }, [chatId, onCancelReply, onDraftChange]);
+  }, [chatId, draftKey, onCancelReply, onDraftChange]);
   const cancelReply = useCallback(() => { clearReply(); focusComposer(); }, [clearReply, focusComposer]);
 
   const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {

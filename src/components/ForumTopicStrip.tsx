@@ -1,28 +1,23 @@
 import { translate } from "../i18n";
-import { Hash } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { Hash, Layers, SlidersHorizontal } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
 import type { ForumTopic } from "../telegram/types";
-import { usePreferencesStore } from "../store/preferencesStore";
+import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
+import { useTelegramStore } from "../store/telegramStore";
+import { forumTopicOrderStore, useOrderedForumTopics } from "../store/forumTopicOrder";
+import { useFolderReorder } from "../hooks/useFolderReorder";
 import { formatUnreadCount } from "../utils/formatters";
 
 interface ForumTopicStripProps {
   topics: ForumTopic[];
   activeTopicId: string;
   onSelectTopic: (topicId: string) => void;
+  chatId: string;
+  onManageTopics: () => void;
 }
 
 const topicIconColor = (color: number) =>
   `#${(color >>> 0).toString(16).padStart(6, "0").slice(-6)}`;
-
-const compareTopicOrder = (left: ForumTopic, right: ForumTopic) => {
-  if (left.isPinned !== right.isPinned) return Number(right.isPinned) - Number(left.isPinned);
-  try {
-    const difference = BigInt(right.order) - BigInt(left.order);
-    return difference > 0n ? 1 : difference < 0n ? -1 : 0;
-  } catch {
-    return right.order.localeCompare(left.order, undefined, { numeric: true });
-  }
-};
 
 const handleTopicTabsWheel = (event: WheelEvent) => {
   if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
@@ -51,22 +46,18 @@ export function ForumTopicStrip({
   topics,
   activeTopicId,
   onSelectTopic,
+  chatId,
+  onManageTopics,
 }: ForumTopicStripProps) {
-  const activeTabRef = useRef<HTMLButtonElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
-  const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
-  const orderedTopics = useMemo(
-    () => [...topics].filter((topic) => !topic.isHidden).sort(compareTopicOrder),
-    [topics],
-  );
-
-  useLayoutEffect(() => {
-    activeTabRef.current?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "nearest",
-      inline: "center",
-    });
-  }, [activeTopicId, reduceMotion]);
+  const accountId = useTelegramStore(state => state.activeAccountId);
+  const orderedTopics = useOrderedForumTopics(accountId, chatId, topics);
+  const saveOrder = (ids: string[]) => forumTopicOrderStore.getState().setOrder(accountId, chatId, ids);
+  const drag = useFolderReorder({ containerRef: tabsRef, folderIds: orderedTopics.map(topic => topic.id),
+    disabled: false, accountId: `${accountId}:${chatId}`, axis: "horizontal", onReorder: saveOrder });
+  const displayTopics = drag.preview
+    ? drag.preview.order.map(id => orderedTopics.find(topic => topic.id === id)!).filter(Boolean)
+    : orderedTopics;
 
   useLayoutEffect(() => {
     const tabs = tabsRef.current;
@@ -75,17 +66,20 @@ export function ForumTopicStrip({
     return () => tabs.removeEventListener("wheel", handleTopicTabsWheel);
   }, [orderedTopics.length]);
 
-  if (orderedTopics.length === 0) return null;
-
   return (
     <nav className="forum-topic-strip" aria-label={translate("话题切换")}>
+      <div className="forum-topic-tablist" role="tablist" aria-label={translate("话题")}>
+      <button className={`forum-topic-tab forum-topic-all ${activeTopicId === FORUM_ALL_TOPIC_ID ? "is-active" : ""}`}
+        type="button" role="tab" aria-selected={activeTopicId === FORUM_ALL_TOPIC_ID}
+        data-topic-id={FORUM_ALL_TOPIC_ID} onClick={() => onSelectTopic(FORUM_ALL_TOPIC_ID)}>
+        <Layers size={17} aria-hidden="true" /><span className="forum-topic-tab-name">{translate("所有")}</span>
+      </button>
       <div
         ref={tabsRef}
         className="forum-topic-tabs"
-        role="tablist"
-        aria-label={translate("话题")}
+        onClickCapture={drag.suppressClick}
       >
-        {orderedTopics.map((topic) => {
+        {displayTopics.map((topic) => {
           const active = topic.id === activeTopicId;
           const displayUnreadCount = topic.unreadCount > 0
             ? topic.unreadCount
@@ -98,13 +92,23 @@ export function ForumTopicStrip({
           return (
             <button
               key={topic.id}
-              ref={active ? activeTabRef : undefined}
-              className={`forum-topic-tab ${active ? "is-active" : ""}`}
+              className={`forum-topic-tab ${active ? "is-active" : ""} ${drag.preview?.folderId === topic.id ? "is-dragging" : ""}`}
               type="button"
               role="tab"
               aria-selected={active}
               aria-label={`${topic.name}${unreadLabel}`}
+              title={translate("拖拽排序，或使用 Ctrl+Shift+方向键调整位置")}
               data-topic-id={topic.id}
+              data-folder-id={topic.id}
+              onPointerDown={event => drag.begin(event, topic.id)}
+              onKeyDown={event => {
+                if (!event.ctrlKey || !event.shiftKey || event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+                event.preventDefault();
+                const ids = orderedTopics.map(candidate => candidate.id);
+                const from = ids.indexOf(topic.id);
+                const to = Math.max(0, Math.min(ids.length - 1, from + (event.key === "ArrowLeft" ? -1 : 1)));
+                ids.splice(from, 1); ids.splice(to, 0, topic.id); saveOrder(ids);
+              }}
               onClick={() => {
                 if (!active) onSelectTopic(topic.id);
               }}
@@ -117,15 +121,16 @@ export function ForumTopicStrip({
                 <Hash size={14} strokeWidth={2.2} />
               </span>
               <span className="forum-topic-tab-name">{topic.name}</span>
-              {displayUnreadCount > 0 && (
-                <strong className={`forum-topic-tab-count ${topic.unreadCount === 0 ? "has-reaction" : ""}`}>
+                <strong aria-hidden={displayUnreadCount === 0} className={`forum-topic-tab-count ${displayUnreadCount === 0 ? "is-empty" : ""} ${topic.unreadCount === 0 ? "has-reaction" : ""}`}>
                   {formatUnreadCount(displayUnreadCount)}
                 </strong>
-              )}
             </button>
           );
         })}
       </div>
+      </div>
+      <button className="icon-button forum-topic-manage" type="button" aria-label={translate("管理话题")}
+        title={translate("管理话题")} onClick={onManageTopics}><SlidersHorizontal size={18} /></button>
     </nav>
   );
 }

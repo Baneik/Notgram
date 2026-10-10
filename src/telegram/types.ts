@@ -1134,7 +1134,7 @@ export type TelegramEvent =
   | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
   | { type: "chat.historyDeleted"; chatId: string; lastMessageId?: string }
   | { type: "drafts.replaced"; drafts: ChatDraft[]; chatIds: string[] }
-  | { type: "chat.draftChanged"; chatId: string; draft?: ChatDraft }
+  | { type: "chat.draftChanged"; chatId: string; topicId?: string; draft?: ChatDraft }
   | { type: "chat.typingChanged"; chatId: string; senderId: string; typing: boolean }
   | {
       type: "forumTopics.changed";
@@ -1330,6 +1330,9 @@ export interface ForumTopic {
   useDefaultMuteFor?: boolean;
   draft?: ChatDraft;
 }
+
+/** Virtual forum scope used by the UI to show every message in the group. */
+export const FORUM_ALL_TOPIC_ID = "__all__";
 
 export interface ForumTopicPage {
   topics: ForumTopic[];

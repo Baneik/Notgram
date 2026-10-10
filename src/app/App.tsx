@@ -22,6 +22,8 @@ import { Conversation } from "../components/Conversation";
 import { ConversationSurface } from "../components/ConversationSurface";
 import { rememberActiveComposerFocus } from "../hooks/useComposerFocus";
 import { ForumTopicsView } from "../components/ForumTopicsView";
+import { ForumTopicManagerDialog } from "../components/ForumTopicManagerDialog";
+import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
 import { NavigationRail } from "../components/NavigationRail";
 import { AuthorizationScreen } from "../components/AuthorizationScreen";
 import { UnauthenticatedSettingsDialog } from "../components/UnauthenticatedSettingsDialog";
@@ -248,6 +250,8 @@ export function App() {
   const editForumTopic = useTelegramStore((state) => state.editForumTopic);
   const setForumTopicClosed = useTelegramStore((state) => state.setForumTopicClosed);
   const setForumTopicPinned = useTelegramStore((state) => state.setForumTopicPinned);
+  const deleteForumTopic = useTelegramStore((state) => state.deleteForumTopic);
+  const [forumManagerIdentity, setForumManagerIdentity] = useState<string>();
   const loadMessage = useTelegramStore((state) => state.loadMessage);
   const loadChatProfile = useTelegramStore((state) => state.loadChatProfile);
   const loadMoreChatProfileMembers = useTelegramStore((state) => state.loadMoreChatProfileMembers);
@@ -819,7 +823,9 @@ export function App() {
       discardConversationSnapshot();
     }
     if (!conversationSnapshotRef.current) {
-      conversationSnapshotRef.current = captureConversationSwitchSnapshot(targetIdentity);
+      const preserveHeader = Boolean(state.activeChatId && state.chats.get(state.activeChatId)?.isForum &&
+        (targetIdentity === state.activeChatId || targetIdentity.startsWith(`${state.activeChatId}:topic:`)));
+      conversationSnapshotRef.current = captureConversationSwitchSnapshot(targetIdentity, !preserveHeader);
     }
     captureActiveConversationScrollState();
     const snapshot = conversationSnapshotRef.current;
@@ -1123,9 +1129,10 @@ export function App() {
       telegramStore.setState({ operationError: unavailableChatError() });
       return;
     }
-    const targetTopicId = state.chats.get(chatId)?.isForum
+    const rememberedTopicId = state.chats.get(chatId)?.isForum
       ? state.lastForumTopicIds.get(chatId) ?? state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
       : undefined;
+    const targetTopicId = rememberedTopicId === FORUM_ALL_TOPIC_ID ? undefined : rememberedTopicId;
     const targetMessages = (state.messages.get(chatId) ?? [])
       .filter((message) => !targetTopicId || message.topicId === targetTopicId);
     const performanceTraceId = beginConversationSwitch({
@@ -1473,10 +1480,11 @@ export function App() {
     chatOpenGenerationRef.current = generation;
     const cachedTarget = state.messages.get(route.chatId)
       ?.find((message) => message.id === route.messageId);
-    const targetTopicId = targetChat.isForum
+    const routedTopicId = targetChat.isForum
       ? route.topicId ?? cachedTarget?.topicId ?? state.lastForumTopicIds.get(route.chatId) ??
         state.forumTopics.get(route.chatId)?.find((topic) => !topic.isHidden)?.id
       : undefined;
+    const targetTopicId = routedTopicId === FORUM_ALL_TOPIC_ID ? undefined : routedTopicId;
     // Consume a restored cross-account route before any asynchronous work so
     // chat-list updates cannot start the same navigation a second time.
     clearPendingNotificationRoute();
@@ -1642,13 +1650,14 @@ export function App() {
   const openForumTopic = (topicId: string) => {
     const state = telegramStore.getState();
     const chatId = state.activeChatId;
-    if (!chatId || !state.chats.get(chatId)?.isForum || state.activeTopicId === topicId) return;
+    if (!chatId || !state.chats.get(chatId)?.isForum || (state.activeTopicId ?? FORUM_ALL_TOPIC_ID) === topicId) return;
+    const selectedTopicId = topicId === FORUM_ALL_TOPIC_ID ? undefined : topicId;
     const generation = chatOpenGenerationRef.current + 1;
     chatOpenGenerationRef.current = generation;
     const targetMessages = (state.messages.get(chatId) ?? [])
-      .filter((message) => message.topicId === topicId);
+      .filter((message) => !selectedTopicId || message.topicId === selectedTopicId);
     const targetTopic = state.forumTopics.get(chatId)?.find((topic) => topic.id === topicId);
-    const targetScrollScope = `${activeAccountId}:topic:${topicId}`;
+    const targetScrollScope = selectedTopicId ? `${activeAccountId}:topic:${selectedTopicId}` : activeAccountId;
     const restoreLocally = hasConversationScrollMemory(targetScrollScope, chatId);
     const serverMessageId = !restoreLocally && (targetTopic?.unreadCount ?? 0) > 0
       ? targetTopic?.lastReadInboxMessageId
@@ -1663,10 +1672,10 @@ export function App() {
       trackPresentation: true,
       navigationKind: 4,
     });
-    syncConversationNavigation(locationForChat(chatId, topicId));
+    syncConversationNavigation(locationForChat(chatId, selectedTopicId));
     markConversationSwitch(performanceTraceId, "transitionStarted");
     beginConversationSnapshot(
-      conversationIdentityFor(chatId, topicId),
+      conversationIdentityFor(chatId, selectedTopicId),
       true,
     );
     flushSync(() => {
@@ -1676,7 +1685,7 @@ export function App() {
         serverMessageId,
         performanceTraceId,
       });
-      state.selectForumTopic(topicId);
+      state.selectForumTopic(selectedTopicId);
     });
     markConversationSwitch(performanceTraceId, "selectionCommitted");
     requestAnimationFrame(() => {
@@ -1718,10 +1727,11 @@ export function App() {
     const generation = chatOpenGenerationRef.current + 1;
     chatOpenGenerationRef.current = generation;
     const targetChat = state.chats.get(chatId);
-    const restoredTopicId = targetChat?.isForum
+    const rememberedTopicId = targetChat?.isForum
       ? state.lastForumTopicIds.get(chatId) ??
         state.forumTopics.get(chatId)?.find((topic) => !topic.isHidden)?.id
       : undefined;
+    const restoredTopicId = rememberedTopicId === FORUM_ALL_TOPIC_ID ? undefined : rememberedTopicId;
     const restoredTopic = restoredTopicId
       ? state.forumTopics.get(chatId)?.find((topic) => topic.id === restoredTopicId)
       : undefined;
@@ -1897,6 +1907,7 @@ export function App() {
   const activeChat = activeChatId ? chats.get(activeChatId) : undefined;
   const activeTopics = activeChatId ? forumTopics.get(activeChatId) ?? [] : [];
   const activeTopic = activeTopicId ? activeTopics.find((topic) => topic.id === activeTopicId) : undefined;
+  const forumManagerOpen = Boolean(activeChat?.isForum && forumManagerIdentity === `${activeAccountId}:${activeChatId}`);
   const activeHistory = activeChatId
     ? (activeTopicId
       ? topicHistories.get(`${activeChatId}:topic:${activeTopicId}`)
@@ -1907,7 +1918,7 @@ export function App() {
     <>
       <main
         inert={accountSwitching}
-        aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
+        aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || forumManagerOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -1996,7 +2007,7 @@ export function App() {
           mobileViewport={mobileViewport}
           mobileChatOpen={mobileChatOpen}
         />
-        {activeChat?.isForum && (!activeTopicId || !activeTopic) ? (
+        {activeChat?.isForum && activeTopicId && !activeTopic ? (
           <ForumTopicsView
             chat={activeChat}
             topics={activeTopics}
@@ -2009,6 +2020,7 @@ export function App() {
             onEditTopic={(topicId, name) => activeChatId ? editForumTopic(activeChatId, topicId, name) : Promise.resolve(false)}
             onSetTopicClosed={(topicId, closed) => activeChatId ? setForumTopicClosed(activeChatId, topicId, closed) : Promise.resolve(false)}
             onSetTopicPinned={(topicId, pinned) => activeChatId ? setForumTopicPinned(activeChatId, topicId, pinned) : Promise.resolve(false)}
+            onDeleteTopic={(topicId) => activeChatId ? deleteForumTopic(activeChatId, topicId) : Promise.resolve(false)}
           />
         ) : (
           <ConversationSurface><Profiler
@@ -2039,14 +2051,13 @@ export function App() {
             }}
           >
             <Conversation
-              key={activeTopicId
-                ? `${activeAccountId}:${activeChatId}:topic:${activeTopicId}`
-                : `${activeAccountId}:${activeChatId ?? "empty-conversation"}`}
+              key={`${activeAccountId}:${activeChatId ?? "empty-conversation"}`}
               chat={activeChat}
           presentationBlocked={Boolean(activeChatId && conversationSnapshotTarget === conversationIdentityFor(activeChatId, activeTopicId))}
           topic={activeTopic}
           topics={activeTopics}
           onSelectTopic={openForumTopic}
+          onManageTopics={() => setForumManagerIdentity(`${activeAccountId}:${activeChatId}`)}
           scrollScope={activeTopicId ? `${activeAccountId}:topic:${activeTopicId}` : activeAccountId}
           scrollRequest={conversationScrollRequest}
           messages={activeDisplayMessages}
@@ -2157,6 +2168,21 @@ export function App() {
           </Profiler></ConversationSurface>
         )}
       </main>
+      {forumManagerOpen && activeChat && <ForumTopicManagerDialog
+        key={`${activeAccountId}:${activeChat.id}`}
+        chat={activeChat} topics={activeTopics} loading={forumTopicsLoading.has(activeChat.id)}
+        onClose={() => setForumManagerIdentity(undefined)}
+        onSelectTopic={topicId => {
+          const state = telegramStore.getState();
+          if (state.activeAccountId !== activeAccountId || state.activeChatId !== activeChat.id) return;
+          setForumManagerIdentity(undefined); openForumTopic(topicId);
+        }}
+        onCreateTopic={name => createForumTopic(activeChat.id, name)}
+        onEditTopic={(topicId, name) => editForumTopic(activeChat.id, topicId, name)}
+        onSetTopicClosed={(topicId, closed) => setForumTopicClosed(activeChat.id, topicId, closed)}
+        onSetTopicPinned={(topicId, pinned) => setForumTopicPinned(activeChat.id, topicId, pinned)}
+        onDeleteTopic={topicId => deleteForumTopic(activeChat.id, topicId)}
+      />}
       {accountSwitching && (
         <div className="account-switch-overlay" role="status" aria-live="polite">
           <LoaderCircle className="spin" size={20} />

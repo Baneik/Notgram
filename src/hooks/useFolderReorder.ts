@@ -19,6 +19,7 @@ interface FolderReorderOptions {
   disabled: boolean;
   accountId: string;
   onReorder: (ids: string[]) => void;
+  axis?: "horizontal" | "vertical";
 }
 
 const sameOrder = (left: string[], right: string[]) =>
@@ -202,7 +203,7 @@ export function useFolderReorder(options: FolderReorderOptions) {
     dragRef.current = {
       pointerId: event.pointerId, folderId,
       startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY,
-      horizontal: window.matchMedia("(max-width: 720px)").matches, moved: false,
+      horizontal: current.axis ? current.axis === "horizontal" : window.matchMedia("(max-width: 720px)").matches, moved: false,
       initialOrder: current.folderIds, order: current.folderIds,
     };
   }, []);

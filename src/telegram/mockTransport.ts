@@ -1981,6 +1981,18 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "forumTopics.changed", chatId });
   }
 
+  async deleteForumTopic(chatId: string, topicId: string) {
+    const topics = this.ensureForumTopics(chatId);
+    const index = topics.findIndex((candidate) => candidate.id === topicId && !candidate.isGeneral);
+    if (index < 0) throw new Error("找不到可删除的话题");
+    topics.splice(index, 1);
+    const deleted = this.snapshot.messages.filter(message => message.chatId === chatId && message.topicId === topicId);
+    this.snapshot.messages = this.snapshot.messages.filter(message => !deleted.includes(message));
+    for (const message of deleted) this.listener?.({ type: "message.remove", chatId, messageId: message.id,
+      immediate: true, permanent: true, source: "local" });
+    this.listener?.({ type: "forumTopics.changed", chatId });
+  }
+
   async getMessageContext(chatId: string, messageId: string, limit = 31) {
     const history = this.snapshot.messages
       .filter((message) => message.chatId === chatId)
@@ -2468,7 +2480,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const key = topicId ? `${chatId}:topic:${topicId}` : chatId;
     if (draft) this.drafts.set(key, draft);
     else this.drafts.delete(key);
-    this.listener?.({ type: "chat.draftChanged", chatId, draft: clone(draft) });
+    this.listener?.({ type: "chat.draftChanged", chatId, ...(topicId ? { topicId } : {}), draft: clone(draft) });
   }
 
   async setChatTyping(_chatId: string, _typing: boolean, _topicId?: string) {}

@@ -751,13 +751,24 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .conversation.has-forum-topic-strip { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation.is-pinned-messages-view { grid-template-rows: auto minmax(0, 1fr); }
 .forum-topic-strip {
-  min-width: 0; height: 48px; padding: 4px 10px; overflow: hidden;
+  min-width: 0; height: 48px; padding: 4px 10px; overflow: hidden; display: flex; align-items: center; gap: 6px;
   background: var(--color-bg-surface); border-bottom: 1px solid var(--line);
 }
 .forum-topic-tabs {
-  height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: none; scroll-snap-type: x proximity;
+  position: relative; min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
 }
+.forum-topic-tablist { min-width: 0; flex: 1; height: 100%; display: flex; align-items: center; gap: 5px; }
+.forum-topic-all { flex: 0 0 auto; }
+.forum-topic-manage { flex: 0 0 auto; }
+.forum-topic-tabs .forum-topic-tab { touch-action: pan-y; user-select: none; cursor: grab; }
+.forum-topic-tab.is-dragging { opacity: .65; cursor: grabbing; }
+.forum-topic-tab-count.is-empty { visibility: hidden; }
+.forum-topic-manager-dialog { width: min(540px, calc(100vw - 24px)); height: min(640px, calc(100dvh - 40px)); overflow: hidden; border-radius: 12px; background: var(--chat-canvas); box-shadow: 0 12px 40px var(--color-shadow); }
+.forum-topic-manager-dialog .forum-topics-view { grid-column: auto; }
+.forum-topic-manager-dialog .mobile-back { display: grid; }
+.forum-topic-menu button.is-danger { color: var(--color-status-danger); }
+.forum-all-message-bar { min-height: 52px; display: grid; place-items: center; padding: 10px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); background: var(--color-bg-surface); }
 .forum-topic-tabs::-webkit-scrollbar { display: none; }
 .forum-topic-tab {
   min-width: 0; max-width: 230px; height: 38px; padding: 3px 9px 3px 5px; flex: 0 0 auto;
@@ -777,7 +788,7 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   font-size: 12px; font-weight: 650;
 }
 .forum-topic-tab-count {
-  min-width: 18px; height: 18px; padding: 0 4px; flex: 0 0 auto; display: grid; place-items: center;
+  width: 26px; height: 18px; padding: 0 2px; flex: 0 0 auto; display: grid; place-items: center;
   color: var(--color-text-on-accent); background: var(--accent); border-radius: 9px;
   font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums;
 }

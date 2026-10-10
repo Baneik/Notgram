@@ -8,6 +8,7 @@ export interface ConversationSwitchSnapshot {
 
 export const captureConversationSwitchSnapshot = (
   targetIdentity: string,
+  includeHeader = true,
 ): ConversationSwitchSnapshot | undefined => {
   const source = document.querySelector<HTMLElement>(".conversation .message-list-shell");
   const sourceList = source?.querySelector<HTMLElement>(".message-list");
@@ -15,7 +16,7 @@ export const captureConversationSwitchSnapshot = (
   if (!source || !sourceList || messageCount === 0) return undefined;
 
   const shellBounds = source.getBoundingClientRect();
-  const header = source.parentElement?.querySelector<HTMLElement>(".conversation-header");
+  const header = includeHeader ? source.parentElement?.querySelector<HTMLElement>(".conversation-header") : undefined;
   const headerBounds = header?.getBoundingClientRect();
   const bounds = { left: shellBounds.left, top: headerBounds?.top ?? shellBounds.top,
     width: shellBounds.width, height: shellBounds.bottom - (headerBounds?.top ?? shellBounds.top) };

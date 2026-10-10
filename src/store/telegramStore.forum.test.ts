@@ -60,6 +60,7 @@ const createHarness = () => {
     editForumTopic: vi.fn(),
     setForumTopicClosed: vi.fn(),
     setForumTopicPinned: vi.fn(),
+    deleteForumTopic: vi.fn(),
   } as unknown as ForumControllerOptions["transport"];
   const controller = createForumController({
     transport,
@@ -72,6 +73,31 @@ const createHarness = () => {
 };
 
 describe("telegram store forum controller", () => {
+  it("protects General and blocks delete without delete rights or topic ownership", async () => {
+    const harness = createHarness();
+    harness.getState().forumTopics.set("forum-1", [{ ...topic("1"), isGeneral: true }, topic("12")]);
+    await expect(harness.controller.deleteForumTopic("forum-1", "1")).resolves.toBe(false);
+    harness.getState().chats.set("forum-1", { id: "forum-1", isForum: true,
+      management: deriveChatManagementCapabilities("supergroup", "administrator", { canManageTopics: true } as never) });
+    await expect(harness.controller.deleteForumTopic("forum-1", "12")).resolves.toBe(false);
+    expect(harness.transport.deleteForumTopic).not.toHaveBeenCalled();
+  });
+
+  it("preserves topics on deletion failure and ignores an old account's late success", async () => {
+    const harness = createHarness();
+    harness.getState().forumTopics.set("forum-1", [topic("12")]);
+    vi.mocked(harness.transport.deleteForumTopic).mockRejectedValueOnce(new Error("denied"));
+    await expect(harness.controller.deleteForumTopic("forum-1", "12")).resolves.toBe(false);
+    expect(harness.getState().forumTopics.get("forum-1")).toHaveLength(1);
+    let finish!: () => void;
+    vi.mocked(harness.transport.deleteForumTopic).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const pending = harness.controller.deleteForumTopic("forum-1", "12");
+    harness.controller.reset();
+    finish();
+    await expect(pending).resolves.toBe(false);
+    expect(harness.getState().forumTopics.get("forum-1")).toHaveLength(1);
+    expect(harness.transport.getForumTopics).not.toHaveBeenCalled();
+  });
   it("loads topics and keeps pending local drafts over server drafts", async () => {
     const harness = createHarness();
     const localDraft = {

@@ -264,4 +264,19 @@ export class TauriForumTopicService {
     });
     this.context.emitForumTopicsChanged(chatId);
   }
+
+  async deleteForumTopic(chatId: string, topicId: string) {
+    if (!/^\d+$/.test(topicId) || Number(topicId) <= 1 || Number(topicId) > 2_147_483_647) {
+      throw new Error("Invalid forum topic identifier");
+    }
+    const generation = this.generation;
+    await this.context.request({
+      "@type": "deleteForumTopic",
+      chat_id: numericId(chatId),
+      forum_topic_id: numericId(topicId),
+    });
+    this.assertGeneration(generation);
+    this.topics.delete(this.topicKey(chatId, topicId));
+    this.context.emitForumTopicsChanged(chatId);
+  }
 }

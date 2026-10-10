@@ -11,6 +11,17 @@ const createHarness = () => {
 };
 
 describe("tauri forum topic service", () => {
+  it("deletes real topics through TDLib and rejects virtual, General and oversized IDs", async () => {
+    const { service, context } = createHarness();
+    vi.mocked(context.request).mockResolvedValue({ "@type": "ok" });
+    for (const id of ["__all__", "1", "0", "2147483648"]) {
+      await expect(service.deleteForumTopic("1001", id)).rejects.toThrow("identifier");
+    }
+    expect(context.request).not.toHaveBeenCalled();
+    await service.deleteForumTopic("1001", "12");
+    expect(context.request).toHaveBeenCalledWith({ "@type": "deleteForumTopic", chat_id: 1001, forum_topic_id: 12 });
+    expect(context.emitForumTopicsChanged).toHaveBeenCalledWith("1001");
+  });
   afterEach(() => vi.useRealTimers());
 
   it("rejects thread-sized and invalid IDs without crossing the native boundary", async () => {

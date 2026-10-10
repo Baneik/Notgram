@@ -198,6 +198,7 @@ export interface TelegramState {
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
   setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
+  deleteForumTopic: (chatId: string, topicId: string) => Promise<boolean>;
   resolveTelegramLink: (url: string) => Promise<import("../telegram/types").TelegramLinkTarget | undefined>;
   joinChat: (input: import("../telegram/types").JoinChatInput) => Promise<import("../telegram/types").JoinChatResult | undefined>;
   refreshChatMembership: (chatId: string) => Promise<boolean>;
@@ -363,7 +364,7 @@ export interface TelegramState {
   sendMessage: (text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], disableNotification?: boolean, context?: ConversationSendContext) => Promise<boolean>;
   editMessage: (messageId: string, text: string, entities?: MessageTextEntity[], chatId?: string) => Promise<boolean>;
   deleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
-  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[]) => void;
+  updateChatDraft: (chatId: string, text: string, replyToMessageId?: string, replyQuote?: MessageReplyQuote, entities?: MessageTextEntity[], context?: { topicId?: string }) => void;
   updateThreadDraft: (
     draftKey: string,
     chatId: string,
@@ -384,7 +385,7 @@ export interface TelegramState {
     options: Partial<Pick<LocalAttachmentDraft, "mode" | "hasSpoiler" | "muteVideos">>,
   ) => void;
   clearLocalAttachmentDraft: (draftKey: string) => Promise<void>;
-  setChatTyping: (chatId: string, typing: boolean) => Promise<void>;
+  setChatTyping: (chatId: string, typing: boolean, context?: { topicId?: string }) => Promise<void>;
   forwardMessages: (
     fromChatId: string,
     messageIds: string[],

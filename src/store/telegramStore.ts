@@ -5,8 +5,10 @@ import { canPostToChannel } from "../telegram/chatManagement";
 import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetadata";
 import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
+import { removeAccountForumTopicOrder } from "./forumTopicOrder";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
+import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
 import { isCaptionContent } from "../telegram/messageContent";
 import { retainedMessageQuote, retainHydratedContent } from "../telegram/retainedMessages";
 import { senderNameForMessage } from "../components/conversationMessages";
@@ -1063,7 +1065,7 @@ export const createTelegramStore = (
       setDrafts: (drafts) => set({ drafts }),
       sendDraft: (draftKey, draft) => transport.setChatDraft({
         chatId: draft?.chatId ?? draftKey.split(":topic:")[0],
-        topicId: draft?.topicId,
+        topicId: draft?.topicId ?? draftKey.split(":topic:")[1],
         text: draft?.text ?? "",
         entities: draft?.entities,
         replyToMessageId: draft?.replyToMessageId,
@@ -1291,7 +1293,7 @@ export const createTelegramStore = (
         : undefined;
       const nextActiveChatId = current.activeChatId ?? cachedActiveChatId;
       const cachedActiveTopicId = nextActiveChatId && chats.get(nextActiveChatId)?.isForum
-        ? lastForumTopicIds.get(nextActiveChatId)
+        ? (lastForumTopicIds.get(nextActiveChatId) === FORUM_ALL_TOPIC_ID ? undefined : lastForumTopicIds.get(nextActiveChatId))
         : undefined;
       set({
         currentUserId: current.currentUserId ?? snapshot.currentUserId,
@@ -1415,6 +1417,7 @@ export const createTelegramStore = (
       transport.setConversationFocus?.(activeChatId);
       if (chats.get(activeChatId)?.isForum) {
         if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+        else void loadHistory(activeChatId, "ensure");
         void refreshForumConversation(activeChatId, true);
       } else {
         void loadHistory(activeChatId, "ensure");
@@ -1852,6 +1855,7 @@ export const createTelegramStore = (
             const activeTopicId = get().activeTopicId;
             if (get().chats.get(activeChatId)?.isForum) {
               if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+              else void loadHistory(activeChatId, "ensure");
               void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
@@ -1908,6 +1912,7 @@ export const createTelegramStore = (
             const activeTopicId = get().activeTopicId;
             if (get().chats.get(activeChatId)?.isForum) {
               if (activeTopicId) loadActiveForumTopic(activeChatId, activeTopicId);
+              else void loadHistory(activeChatId, "ensure");
               void refreshForumConversation(activeChatId);
             } else {
               void loadHistory(activeChatId, "ensure").then(() => markChatRead(activeChatId));
@@ -2311,8 +2316,8 @@ export const createTelegramStore = (
       }
 
       if (event.type === "chat.draftChanged") {
-        if (event.draft?.topicId) {
-          const key = topicKey(event.chatId, event.draft.topicId);
+        if (event.topicId || event.draft?.topicId) {
+          const key = topicKey(event.chatId, event.topicId ?? event.draft?.topicId);
           draftSync.acceptServerDraft(key, event.draft);
           return;
         }
@@ -2582,6 +2587,8 @@ export const createTelegramStore = (
       set,
       topicKey,
       onError: errorMessage,
+      captureDraftRevision: () => draftSync.captureRevision(),
+      acceptTopicDraft: (key, draft, revision) => { draftSync.acceptServerDraft(key, draft, revision, true); },
       onTopicsLoaded: (chatId, query) => {
         if (!query.trim()) {
           forumTopicsRefreshedAt.set(chatId, Date.now());
@@ -2599,6 +2606,7 @@ export const createTelegramStore = (
     };
     const restorableForumTopicId = (chatId: string, topics = get().forumTopics.get(chatId) ?? []) => {
       const remembered = get().lastForumTopicIds.get(chatId);
+      if (remembered === FORUM_ALL_TOPIC_ID) return undefined;
       if (remembered && (topics.length === 0 || topics.some((topic) => topic.id === remembered))) {
         return remembered;
       }
@@ -2619,6 +2627,7 @@ export const createTelegramStore = (
       const page = await forumController.loadForumTopics(chatId);
       if (!page || get().activeChatId !== chatId || !get().chats.get(chatId)?.isForum) return;
       const currentTopicId = get().activeTopicId;
+      if (!currentTopicId && get().lastForumTopicIds.get(chatId) === FORUM_ALL_TOPIC_ID) return;
       if (currentTopicId && page.topics.some((topic) => topic.id === currentTopicId)) return;
       const nextTopicId = restorableForumTopicId(chatId, page.topics);
       if (nextTopicId) get().selectForumTopic(nextTopicId);
@@ -2724,6 +2733,7 @@ export const createTelegramStore = (
             await attachmentOutbox.removeAccount(pendingCleanup);
             removeAccountLocalBlocks(pendingCleanup);
             removeAccountActivity(pendingCleanup);
+            removeAccountForumTopicOrder(pendingCleanup);
             removeAccountDownloads(pendingCleanup);
             await flushAccountMetadata();
             await transport.removeAccount(pendingCleanup);
@@ -2849,6 +2859,7 @@ export const createTelegramStore = (
             if (get().chats.get(refreshChatId)?.isForum) {
               const activeTopicId = get().activeTopicId;
               if (activeTopicId) loadActiveForumTopic(refreshChatId, activeTopicId);
+              else await loadHistory(refreshChatId, "ensure");
               await refreshForumConversation(refreshChatId);
             } else {
               await loadHistory(refreshChatId, "ensure");
@@ -3066,6 +3077,7 @@ export const createTelegramStore = (
           await attachmentOutbox.removeAccount(accountId);
           removeAccountLocalBlocks(accountId);
           removeAccountActivity(accountId);
+          removeAccountForumTopicOrder(accountId);
           removeAccountDownloads(accountId);
           await flushAccountMetadata();
           globalThis.localStorage?.removeItem(`notgram:cache-cleanup:${accountId}`);
@@ -3097,7 +3109,7 @@ export const createTelegramStore = (
         }
         const targetChat = get().chats.get(chatId);
         const restoredTopicId = targetChat?.isForum
-          ? options?.forumTopicId ?? restorableForumTopicId(chatId)
+          ? options?.forumTopicId === FORUM_ALL_TOPIC_ID ? undefined : options?.forumTopicId ?? restorableForumTopicId(chatId)
           : undefined;
         if (previousChatId !== chatId || previousTopicId !== restoredTopicId) {
           advanceConversationGeneration();
@@ -3116,6 +3128,7 @@ export const createTelegramStore = (
         void mediaFileRestorer.restore();
         if (targetChat?.isForum) {
           if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
+          else if (!options?.deferHistory) void loadHistory(chatId, "ensure");
           void refreshForumConversation(chatId);
         } else {
           if (!options?.deferHistory) void loadHistory(chatId, "ensure");
@@ -3131,14 +3144,14 @@ export const createTelegramStore = (
         const chatId = get().activeChatId;
         if (!chatId || !get().chats.get(chatId)?.isForum) return;
         const previousTopicId = get().activeTopicId;
+        if (topicId === FORUM_ALL_TOPIC_ID) topicId = undefined;
         if (previousTopicId && previousTopicId !== topicId) void draftSync.flush(topicKey(chatId, previousTopicId));
         if (previousTopicId !== topicId) advanceConversationGeneration();
-        const lastForumTopicIds = topicId
-          ? touchForumTopic(chatId, topicId)
-          : new Map(get().lastForumTopicIds);
+        const lastForumTopicIds = touchForumTopic(chatId, topicId ?? FORUM_ALL_TOPIC_ID);
         set({ activeTopicId: topicId, lastForumTopicIds });
         scheduleCacheWrite();
         if (topicId) loadActiveForumTopic(chatId, topicId);
+        else if (get().authorization.kind === "ready") void loadHistory(chatId, "ensure");
       },
 
       loadForumTopics: forumController.loadForumTopics,
@@ -3147,6 +3160,27 @@ export const createTelegramStore = (
       editForumTopic: forumController.editForumTopic,
       setForumTopicClosed: forumController.setForumTopicClosed,
       setForumTopicPinned: forumController.setForumTopicPinned,
+      deleteForumTopic: async (chatId, topicId) => {
+        const generation = accountGeneration;
+        const wasActive = get().activeChatId === chatId && get().activeTopicId === topicId;
+        const deleted = await forumController.deleteForumTopic(chatId, topicId);
+        if (!deleted || generation !== accountGeneration) return false;
+        for (const message of get().messages.get(chatId) ?? []) {
+          if (message.topicId === topicId) applyEvent({ type: "message.remove", chatId,
+            messageId: message.id, immediate: true, permanent: true, source: "local" });
+        }
+        const drafts = new Map(get().drafts);
+        draftSync.discard(topicKey(chatId, topicId));
+        drafts.delete(topicKey(chatId, topicId));
+        const topicHistories = new Map(get().topicHistories);
+        topicHistories.delete(topicKey(chatId, topicId));
+        set({ drafts, topicHistories });
+        if (get().activeChatId === chatId && (wasActive || get().activeTopicId === topicId || !get().activeTopicId)) {
+          get().selectForumTopic();
+        }
+        scheduleCacheWrite();
+        return true;
+      },
 
       refreshChatMembership: async (chatId) => {
         const generation = accountGeneration;
@@ -4512,9 +4546,11 @@ export const createTelegramStore = (
         void loadChats(chatFilter);
       },
 
-      updateChatDraft: (chatId, text, replyToMessageId, replyQuote, entities) => {
+      updateChatDraft: (chatId, text, replyToMessageId, replyQuote, entities, context) => {
         if (!get().chats.has(chatId)) return;
-        const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
+        const topicId = context ? context.topicId : get().activeChatId === chatId ? get().activeTopicId : undefined;
+        if (topicId && get().chats.get(chatId)?.isForum &&
+          !get().forumTopics.get(chatId)?.some(topic => topic.id === topicId)) return;
         const key = topicKey(chatId, topicId);
         const current = get().drafts.get(key);
         const next: ChatDraft = {
@@ -4647,10 +4683,10 @@ export const createTelegramStore = (
         await attachmentOutbox.remove(current.batchId).catch(() => undefined);
       },
 
-      setChatTyping: async (chatId, typing) => {
+      setChatTyping: async (chatId, typing, context) => {
         if (get().authorization.kind !== "ready") return;
         try {
-          await transport.setChatTyping(chatId, typing, get().activeChatId === chatId ? get().activeTopicId : undefined);
+          await transport.setChatTyping(chatId, typing, context ? context.topicId : get().activeChatId === chatId ? get().activeTopicId : undefined);
         } catch {
           // Typing state is ephemeral and must not replace actionable operation errors.
         }

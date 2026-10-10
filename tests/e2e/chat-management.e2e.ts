@@ -15,10 +15,14 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
     .filter((record) => record.navigationKind === 1 && record.cancelled !== true).length).toBe(1);
   const strip = page.getByRole("navigation", { name: "话题切换" });
   await expect(strip).toBeVisible();
-  await expect(strip.getByRole("tab")).toHaveCount(3);
+  await expect(strip.getByRole("tab")).toHaveCount(4);
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-avatar')).toBeVisible();
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-name')).toHaveText("构建与发布");
   await expect(strip.locator('[data-topic-id="12"] .forum-topic-tab-count')).toHaveText("3");
+  await expect.poll(() => page.evaluate(async storePath => {
+    const { telegramStore } = await import(storePath);
+    return telegramStore.getState().forumTopicsLoading.has("chat-forum");
+  }, "/src/store/telegramStore.ts")).toBe(false);
   await page.evaluate(async (storePath) => {
     const module = await import(storePath) as {
       telegramStore: {
@@ -95,12 +99,7 @@ test("forum groups reopen the last topic and expose compact horizontal navigatio
   await reactionJump.click();
   await expect(page.getByRole("region", { name: "设计反馈 话题 对话" })).toBeVisible();
   await expect(page.locator('[data-message-id="forum-design-1"]')).toBeVisible();
-  await page.evaluate(async (storePath) => {
-    const module = await import(storePath) as {
-      telegramStore: { setState: (state: { activeTopicId: undefined }) => void };
-    };
-    module.telegramStore.setState({ activeTopicId: undefined });
-  }, "/src/store/telegramStore.ts");
+  await strip.getByRole("button", { name: "管理话题" }).click();
   const topicsView = page.getByRole("region", { name: "Notgram 论坛 话题" });
   await expect(topicsView).toBeVisible();
   const reactionTopicRow = topicsView.locator(".forum-topic-row").filter({ hasText: "设计反馈" });

@@ -189,6 +189,7 @@ export interface TelegramTransport {
   editForumTopic(chatId: string, topicId: string, name: string): Promise<void>;
   setForumTopicClosed(chatId: string, topicId: string, closed: boolean): Promise<void>;
   setForumTopicPinned(chatId: string, topicId: string, pinned: boolean): Promise<void>;
+  deleteForumTopic(chatId: string, topicId: string): Promise<void>;
   getMessageContext(chatId: string, messageId: string, limit?: number): Promise<Message[]>;
   getMessage(chatId: string, messageId: string): Promise<Message | undefined>;
   getRawMessage(chatId: string, messageId: string): Promise<string | undefined>;

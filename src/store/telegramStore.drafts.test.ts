@@ -74,6 +74,34 @@ describe("draft content identity", () => {
 });
 
 describe("attachment draft synchronization", () => {
+  it("preserves attachments when a topic-list refresh repeats an empty settled draft", () => {
+    const local = { ...localDraft([]), text: "", pending: false };
+    const { controller, discardLocalAttachments } = fixture(local);
+    expect(controller.acceptServerDraft(local.chatId, undefined, controller.captureRevision(), true)).toBe(true);
+    expect(discardLocalAttachments).not.toHaveBeenCalled();
+    controller.clear();
+  });
+  it("rejects a topic-list draft read started before a send, after the empty ack has settled", () => {
+    const local = localDraft([]);
+    const { controller, getDraft } = fixture(local);
+    const revision = controller.captureRevision();
+    controller.expect(local.chatId, undefined);
+    expect(controller.acceptServerDraft(local.chatId, undefined)).toBe(true);
+    expect(controller.acceptServerDraft(local.chatId, serverEcho(local), revision)).toBe(false);
+    expect(getDraft()).toBeUndefined();
+    expect(controller.acceptServerDraft(local.chatId, { ...local, text: "new remote draft" }, controller.captureRevision())).toBe(true);
+    controller.clear();
+  });
+  it("keeps a pending clear when a bulk server snapshot contains the old sent text", () => {
+    const local = localDraft([]);
+    const { controller, getDraft } = fixture(local);
+    controller.expect(local.chatId, undefined);
+    controller.replaceServerDrafts([serverEcho(local)], [local.chatId]);
+    expect(getDraft()?.text).toBe(local.text);
+    expect(controller.acceptServerDraft(local.chatId, undefined)).toBe(true);
+    expect(getDraft()).toBeUndefined();
+    controller.clear();
+  });
   it.each(["pending", "settled", "snapshot"] as const)(
     "preserves attachments when a %s draft returns through the native mapper",
     state => {

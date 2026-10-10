@@ -10,8 +10,9 @@ import {
   Pin,
   Plus,
   X,
+  Trash2,
 } from "lucide-react";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { messagePreviewText } from "../telegram/messageContent";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import type { Chat, ForumTopic } from "../telegram/types";
@@ -19,6 +20,10 @@ import { Avatar } from "./Avatar";
 import { MotionPresence } from "./MotionPresence";
 import { useFlipListMotion } from "../hooks/useFlipListMotion";
 import { formatUnreadCount } from "../utils/formatters";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { canDeleteForumTopic } from "../telegram/forumTopicPermissions";
+import { useTelegramStore } from "../store/telegramStore";
+import { useOrderedForumTopics } from "../store/forumTopicOrder";
 
 interface ForumTopicsViewProps {
   chat: Chat;
@@ -30,6 +35,7 @@ interface ForumTopicsViewProps {
   onEditTopic: (topicId: string, name: string) => Promise<boolean>;
   onSetTopicClosed: (topicId: string, closed: boolean) => Promise<boolean>;
   onSetTopicPinned: (topicId: string, pinned: boolean) => Promise<boolean>;
+  onDeleteTopic: (topicId: string) => Promise<boolean>;
   mobileViewport?: boolean;
   mobileChatOpen?: boolean;
 }
@@ -46,6 +52,7 @@ export function ForumTopicsView({
   onEditTopic,
   onSetTopicClosed,
   onSetTopicPinned,
+  onDeleteTopic,
   mobileViewport = false,
   mobileChatOpen = false,
 }: ForumTopicsViewProps) {
@@ -55,14 +62,13 @@ export function ForumTopicsView({
   const [editingName, setEditingName] = useState("");
   const [menuTopicId, setMenuTopicId] = useState<string>();
   const [pendingTopicId, setPendingTopicId] = useState<string>();
+  const [deleteTopic, setDeleteTopic] = useState<ForumTopic>();
+  const accountId = useTelegramStore(state => state.activeAccountId);
   const topicsListRef = useRef<HTMLDivElement>(null);
   const canManage = chat.isMember !== false && chat.management?.canManageTopics === true;
   const canCreate = chat.isMember !== false && (canManage || chat.canCreateTopics === true);
   const showLoading = useStableVisibility(loading && topics.length === 0);
-  const orderedTopics = useMemo(
-    () => [...topics].sort((left, right) => Number(right.isPinned) - Number(left.isPinned) || Number(right.order) - Number(left.order)),
-    [topics],
-  );
+  const orderedTopics = useOrderedForumTopics(accountId, chat.id, topics);
   useFlipListMotion({
     containerRef: topicsListRef,
     itemSelector: ".forum-topic-row[data-motion-key]",
@@ -194,7 +200,7 @@ export function ForumTopicsView({
                         )}
                       </span>
                     </button>
-                    {(canManage || topic.isOutgoing) && <div className="forum-topic-actions">
+                    {(chat.isMember !== false && (canManage || topic.isOutgoing || canDeleteForumTopic(chat, topic))) && <div className="forum-topic-actions">
                       <button
                         className="icon-button"
                         type="button"
@@ -207,9 +213,10 @@ export function ForumTopicsView({
                       </button>
                       <MotionPresence present={menuTopicId === topic.id} variant="popover">
                         {menuTopicId === topic.id ? <div className="forum-topic-menu" role="menu">
-                          <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />{translate("重命名")}</button>
+                          {(canManage || topic.isOutgoing) && <button type="button" role="menuitem" onClick={() => { setEditingTopicId(topic.id); setEditingName(topic.name); setMenuTopicId(undefined); }}><Pencil size={16} />{translate("重命名")}</button>}
                           {canManage && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "pinned")}><Pin size={16} />{topic.isPinned ? translate("取消置顶") : translate("置顶")}</button>}
-                          <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? translate("重新开启") : translate("关闭话题")}</button>
+                          {(canManage || topic.isOutgoing) && <button type="button" role="menuitem" onClick={() => void toggleTopic(topic, "closed")}><LockKeyhole size={16} />{topic.isClosed ? translate("重新开启") : translate("关闭话题")}</button>}
+                          {canDeleteForumTopic(chat, topic) && <button className="is-danger" type="button" role="menuitem" onClick={() => { setDeleteTopic(topic); setMenuTopicId(undefined); }}><Trash2 size={16} />{translate("删除话题")}</button>}
                         </div> : null}
                       </MotionPresence>
                     </div>}
@@ -221,6 +228,14 @@ export function ForumTopicsView({
         )}
       </div>
       {needsMembershipBar(chat) && <ChatMembershipBar chat={chat} />}
+      {deleteTopic && <ConfirmActionDialog
+        title={translate("删除话题")}
+        description={translate("删除“{{value0}}”及其中的所有消息？此操作无法撤销。", { value0: deleteTopic.name })}
+        confirmLabel={translate("删除话题")}
+        error={translate("无法删除话题")}
+        onConfirm={() => onDeleteTopic(deleteTopic.id)}
+        onClose={() => setDeleteTopic(undefined)}
+      />}
     </section>
   );
 }

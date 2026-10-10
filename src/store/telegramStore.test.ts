@@ -49,6 +49,22 @@ afterEach(() => {
 });
 
 describe("telegram store", () => {
+  it("clears the original topic draft without writing to the active topic or the whole group", async () => {
+    const transport = new MockTelegramTransport();
+    const sendDraft = vi.spyOn(transport, "setChatDraft");
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    store.getState().selectChat("chat-forum");
+    await store.getState().loadForumTopics("chat-forum");
+    store.getState().selectForumTopic("12");
+    store.getState().updateChatDraft("chat-forum", "old topic text", undefined, undefined, undefined, { topicId: "1" });
+    store.getState().updateChatDraft("chat-forum", "new topic text");
+    store.getState().updateChatDraft("chat-forum", "", undefined, undefined, undefined, { topicId: "1" });
+    await new Promise(resolve => setTimeout(resolve, 550));
+    expect(sendDraft).toHaveBeenCalledWith(expect.objectContaining({ chatId: "chat-forum", topicId: "1", text: "" }));
+    expect(store.getState().drafts.get("chat-forum:topic:1")).toBeUndefined();
+    expect(store.getState().drafts.get("chat-forum:topic:12")?.text).toBe("new topic text");
+  });
   it("limits mention search and recent mentions to current members in the mock transport", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

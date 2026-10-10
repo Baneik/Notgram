@@ -2,6 +2,7 @@ import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
 import type { ForumTopic, ForumTopicPage } from "../telegram/types";
 import { hasChatDraftContent } from "../telegram/chatDraft";
+import { canDeleteForumTopic } from "../telegram/forumTopicPermissions";
 import type { TelegramState } from "./telegramStore.types";
 
 type ForumStoreState = Pick<
@@ -21,6 +22,7 @@ export interface ForumController {
   editForumTopic: (chatId: string, topicId: string, name: string) => Promise<boolean>;
   setForumTopicClosed: (chatId: string, topicId: string, closed: boolean) => Promise<boolean>;
   setForumTopicPinned: (chatId: string, topicId: string, pinned: boolean) => Promise<boolean>;
+  deleteForumTopic: (chatId: string, topicId: string) => Promise<boolean>;
 }
 
 export interface ForumControllerOptions {
@@ -30,6 +32,8 @@ export interface ForumControllerOptions {
   topicKey: (chatId: string, topicId?: string) => string;
   onError: (error: unknown, fallback: string) => string;
   onTopicsLoaded?: (chatId: string, query: string) => void;
+  captureDraftRevision?: () => number;
+  acceptTopicDraft?: (key: string, draft: ForumTopic["draft"], revision: number) => void;
 }
 
 /** Keeps forum topic list state and topic mutations behind one Store boundary. */
@@ -40,6 +44,8 @@ export const createForumController = ({
   topicKey,
   onError,
   onTopicsLoaded,
+  captureDraftRevision,
+  acceptTopicDraft,
 }: ForumControllerOptions): ForumController => {
   const pendingLoads = new Map<string, Promise<ForumTopicPage | undefined>>();
   const pendingTopicLoads = new Map<string, Promise<ForumTopic | undefined>>();
@@ -50,6 +56,7 @@ export const createForumController = ({
     const pending = pendingLoads.get(chatId);
     if (pending) return pending;
     const currentGeneration = generation;
+    const draftRevision = captureDraftRevision?.() ?? 0;
 
     const request = (async () => {
       const loading = new Set(get().forumTopicsLoading);
@@ -63,11 +70,15 @@ export const createForumController = ({
         const drafts = new Map(get().drafts);
         for (const topic of page.topics) {
           const key = topicKey(chatId, topic.id);
+          if (acceptTopicDraft) {
+            acceptTopicDraft(key, topic.draft, draftRevision);
+            continue;
+          }
           if (drafts.get(key)?.pending) continue;
           if (hasChatDraftContent(topic.draft)) drafts.set(key, { ...topic.draft, pending: false });
           else drafts.delete(key);
         }
-        set({ forumTopics, drafts, operationError: undefined });
+        set({ forumTopics, ...(!acceptTopicDraft ? { drafts } : {}), operationError: undefined });
         onTopicsLoaded?.(chatId, query);
         return page;
       } catch (error) {
@@ -88,18 +99,19 @@ export const createForumController = ({
   };
 
   const reloadTopics = async (chatId: string) => {
+    await pendingLoads.get(chatId);
     await loadForumTopics(chatId);
   };
 
   const canCreateTopic = (chatId: string) => {
     const chat = get().chats.get(chatId);
-    return chat?.isForum === true && (
+    return chat?.isForum === true && chat.isMember !== false && (
       chat.canCreateTopics === true || chat.management?.canManageTopics === true
     );
   };
   const canChangeTopic = (chatId: string, topicId: string) => {
     const chat = get().chats.get(chatId);
-    if (chat?.isForum !== true) return false;
+    if (chat?.isForum !== true || chat.isMember === false) return false;
     if (chat.management?.canManageTopics === true) return true;
     return get().forumTopics.get(chatId)?.some((topic) => topic.id === topicId && topic.isOutgoing) === true;
   };
@@ -148,50 +160,79 @@ export const createForumController = ({
         rejectTopicMutation(translate("当前账号没有创建话题的权限"));
         return undefined;
       }
+      const currentGeneration = generation;
       try {
         const topic = await transport.createForumTopic({ chatId, name });
+        if (currentGeneration !== generation) return undefined;
         await reloadTopics(chatId);
-        return topic;
+        return currentGeneration === generation ? topic : undefined;
       } catch (error) {
-        set({ operationError: onError(error, translate("无法创建话题")) });
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法创建话题")) });
         return undefined;
       }
     },
 
     editForumTopic: async (chatId, topicId, name) => {
       if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation(translate("当前账号没有编辑该话题的权限"));
+      const currentGeneration = generation;
       try {
         await transport.editForumTopic(chatId, topicId, name);
+        if (currentGeneration !== generation) return false;
         await reloadTopics(chatId);
-        return true;
+        return currentGeneration === generation;
       } catch (error) {
-        set({ operationError: onError(error, translate("无法编辑话题")) });
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法编辑话题")) });
         return false;
       }
     },
 
     setForumTopicClosed: async (chatId, topicId, closed) => {
       if (!canChangeTopic(chatId, topicId)) return rejectTopicMutation(translate("当前账号没有修改该话题状态的权限"));
+      const currentGeneration = generation;
       try {
         await transport.setForumTopicClosed(chatId, topicId, closed);
+        if (currentGeneration !== generation) return false;
         await reloadTopics(chatId);
-        return true;
+        return currentGeneration === generation;
       } catch (error) {
-        set({ operationError: onError(error, translate("无法更新话题状态")) });
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法更新话题状态")) });
         return false;
       }
     },
 
     setForumTopicPinned: async (chatId, topicId, pinned) => {
-      if (get().chats.get(chatId)?.management?.canManageTopics !== true) {
+      if (get().chats.get(chatId)?.isMember === false || get().chats.get(chatId)?.management?.canManageTopics !== true) {
         return rejectTopicMutation(translate("当前账号没有置顶话题的权限"));
       }
+      const currentGeneration = generation;
       try {
         await transport.setForumTopicPinned(chatId, topicId, pinned);
+        if (currentGeneration !== generation) return false;
         await reloadTopics(chatId);
-        return true;
+        return currentGeneration === generation;
       } catch (error) {
-        set({ operationError: onError(error, translate("无法更新话题置顶")) });
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法更新话题置顶")) });
+        return false;
+      }
+    },
+
+    deleteForumTopic: async (chatId, topicId) => {
+      const chat = get().chats.get(chatId);
+      const topic = get().forumTopics.get(chatId)?.find(candidate => candidate.id === topicId);
+      if (!chat || !topic || !canDeleteForumTopic(chat, topic)) {
+        return rejectTopicMutation(translate("当前账号没有删除该话题的权限"));
+      }
+      const currentGeneration = generation;
+      try {
+        await transport.deleteForumTopic(chatId, topicId);
+        if (currentGeneration !== generation) return false;
+        const forumTopics = new Map(get().forumTopics);
+        forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).filter(candidate => candidate.id !== topicId));
+        set({ forumTopics, operationError: undefined });
+        await reloadTopics(chatId);
+        return currentGeneration === generation;
+      } catch (error) {
+        if (currentGeneration === generation) set({ operationError: onError(error, translate("无法删除话题")) });
         return false;
       }
     },

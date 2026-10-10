@@ -28,6 +28,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "checkAuthenticationPassword",
     "createChatFolder",
     "createForumTopic",
+    "deleteForumTopic",
     "createNewBasicGroupChat",
     "createNewSupergroupChat",
     "createChatInviteLink",
@@ -563,12 +564,18 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid forum topic edit".to_string());
             }
         }
-        "toggleForumTopicIsClosed" | "toggleForumTopicIsPinned" => {
+        "toggleForumTopicIsClosed" | "toggleForumTopicIsPinned" | "deleteForumTopic" => {
             validate_nonzero_identifier(request, "chat_id")?;
             let topic_id = request
                 .get("forum_topic_id")
                 .and_then(Value::as_i64)
                 .ok_or_else(|| "Forum topic identifier is missing".to_string())?;
+            if request_type == "deleteForumTopic" && topic_id > 1 && topic_id <= i32::MAX as i64 {
+                return Ok(());
+            }
+            if request_type == "deleteForumTopic" {
+                return Err("Invalid forum topic identifier".to_string());
+            }
             let state_field = if request_type == "toggleForumTopicIsClosed" {
                 "is_closed"
             } else {
@@ -1927,6 +1934,26 @@ pub(super) fn prepared_chat_photo_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forum_topic_deletion_validates_topic_identifiers() {
+        for topic_id in [0_i64, 1, -1, i32::MAX as i64 + 1] {
+            assert!(
+                validate_webview_tdlib_request(&json!({
+                    "@type": "deleteForumTopic", "chat_id": 72,
+                    "forum_topic_id": topic_id, "@extra": EXTRA
+                }))
+                .is_err()
+            );
+        }
+        assert!(
+            validate_webview_tdlib_request(&json!({
+                "@type": "deleteForumTopic", "chat_id": 72,
+                "forum_topic_id": 12, "@extra": EXTRA
+            }))
+            .is_ok()
+        );
+    }
 
     const EXTRA: &str = "00000000-0000-4000-8000-000000000000";
 

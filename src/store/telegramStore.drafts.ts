@@ -48,6 +48,7 @@ export class DraftSyncController {
   private generation = 0;
   private syncs = new Map<string, DraftSyncEntry>();
   private requestChains = new Map<string, Promise<void>>();
+  private localRevisions = new Map<string, number>();
 
   constructor(private readonly dependencies: DraftSyncDependencies) {}
 
@@ -61,6 +62,7 @@ export class DraftSyncController {
       sent: false,
     };
     this.syncs.set(chatId, entry);
+    this.localRevisions.set(chatId, entry.generation);
     if (delayMs !== undefined) {
       entry.timer = globalThis.setTimeout(
         () => void this.perform(chatId, entry.generation),
@@ -97,10 +99,25 @@ export class DraftSyncController {
       .map(([key]) => this.flush(key)));
   }
 
-  acceptServerDraft(chatId: string, draft?: ChatDraft) {
+  captureRevision() { return this.generation; }
+
+  discard(chatId: string) {
+    const entry = this.syncs.get(chatId);
+    if (entry) clearDraftSyncTimers(entry);
+    this.syncs.delete(chatId);
+    this.localRevisions.set(chatId, ++this.generation);
+  }
+
+  acceptServerDraft(chatId: string, draft?: ChatDraft, readRevision?: number, snapshot = false) {
+    // A list read that started before a local edit/send cannot restore its draft,
+    // even after the newer empty-draft acknowledgement has already arrived.
+    if (readRevision !== undefined && (this.localRevisions.get(chatId) ?? 0) > readRevision) return false;
     const incoming = draftForSync(draft);
     const expected = this.syncs.get(chatId);
     const current = this.dependencies.getDrafts().get(chatId);
+    // Re-reading an unchanged empty draft is not a remote discard action.
+    // Preserve locally staged attachments and avoid publishing unchanged lists.
+    if (snapshot && !expected && draftSignature(incoming) === draftSignature(current)) return true;
     if (expected && draftSignature(incoming) !== draftSignature(expected.draft)) {
       // A rejected stale echo must not mutate any part of the newer local draft.
       return false;
@@ -122,19 +139,11 @@ export class DraftSyncController {
 
   replaceServerDrafts(incomingDrafts: ChatDraft[], chatIds: string[]) {
     const incoming = new Map(incomingDrafts.map((draft) => [draft.chatId, draft]));
-    const drafts = new Map(this.dependencies.getDrafts());
     for (const chatId of chatIds) {
-      const current = drafts.get(chatId);
+      const current = this.dependencies.getDrafts().get(chatId);
       if (current?.pending) continue;
-      const draft = incoming.get(chatId);
-      if (draftSignature(draft) !== draftSignature(current)) {
-        this.dependencies.discardLocalAttachments?.(chatId);
-      }
-      if (draft) drafts.set(chatId, { ...draft, pending: false });
-      else drafts.delete(chatId);
+      this.acceptServerDraft(chatId, incoming.get(chatId), undefined, true);
     }
-    this.dependencies.setDrafts(drafts);
-    this.dependencies.scheduleCacheWrite();
   }
 
   markAwaitingAck(chatId: string, generation: number) {
@@ -158,6 +167,7 @@ export class DraftSyncController {
     for (const entry of this.syncs.values()) clearDraftSyncTimers(entry);
     this.syncs.clear();
     this.requestChains.clear();
+    this.localRevisions.clear();
   }
 
   migrateChat(fromChatId: string, toChatId: string) {
@@ -197,6 +207,12 @@ export class DraftSyncController {
       if (migratedKey === key) continue;
       this.requestChains.delete(key);
       this.requestChains.set(migratedKey, chainValue);
+    }
+    for (const [key, revision] of [...this.localRevisions]) {
+      const migratedKey = migrateKey(key);
+      if (key === migratedKey) continue;
+      this.localRevisions.delete(key);
+      this.localRevisions.set(migratedKey, revision);
     }
   }
 

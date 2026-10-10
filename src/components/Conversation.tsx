@@ -126,6 +126,7 @@ import { ChannelDiscussionPanel } from "./ChannelDiscussionPanel";
 import { motionLifecycleTiming } from "../utils/motionTokens";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { ForumTopicStrip } from "./ForumTopicStrip";
+import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { formatSelectedMessages } from "../utils/messageClipboard";
 import {
@@ -280,6 +281,7 @@ interface ConversationProps {
   topic?: ForumTopic;
   topics: ForumTopic[];
   onSelectTopic: (topicId: string) => void;
+  onManageTopics: () => void;
   scrollScope: string;
   scrollRequest?: ConversationScrollRequest;
   messages: Message[];
@@ -324,8 +326,9 @@ interface ConversationProps {
     replyToMessageId?: string,
     replyQuote?: MessageReplyQuote,
     entities?: MessageTextEntity[],
+    context?: { topicId?: string },
   ) => void;
-  onTypingChange: (chatId: string, typing: boolean) => Promise<void>;
+  onTypingChange: (chatId: string, typing: boolean, context?: { topicId?: string }) => Promise<void>;
   onForwardMessages: (
     fromChatId: string,
     messageIds: string[],
@@ -420,6 +423,7 @@ export function Conversation({
   topic,
   topics,
   onSelectTopic,
+  onManageTopics,
   scrollScope,
   scrollRequest,
   messages,
@@ -1966,6 +1970,13 @@ export function Conversation({
     setDeleteTarget(undefined);
     setDeletePending(false);
     setDiscussionPost(undefined);
+    setSenderMenu(undefined);
+    setChatMenuOpen(false);
+    setPinTarget(undefined);
+    setReportTarget(undefined);
+    setAutoDeleteDialogOpen(false);
+    closePinnedView();
+    pinnedReturnAnchorRef.current = undefined;
   }, [conversationIdentity]);
 
   useEffect(() => {
@@ -2032,6 +2043,7 @@ export function Conversation({
     if (
       !chat ||
       chat.kind !== "group" ||
+      (chat.isForum && !topic) ||
       topic?.isClosed === true ||
       message.outgoing ||
       message.permissions?.canForward !== true
@@ -2406,7 +2418,7 @@ export function Conversation({
     <section
       ref={conversationRef}
       data-composer-scope={conversationIdentity}
-      className={`conversation ${isChannelConversation ? "is-channel-conversation" : ""} ${topic && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
+      className={`conversation ${isChannelConversation ? "is-channel-conversation" : ""} ${chat.isForum && !selectionMode && !pinnedViewOpen ? "has-forum-topic-strip" : ""} ${selectionMode ? "is-selecting-messages" : ""} ${pinnedViewOpen ? "is-pinned-messages-view" : ""}`}
       aria-hidden={mobileViewHidden ? true : undefined}
       inert={mobileViewHidden ? true : undefined}
       onPointerDown={(event) => {
@@ -2565,11 +2577,13 @@ export function Conversation({
         )}
       </header>
 
-      {topic && !selectionMode && !pinnedViewOpen && (
+      {chat.isForum && !selectionMode && !pinnedViewOpen && (
         <ForumTopicStrip
           topics={topics}
-          activeTopicId={topic.id}
+          activeTopicId={topic?.id ?? FORUM_ALL_TOPIC_ID}
           onSelectTopic={onSelectTopic}
+          chatId={chat.id}
+          onManageTopics={onManageTopics}
         />
       )}
 
@@ -3296,6 +3310,8 @@ export function Conversation({
             <span>{botStartSending ? translate("正在启动") : translate("开始")}</span>
           </button>
         </div>
+      ) : chat.isForum && !topic ? (
+        <div className="forum-all-message-bar" role="status">{translate("选择话题后发送消息")}</div>
       ) : (!isChannelConversation || canPostChannel) ? (
       <ConversationComposer
         key={topic ? `${chat.id}:${topic.id}` : chat.id}
