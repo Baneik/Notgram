@@ -2275,8 +2275,8 @@ html.reduce-motion .audio-disc { animation: none; }
 .composer-wrap { position: relative; isolation: isolate; min-width: 0; min-height: 50px; padding: 0; display: flex; flex-direction: column; background: var(--chat-canvas); }
 .composer-wrap > .composer, .composer-wrap > .composer-context, .composer-wrap > .composer-outbox-status { flex-shrink: 0; }
 /* Reserve conversation space while the attachment grid absorbs height constraints. */
-.composer-wrap.has-attachments { max-height: calc(var(--composer-available-height, 80vh) * .8); }
-.composer-wrap.has-attachments .composer-input { max-height: min(290px, calc(var(--composer-available-height, 80vh) * .22)); }
+.composer-wrap.has-attachments, .composer-wrap.is-file-dragging { max-height: calc(var(--composer-available-height, 80vh) * .8); }
+.composer-wrap.has-attachments .composer-input, .composer-wrap.is-file-dragging .composer-input { max-height: min(290px, calc(var(--composer-available-height, 80vh) * .22)); }
 .bot-suggestion-panel, .mention-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 6px; bottom: calc(var(--composer-input-height, 50px) + 6px); width: min(460px, calc(100% - 12px)); max-height: min(300px, var(--composer-panel-height, 48vh)); overflow-y: auto; overscroll-behavior: contain; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
 .bot-suggestion-panel { left: 6px; right: auto; width: max-content; min-width: min(300px, calc(100% - 12px)); max-width: min(520px, calc(100% - 12px)); max-height: min(360px, var(--composer-panel-height, 48vh)); border-radius: 6px; scrollbar-width: none; text-align: left; }
 .bot-suggestion-panel::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -2326,7 +2326,6 @@ html.reduce-motion .audio-disc { animation: none; }
 .composer-attachment-preview {
   position: relative; min-height: 0; width: 100%; margin: 0; padding: 10px clamp(10px, 2vw, 18px); display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-auto-rows: auto; gap: 9px;
   background: var(--color-bg-surface); border-block: 1px solid var(--line);
-  animation: motion-pane-in var(--motion-duration-standard) var(--motion-ease-enter) both;
 }
 .composer-attachment-grid {
   min-height: 0; max-height: 300px; display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain;
@@ -2368,11 +2367,13 @@ html.reduce-motion .audio-disc { animation: none; }
 .attachment-mode-control span { width: 100%; height: 24px; display: grid; place-items: center; border-radius: 4px; }
 .attachment-mode-control input:checked + span { color: var(--color-text-on-accent); background: var(--accent); font-weight: 650; }
 .composer-attachment-notice { color: var(--muted); font-size: 11px; }
-.composer-file-drop-overlay {
-  position: absolute; z-index: 20; inset: 0; min-height: 76px; display: flex; align-items: center; justify-content: center; gap: 9px;
-  color: var(--accent); background: color-mix(in srgb, var(--color-bg-elevated) 91%, transparent); border: 2px dashed color-mix(in srgb, var(--accent) 68%, var(--line));
-  font-size: 12px; pointer-events: none;
+.composer-attachment-placeholder {
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--color-bg-elevated));
+  border: 1px dashed var(--accent); pointer-events: none;
 }
+.composer-attachment-placeholder .composer-attachment-open { color: var(--accent); background: transparent; border-bottom: 1px dashed color-mix(in srgb, var(--accent) 30%, transparent); }
+.composer-attachment-placeholder .composer-attachment-copy strong { color: var(--accent); }
+.composer-attachment-placeholder .composer-attachment-copy small { color: var(--muted); }
 .message-selection-bar {
   min-width: 0; height: 50px; min-height: 50px; padding: 0 12px 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   color: var(--muted); background: var(--color-bg-surface); border-top: 1px solid var(--line); font-size: 12px;

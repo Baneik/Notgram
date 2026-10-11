@@ -22,11 +22,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type RefObject,
 } from "react";
 import { useComposerPanelLayout } from "../hooks/useComposerPanelLayout";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
+import { useConversationFileDrop } from "../hooks/useConversationFileDrop";
 import type { ComposerFocus } from "../hooks/useComposerFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import {
@@ -238,7 +238,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   const [attachmentMode, setAttachmentMode] = useState<AttachmentSendMode>(localAttachmentDraft?.mode ?? "media");
   const [attachmentSpoiler, setAttachmentSpoiler] = useState(localAttachmentDraft?.hasSpoiler ?? false);
   const [muteVideos, setMuteVideos] = useState(localAttachmentDraft?.muteVideos ?? false);
-  const [draggingFiles, setDraggingFiles] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [disableNotification, setDisableNotification] = useState(false);
   const [botSuggestions, setBotSuggestions] = useState<BotCommandSuggestion[]>([]);
@@ -267,6 +266,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
   const colorTheme = usePreferencesStore((state) => colorThemeForThemeId(state.themeId));
   const composerRef = useRef<HTMLDivElement>(null);
+  const attachmentGridRef = useRef<HTMLDivElement>(null);
   useComposerPanelLayout(composerRef);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef(draft);
@@ -299,7 +299,6 @@ export const ConversationComposer = memo(function ConversationComposer({
   const attachmentModeRef = useRef(attachmentMode);
   const attachmentSpoilerRef = useRef(attachmentSpoiler);
   const muteVideosRef = useRef(muteVideos);
-  const fileDragDepthRef = useRef(0);
   const appliedTextInsertionRef = useRef<string | undefined>(undefined);
   const previousComposerContextKeyRef = useRef(composerContextKey);
   const mediaModeAvailable = pendingAttachments.length > 0 && pendingAttachments.every(
@@ -1202,33 +1201,25 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [chatId, draftKey, onCancelReply, onDraftChange]);
   const cancelReply = useCallback(() => { clearReply(); focusComposer(); }, [clearReply, focusComposer]);
 
-  const handleFileDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    fileDragDepthRef.current += 1;
-    setDraggingFiles(true);
-  }, [editingMessage]);
+  const handleFileDrop = useCallback((files: File[]) => {
+    addPendingAttachments(files);
+    if (files.length > 0) focusComposer();
+  }, [addPendingAttachments, focusComposer]);
+  const draggedFileCount = useConversationFileDrop(
+    composerRef, `${activeAccountId}:${draftKey}`, !inert && !editingMessage && !sending && !attachmentPending, handleFileDrop,
+  );
+  const draggingFiles = draggedFileCount > 0;
+  const placeholderCount = Math.min(draggedFileCount, TELEGRAM_ALBUM_MAX_ITEMS - pendingAttachments.length);
 
-  const handleFileDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  }, [editingMessage]);
-
-  const handleFileDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-    if (fileDragDepthRef.current === 0) setDraggingFiles(false);
-  }, []);
-
-  const handleFileDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (editingMessage || !event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    fileDragDepthRef.current = 0;
-    setDraggingFiles(false);
-    addPendingAttachments(Array.from(event.dataTransfer.files));
-    focusComposer();
-  }, [addPendingAttachments, editingMessage, focusComposer]);
+  useLayoutEffect(() => {
+    const grid = attachmentGridRef.current;
+    if (placeholderCount === 0 || !grid) return;
+    const reveal = () => { grid.scrollTop = grid.scrollHeight - grid.clientHeight; };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [placeholderCount, pendingAttachments.length]);
 
   const botSuggestionGroups = useMemo(() => {
     const groups = new Map<string, {
@@ -1270,10 +1261,6 @@ export const ConversationComposer = memo(function ConversationComposer({
     <div
       inert={inert || undefined}
       className={`composer-wrap ${pendingAttachments.length > 0 && !editingMessage ? "has-attachments" : ""} ${draggingFiles ? "is-file-dragging" : ""}`}
-      onDragEnter={handleFileDragEnter}
-      onDragOver={handleFileDragOver}
-      onDragLeave={handleFileDragLeave}
-      onDrop={handleFileDrop}
       onKeyDownCapture={(event) => {
         const native = event.nativeEvent;
         if (inert || editingMessage || sending || attachmentPending || pendingAttachments.length === 0 ||
@@ -1372,9 +1359,9 @@ export const ConversationComposer = memo(function ConversationComposer({
           </button>
         </div>
       )}
-      {pendingAttachments.length > 0 && !editingMessage && (
+      {(pendingAttachments.length > 0 || draggingFiles) && !editingMessage && (
         <section className="composer-attachment-preview" aria-label={translate("待发送附件")}>
-          <div className="composer-attachment-grid" data-count={pendingAttachments.length}>
+          <div ref={attachmentGridRef} className="composer-attachment-grid" data-count={pendingAttachments.length + placeholderCount}>
             {pendingAttachments.map((pending) => {
               const { attachment } = pending;
               const concealed = attachmentMode === "media" &&
@@ -1423,6 +1410,15 @@ export const ConversationComposer = memo(function ConversationComposer({
                 </article>
               );
             })}
+            {Array.from({ length: placeholderCount }, (_, index) => (
+              <div className="composer-attachment-item composer-attachment-placeholder" key={`drop:${index}`}>
+                <div className="composer-attachment-open"><Paperclip size={28} strokeWidth={1.6} /></div>
+                <span className="composer-attachment-copy" role={index === 0 ? "status" : undefined} aria-hidden={index > 0 || undefined}>
+                  <strong>{index === 0 ? translate("添加到待发送附件") : "\u00a0"}</strong>
+                  <small>{translate("松开鼠标以添加附件")}</small>
+                </span>
+              </div>
+            ))}
           </div>
           <div className="composer-attachment-options">
             <fieldset className="attachment-mode-control">
@@ -1442,6 +1438,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                   type="radio"
                   name="attachment-mode"
                   checked={attachmentMode === "file"}
+                  disabled={pendingAttachments.length === 0}
                   onChange={() => updateAttachmentOptions({
                     mode: "file",
                     hasSpoiler: false,
@@ -1469,6 +1466,11 @@ export const ConversationComposer = memo(function ConversationComposer({
             )}
           </div>
           {attachmentNotice && <span className="composer-attachment-notice" role="alert">{attachmentNotice}</span>}
+          {draggingFiles && draggedFileCount > placeholderCount && (
+            <span className="composer-attachment-notice" role="status">
+              {translate("一次最多发送 {{value0}} 个附件", { value0: TELEGRAM_ALBUM_MAX_ITEMS })}
+            </span>
+          )}
         </section>
       )}
       <MotionPresence present={showMentionPanel} variant="popover" placement="above">
@@ -1737,12 +1739,6 @@ export const ConversationComposer = memo(function ConversationComposer({
               : <Send size={19} strokeWidth={2} />}
         </button>
       </div>
-      {draggingFiles && (
-        <div className="composer-file-drop-overlay" role="status">
-          <Paperclip size={24} />
-          <strong>{translate("添加到待发送附件")}</strong>
-        </div>
-      )}
     </div>
   );
 });

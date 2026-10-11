@@ -1,6 +1,7 @@
 import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
+  "松开鼠标以添加附件": "マウスを放して添付ファイルを追加",
   "隐藏消息头像": "メッセージのアバターを非表示",
   "显示消息头像": "メッセージのアバターを表示",
   "拖拽排序，或使用 Ctrl+Shift+方向键调整位置": "ドラッグ、または Ctrl+Shift+矢印キーで並べ替え",

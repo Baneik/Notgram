@@ -157,6 +157,20 @@ discards all staged attachments, closes their preview session, revokes preview U
 clears the durable attachment draft and restores composer focus. Caption text and
 reply context remain available. Sending/restoration and active modals retain key ownership.
 
+File drags use the entire nearest `data-composer-scope`, including its timeline,
+header and editor. Dragging expands staging with card-sized placeholders at the
+append positions without covering or replacing the editor's text and selection.
+Preview and dropped cards use the same constrained staging/editor layout.
+Protected drag data supplies only file counts; file reads and durable attachment
+writes begin on drop. Existing attachment limits also bound the placeholder count,
+and a constrained grid scrolls to reveal the pending slots. Drop replaces the slots
+in place without replaying a staging entrance transform. Leaving the scope,
+cancelling the drag, losing window focus or changing account/topic removes only
+the preview. Escape during a file drag cancels that preview and preserves staged
+files; outside a drag, staging retains its usual discard shortcut. Nested discussion
+scopes, inert backgrounds, editing, sending/restoration, menus and active dialogs
+cannot redirect file drops to another composer. Text drags retain editor ownership.
+
 Draft synchronization compares text entities by their content, independent of object
 field order and entity order from the editor or native mapper. Matching server echoes
 acknowledge local drafts without discarding staged attachments. While newer local text
