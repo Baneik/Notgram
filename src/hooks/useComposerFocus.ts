@@ -84,7 +84,12 @@ const createOwner = (input: Owner["input"]): Owner => {
           if (hasTextSelection()) return;
           const chatRow = options.reason === "entry" && active instanceof Element &&
             active.closest(".chat-row") && !matchMedia("(forced-colors: active)").matches;
-          if (active !== target && !isUnclaimedFocus(active) && !chatRow) return;
+          // Pointer topic navigation enters the replacement editor; keyboard tabs retain focus.
+          const topicTab = options.reason === "entry" && active instanceof Element &&
+            active.matches(".forum-topic-tab[aria-selected='true']:not(:focus-visible)") &&
+            active.closest("[data-composer-scope]") === target.closest("[data-composer-scope]") &&
+            !matchMedia("(forced-colors: active)").matches;
+          if (active !== target && !isUnclaimedFocus(active) && !chatRow && !topicTab) return;
         }
         target.focusEditor();
         if (options.cursor !== undefined) target.setSelectionRange(options.cursor, options.cursor);

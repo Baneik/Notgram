@@ -98,7 +98,15 @@ export function ForumTopicStrip({
               title={translate("拖拽排序，或使用 Ctrl+Shift+方向键调整位置")}
               data-topic-id={id}
               data-folder-id={id}
-              onPointerDown={event => drag.begin(event, id)}
+              onPointerDown={event => {
+                const activeElement = document.activeElement;
+                // Keep the caret on repeated clicks and reordering; a new topic gets its own editor.
+                if (event.isPrimary && event.button === 0 && !event.defaultPrevented &&
+                  activeElement?.matches(".composer-input") &&
+                  event.currentTarget.closest("[data-composer-scope]")?.contains(activeElement) &&
+                  !matchMedia("(forced-colors: active)").matches) event.preventDefault();
+                drag.begin(event, id);
+              }}
               onKeyDown={event => {
                 if (!event.ctrlKey || !event.shiftKey || event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
                 event.preventDefault();

@@ -13,6 +13,92 @@ const openForum = async (page: Page) => {
 const tab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-topic-id="${id}"]`);
 const input = (page: Page) => page.getByRole("textbox", { name: "消息" });
 
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`forum topic switches focus the new composer and restore its draft at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await openForum(page);
+    await input(page).fill("General draft");
+    await tab(page, "12").click();
+    await expect(input(page)).toBeFocused();
+    await page.keyboard.type("Release draft");
+    await expect(input(page)).toHaveText("Release draft");
+    await tab(page, "1").click();
+    await expect(input(page)).toBeFocused();
+    await expect(input(page)).toHaveText("General draft");
+    await page.keyboard.type(" continued");
+    await expect(input(page)).toHaveText("General draft continued");
+    await tab(page, "__all__").click();
+    await expect(input(page)).toHaveCount(0);
+    await tab(page, "12").click();
+    await expect(input(page)).toBeFocused();
+    await expect(input(page)).toHaveText("Release draft");
+  });
+}
+
+test("clicking or dragging the selected forum tab preserves the editor caret", async ({ page }) => {
+  await openForum(page);
+  await input(page).fill("abcdef");
+  await input(page).evaluate(element => {
+    (element as import("../../src/components/ComposerInput").ComposerInputElement).setSelectionRange(2, 2);
+  });
+  await tab(page, "1").click();
+  await expect(input(page)).toBeFocused();
+  await page.keyboard.type("XY");
+  await expect(input(page)).toHaveText("abXYcdef");
+  const first = await tab(page, "1").boundingBox();
+  const last = await tab(page, "18").boundingBox();
+  await page.mouse.move(first!.x + first!.width / 2, first!.y + first!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last!.x + last!.width - 3, last!.y + last!.height / 2, { steps: 15 });
+  await page.mouse.up();
+  await expect(tab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await expect(input(page)).toBeFocused();
+  await page.keyboard.type("Z");
+  await expect(input(page)).toHaveText("abXYZcdef");
+});
+
+test("rapid forum clicks focus only the final topic editor", async ({ page }) => {
+  await openForum(page);
+  await input(page).fill("General draft");
+  for (const id of ["12", "18", "1", "12"]) await tab(page, id).click();
+  await expect(tab(page, "12")).toHaveAttribute("aria-selected", "true");
+  await expect(input(page)).toBeFocused();
+  await page.keyboard.type("Final topic");
+  await expect(input(page)).toHaveText("Final topic");
+  await tab(page, "1").click();
+  await expect(input(page)).toHaveText("General draft");
+});
+
+test("forum entry focus yields to newer search and topic keyboard navigation", async ({ page }) => {
+  await openForum(page);
+  await page.evaluate(() => {
+    document.addEventListener("click", () => {
+      document.querySelector<HTMLInputElement>('input[type="search"]')!.focus();
+    }, { once: true });
+  });
+  await tab(page, "12").click();
+  const search = page.getByRole("searchbox", { name: "搜索会话和消息" });
+  await expect(search).toBeFocused();
+  await page.keyboard.type("Mia");
+  await expect(search).toHaveValue("Mia");
+  await tab(page, "18").focus();
+  await page.keyboard.press("Enter");
+  await expect(tab(page, "18")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(tab(page, "18")).toBeFocused();
+  await page.keyboard.press("Control+Shift+ArrowLeft");
+  await expect(tab(page, "18")).toBeFocused();
+});
+
+test("forced-colors forum navigation retains tab focus", async ({ page }) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await openForum(page);
+  await tab(page, "12").click();
+  await expect(tab(page, "12")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await expect(tab(page, "12")).toBeFocused();
+});
+
 test("reading all forum history clears the sidebar count and topic badges", async ({ page }) => {
   await page.route("**/src/telegram/mockTransport.ts", async route => {
     const response = await route.fetch();

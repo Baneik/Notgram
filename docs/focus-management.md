@@ -71,8 +71,11 @@ Disabling or unmounting an owner revokes pending requests and clears its timers.
   controls or trigger still own it. Passive hovering and outside clicks preserve
   the user's current input destination.
 - `request({ reason: "entry" })` defaults to the editor after navigation when focus
-  is unclaimed or still on a chat row. It preserves native selections and the
-  existing forced-colors keyboard behavior.
+  is unclaimed or still on a chat row. Pointer-selected forum tabs in that editor's
+  scope also hand focus to the new topic editor, including entry from All. Keyboard
+  topic navigation and forced-colors tab focus remain on the tab. Clicking the
+  current topic or reordering tabs preserves an already focused editor's caret.
+  Entry requests still preserve native selections and yield to newer interactions.
 - Window return only restores unclaimed focus or retains the current editor.
   Search fields, buttons, reading controls, and selected text take precedence.
 - `capture()` must be called **before** asynchronous work. Invoke its returned
