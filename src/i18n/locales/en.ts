@@ -1,4 +1,6 @@
 export const en = {
+  "隐藏消息头像": "Hide message avatars",
+  "显示消息头像": "Show message avatars",
   "拖拽排序，或使用 Ctrl+Shift+方向键调整位置": "Drag to reorder, or use Ctrl+Shift+arrow keys",
   "删除话题": "Delete topic",
   "无法删除话题": "Unable to delete topic",

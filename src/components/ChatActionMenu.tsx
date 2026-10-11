@@ -10,6 +10,8 @@ import {
   Pin,
   PinOff,
   Search,
+  UserRound,
+  UserRoundX,
 } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Chat } from "../telegram/types";
@@ -20,6 +22,8 @@ interface ChatActionMenuProps {
   chatListId: string;
   pending: boolean;
   canSetAutoDelete: boolean;
+  messageAvatarsHidden: boolean;
+  onSetMessageAvatarsHidden: (hidden: boolean) => void;
   onSetPinned: (pinned: boolean) => Promise<boolean>;
   onSetMuted: (muted: boolean) => Promise<boolean>;
   onSetArchived: (archived: boolean) => Promise<boolean>;
@@ -37,6 +41,8 @@ export function ChatActionMenu({
   chatListId,
   pending,
   canSetAutoDelete,
+  messageAvatarsHidden,
+  onSetMessageAvatarsHidden,
   onSetPinned,
   onSetMuted,
   onSetArchived,
@@ -127,6 +133,20 @@ export function ChatActionMenu({
         <Clock3 size={16} strokeWidth={1.9} />
         <span>{translate("自动删除消息")}</span>
       </button>
+      {chat.isForum && (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={busy}
+          onClick={() => {
+            onSetMessageAvatarsHidden(!messageAvatarsHidden);
+            onClose();
+          }}
+        >
+          {messageAvatarsHidden ? <UserRound size={16} strokeWidth={1.9} /> : <UserRoundX size={16} strokeWidth={1.9} />}
+          <span>{messageAvatarsHidden ? translate("显示消息头像") : translate("隐藏消息头像")}</span>
+        </button>
+      )}
       <button
         type="button"
         role="menuitem"

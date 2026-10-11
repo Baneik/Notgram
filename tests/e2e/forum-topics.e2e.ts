@@ -13,6 +13,72 @@ const openForum = async (page: Page) => {
 const tab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-topic-id="${id}"]`);
 const input = (page: Page) => page.getByRole("textbox", { name: "消息" });
 
+test("reading all forum history clears the sidebar count and topic badges", async ({ page }) => {
+  await page.route("**/src/telegram/mockTransport.ts", async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: `${await response.text()}
+      const connectForReadFixture = MockTelegramTransport.prototype.connect;
+      MockTelegramTransport.prototype.connect = function (...args) {
+        // The default fixture has two mention counts without matching messages.
+        // This case isolates ordinary unread messages from unseen attention.
+        this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadMentionCount = 0;
+        return connectForReadFixture.apply(this, args);
+      }` });
+  });
+  await openForum(page);
+  const sidebar = page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]');
+  await expect(sidebar.locator(".unread-count")).toHaveText("4");
+  await tab(page, "12").click();
+  await expect(sidebar.locator(".unread-count")).toHaveText("1");
+  await expect(tab(page, "18").locator(".forum-topic-tab-count")).toHaveText("1");
+  await tab(page, "__all__").click();
+  await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async path => {
+    const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+    return telegramStore.getState().forumTopics.get("chat-forum")!.every(topic => topic.unreadCount === 0);
+  }, storePath)).toBe(true);
+});
+
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`forum avatar toggle saves group scope and removes its column at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await openForum(page);
+    const header = page.locator(".conversation-header");
+    const avatars = page.locator(".message-list .message-group-avatar");
+    await expect(avatars.first()).toBeVisible();
+    const before = await page.locator('[data-message-id="forum-general-1"]').boundingBox();
+    await header.getByRole("button", { name: "更多操作", exact: true }).click();
+    await page.getByRole("menuitem", { name: "隐藏消息头像", exact: true }).click();
+    await expect(avatars).toHaveCount(0);
+    const after = await page.locator('[data-message-id="forum-general-1"]').boundingBox();
+    expect(before!.x - after!.x).toBeCloseTo(viewport.width === 390 ? 42 : 44, 0);
+    await tab(page, "12").click();
+    await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+    await expect(avatars).toHaveCount(0);
+    await tab(page, "__all__").click();
+    await expect(avatars).toHaveCount(0);
+    await page.reload();
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
+    await tab(page, "12").click();
+    await expect(page.locator('[data-message-id="forum-release-1"]')).toBeVisible();
+    await expect(avatars).toHaveCount(0);
+    await header.getByRole("button", { name: "更多操作", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "显示消息头像", exact: true })).toBeVisible();
+    await page.screenshot({ path: `test-results/forum-hidden-avatars-${viewport.width}.png` });
+    await page.getByRole("menuitem", { name: "显示消息头像", exact: true }).click();
+    await expect(avatars.first()).toBeVisible();
+    if (viewport.width === 390) {
+      await tab(page, "__all__").click();
+      await header.getByRole("button", { name: "返回会话列表", exact: true }).click();
+    }
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(avatars.first()).toBeVisible();
+    await header.getByRole("button", { name: "更多操作", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: /消息头像/ })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 test("forum administration survives delayed chat updates after saving info, permissions and members", async ({ page }) => {
   await openForum(page);
   await page.evaluate(async paths => {

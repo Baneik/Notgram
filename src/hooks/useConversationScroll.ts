@@ -211,6 +211,7 @@ export type ConversationScrollRequestInput = ConversationScrollRequest extends i
   : never;
 
 interface ConversationScrollOptions {
+  layoutKey?: string;
   scope: string;
   chatId?: string;
   request?: ConversationScrollRequest;
@@ -234,6 +235,7 @@ interface ConversationScrollOptions {
 }
 
 export const useConversationScroll = ({
+  layoutKey = "",
   scope,
   chatId,
   request,
@@ -256,9 +258,10 @@ export const useConversationScroll = ({
   onUserScroll,
 }: ConversationScrollOptions) => {
   const reduceMotion = usePreferencesStore((state) => state.effectiveReduceMotion);
-  const geometryKey = usePreferencesStore(conversationGeometryKey);
+  const preferenceGeometryKey = usePreferencesStore(conversationGeometryKey);
+  const geometryKey = `${preferenceGeometryKey}:${layoutKey}`;
   const viewportGeometry = useConversationGeometry();
-  const measuredGeometryKey = viewportGeometry.key || geometryKey;
+  const measuredGeometryKey = `${viewportGeometry.key || preferenceGeometryKey}:${layoutKey}`;
   const measuredGeometryKeyRef = useRef(measuredGeometryKey);
   measuredGeometryKeyRef.current = measuredGeometryKey;
   const messageListRef = useRef<HTMLDivElement>(null);

@@ -6,6 +6,7 @@ import { initializeAccountMetadata, flushAccountMetadata } from "./accountMetada
 import { removeAccountLocalBlocks } from "./localUserBlocks";
 import { removeAccountActivity } from "./conversationActivity";
 import { removeAccountForumTopicOrder } from "./forumTopicOrder";
+import { removeAccountChatPresentation } from "./chatPresentation";
 import { removeAccountDownloads } from "../utils/downloadManager";
 import { translate } from "../i18n";
 import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
@@ -54,6 +55,7 @@ import {
   draftSignature,
 } from "./telegramStore.drafts";
 import {
+  compareMessages,
   messageMapFrom,
   findIndexedMessage,
   replaceMessage,
@@ -1487,6 +1489,8 @@ export const createTelegramStore = (
             generation !== accountGeneration ||
             state.authorization.kind !== "ready" ||
             (activeOnly && state.activeChatId !== chatId) ||
+            (activeOnly && chat?.isForum && (state.activeTopicId !== undefined ||
+              state.lastForumTopicIds.get(chatId) !== FORUM_ALL_TOPIC_ID)) ||
             (!saved && !documentIsVisible()) ||
             (saved && (state.connectionStatus !== "online" || chat.unreadCount === 0))
           ) {
@@ -1507,6 +1511,7 @@ export const createTelegramStore = (
     };
 
     const markForumTopicRead = async (chatId: string, topicId: string) => {
+      const generation = accountGeneration;
       if (
         get().authorization.kind !== "ready" ||
         get().activeChatId !== chatId ||
@@ -1517,7 +1522,7 @@ export const createTelegramStore = (
       let latestIncoming: Message | undefined;
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
-        if (message.topicId === topicId && !message.outgoing) {
+        if (message.topicId === topicId && !message.outgoing && !message.isLocallyDeleted && !message.isRemoving) {
           latestIncoming = message;
           break;
         }
@@ -1530,6 +1535,17 @@ export const createTelegramStore = (
       ) return false;
       try {
         await transport.markForumTopicRead(chatId, topicId, latestIncoming.id);
+        if (generation !== accountGeneration) return false;
+        // updateForumTopic can acknowledge the boundary before its counts arrive.
+        // Preserve newer counts, while allowing that ack to settle the old count.
+        const currentTopic = get().forumTopics.get(chatId)?.find(candidate => candidate.id === topicId);
+        const hasNewIncoming = (get().messages.get(chatId) ?? []).some(message =>
+          message.topicId === topicId && !message.outgoing && !message.isLocallyDeleted && !message.isRemoving &&
+          compareMessages(message, latestIncoming!) > 0);
+        if (hasNewIncoming || (currentTopic !== topic && (
+          currentTopic?.lastReadInboxMessageId !== latestIncoming.id ||
+          currentTopic?.unreadCount !== topic?.unreadCount
+        ))) return true;
         const forumTopics = new Map(get().forumTopics);
         forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).map((topic) => topic.id === topicId
           ? {
@@ -1541,6 +1557,7 @@ export const createTelegramStore = (
         set({ forumTopics });
         return true;
       } catch (error) {
+        if (generation !== accountGeneration) return false;
         set({ operationError: errorMessage(error, translate("无法更新话题已读状态")) });
         return false;
       }
@@ -1550,9 +1567,18 @@ export const createTelegramStore = (
       const current = get();
       if (current.activeChatId !== chatId) return Promise.resolve(false);
       if (current.chats.get(chatId)?.isForum) {
-        return current.activeTopicId
-          ? markForumTopicRead(chatId, current.activeTopicId)
-          : Promise.resolve(false);
+        if (current.activeTopicId) return markForumTopicRead(chatId, current.activeTopicId);
+        if (current.lastForumTopicIds.get(chatId) !== FORUM_ALL_TOPIC_ID) return Promise.resolve(false);
+        const generation = accountGeneration;
+        const hadUnread = (current.chats.get(chatId)?.unreadCount ?? 0) > 0;
+        return markChatRead(chatId).then(async succeeded => {
+          // Read updates can arrive within the normal topic-refresh throttle.
+          // Refresh once after the ack so tabs reflect the whole-group boundary.
+          if (succeeded && hadUnread && generation === accountGeneration) {
+            await forumController.loadForumTopics(chatId);
+          }
+          return succeeded;
+        });
       }
       return markChatRead(chatId);
     };
@@ -2739,6 +2765,7 @@ export const createTelegramStore = (
             removeAccountLocalBlocks(pendingCleanup);
             removeAccountActivity(pendingCleanup);
             removeAccountForumTopicOrder(pendingCleanup);
+            removeAccountChatPresentation(pendingCleanup);
             removeAccountDownloads(pendingCleanup);
             await flushAccountMetadata();
             await transport.removeAccount(pendingCleanup);
@@ -3083,6 +3110,7 @@ export const createTelegramStore = (
           removeAccountLocalBlocks(accountId);
           removeAccountActivity(accountId);
           removeAccountForumTopicOrder(accountId);
+          removeAccountChatPresentation(accountId);
           removeAccountDownloads(accountId);
           await flushAccountMetadata();
           globalThis.localStorage?.removeItem(`notgram:cache-cleanup:${accountId}`);
@@ -3122,7 +3150,9 @@ export const createTelegramStore = (
         transport.setConversationFocus?.(chatId);
         const lastForumTopicIds = restoredTopicId
           ? touchForumTopic(chatId, restoredTopicId)
-          : new Map(get().lastForumTopicIds);
+          : targetChat?.isForum && options?.forumTopicId === FORUM_ALL_TOPIC_ID
+            ? touchForumTopic(chatId, FORUM_ALL_TOPIC_ID)
+            : new Map(get().lastForumTopicIds);
         set({
           activeChatId: chatId,
           activeTopicId: restoredTopicId,
@@ -3133,7 +3163,7 @@ export const createTelegramStore = (
         void mediaFileRestorer.restore();
         if (targetChat?.isForum) {
           if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
-          else if (!options?.deferHistory) void loadHistory(chatId, "ensure");
+          else if (!options?.deferHistory) void loadHistory(chatId, "ensure").then(() => markActiveConversationRead(chatId));
           void refreshForumConversation(chatId);
         } else {
           if (!options?.deferHistory) void loadHistory(chatId, "ensure");
@@ -3156,7 +3186,7 @@ export const createTelegramStore = (
         set({ activeTopicId: topicId, lastForumTopicIds });
         scheduleCacheWrite();
         if (topicId) loadActiveForumTopic(chatId, topicId);
-        else if (get().authorization.kind === "ready") void loadHistory(chatId, "ensure");
+        else if (get().authorization.kind === "ready") void loadHistory(chatId, "ensure").then(() => markActiveConversationRead(chatId));
       },
 
       loadForumTopics: forumController.loadForumTopics,

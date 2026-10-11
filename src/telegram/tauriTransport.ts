@@ -2447,7 +2447,9 @@ export class TauriTelegramTransport implements TelegramTransport {
       "@type": "viewMessages",
       chat_id: numericId(chatId),
       message_ids: [numericId(messageId)],
-      source: { "@type": "messageSourceChatHistory" },
+      // TDLib advances a topic boundary only for this source; chat history
+      // advances the whole group's boundary instead.
+      source: { "@type": "messageSourceForumTopicHistory" },
       force_read: true,
     });
   }

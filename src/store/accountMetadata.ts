@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 export const ACCOUNT_METADATA_KEYS = [
   "notgram:managed-downloads:v1", "notgram:local-user-blocks:v1", "notgram:conversation-activity:v1",
   "notgram:forum-topic-order:v1",
+  "notgram:chat-presentation:v1",
 ] as const;
 type MetadataKey = typeof ACCOUNT_METADATA_KEYS[number];
 const values = new Map<string, string>();

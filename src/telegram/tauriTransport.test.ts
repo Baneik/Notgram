@@ -3159,6 +3159,7 @@ describe("TauriTelegramTransport message operations", () => {
     expect(requests.find((request) => request["@type"] === "viewMessages")).toMatchObject({
       chat_id: 7,
       message_ids: [15],
+      source: { "@type": "messageSourceForumTopicHistory" },
       force_read: true,
     });
     expect(requests.some((request) => request["@type"] === "readAllForumTopicMentions"))

@@ -104,6 +104,7 @@ import {
 import { channelDiscussionProjection, compareMessages } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
 import { usePreferencesStore } from "../store/preferencesStore";
+import { chatPresentationStore, useMessageAvatarsHidden } from "../store/chatPresentation";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
@@ -513,6 +514,7 @@ export function Conversation({
     ? topic ? `${chat.id}:topic:${topic.id}` : chat.id
     : undefined;
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const messageAvatarsHidden = useMessageAvatarsHidden(activeAccountId, chat?.id) && chat?.isForum === true;
   const localBlockedUsers = useLocalUserBlocks((state) => state.users);
   const localHiddenUserIds = useLocalHiddenUserIds(activeAccountId);
   const localBlockedUsersById = useMemo(() => new Map(
@@ -1248,6 +1250,7 @@ export function Conversation({
     onInitialAtBottomStateChange,
     messageListHandlers,
   } = useConversationScroll({
+    layoutKey: messageAvatarsHidden ? "hidden-message-avatars" : "",
     scope: pinnedViewOpen ? `${scrollScope}:pinned` : scrollScope,
     chatId: chat?.id,
     request: pinnedViewOpen ? undefined : scrollRequest,
@@ -2468,6 +2471,8 @@ export function Conversation({
                     chatListId={chatListId}
                     pending={chatManagementPending}
                     canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
+                    messageAvatarsHidden={messageAvatarsHidden}
+                    onSetMessageAvatarsHidden={hidden => chatPresentationStore.getState().setMessageAvatarsHidden(activeAccountId, chat.id, hidden)}
                     onSetPinned={onSetChatPinned}
                     onSetMuted={onSetChatMuted}
                     onSetArchived={onSetChatArchived}
@@ -2558,6 +2563,8 @@ export function Conversation({
                     chatListId={chatListId}
                     pending={chatManagementPending}
                     canSetAutoDelete={chat.kind === "direct" || chat.management?.canChangeInfo === true}
+                    messageAvatarsHidden={messageAvatarsHidden}
+                    onSetMessageAvatarsHidden={hidden => chatPresentationStore.getState().setMessageAvatarsHidden(activeAccountId, chat.id, hidden)}
                     onSetPinned={onSetChatPinned}
                     onSetMuted={onSetChatMuted}
                     onSetArchived={onSetChatArchived}
@@ -2683,7 +2690,7 @@ export function Conversation({
               );
             }
             const { firstMessage, messages: messageGroup, positions, startsNewDay } = groupModel;
-            const reserveSenderAvatar = !isChannelConversation && firstMessage.content.kind !== "service" &&
+            const reserveSenderAvatar = !messageAvatarsHidden && !isChannelConversation && firstMessage.content.kind !== "service" &&
               firstMessage.content.kind !== "unsupported" &&
               !firstMessage.outgoing && chat.kind !== "direct";
             const showSenderAvatar = reserveSenderAvatar && !groupModel.continuesAfter;
