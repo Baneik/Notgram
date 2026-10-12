@@ -539,7 +539,14 @@ test("selecting message text is not interrupted by composer autofocus", async ({
   const messageText = page.locator('[data-message-id="m-3"] .message-rich-text');
   await expect(composer).toBeFocused();
   await expect(messageText).toBeVisible();
-  await messageText.scrollIntoViewIfNeeded();
+  await expect(messageText).toHaveAttribute("data-rich-text", "markdown");
+  await revealVirtualMessage(page, "m-3");
+  await page.locator(".conversation").evaluate(async element => {
+    await Promise.all(element.getAnimations({ subtree: true })
+      .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map(animation => animation.finished.catch(() => undefined)));
+  });
+  await expect(messageText).toBeInViewport();
   const drag = await messageText.evaluate((surface) => {
     const text = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT).nextNode();
     if (!text) return undefined;

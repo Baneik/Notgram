@@ -5,6 +5,23 @@ export interface SelectionPointerPosition {
   y: number;
 }
 
+export const messageTextSurfaceAtPointer = (
+  target: Element | null,
+  pointer: SelectionPointerPosition,
+): HTMLElement | null => {
+  if (!target || target.closest("[inert], .is-selecting-messages, .is-local-block-concealed")) return null;
+  const surface = target.closest<HTMLElement>(".message-rich-text");
+  if (surface) return surface.classList.contains("is-loading") ? null : surface;
+  if (!target.matches(".message-bubble, .message-text-flow")) return null;
+
+  // Inline message text leaves the bubble's horizontal padding outside its
+  // hit area. Only claim padding beside a text line, never headers or controls.
+  return [...target.querySelectorAll<HTMLElement>(".message-rich-text:not(.is-loading)")]
+    .find(candidate => [...candidate.getClientRects()].some(rect =>
+      rect.width > 0 && pointer.y >= rect.top && pointer.y <= rect.bottom,
+    )) ?? null;
+};
+
 const containsNode = (element: HTMLElement, node: Node | null) =>
   Boolean(node && (node === element || element.contains(node)));
 

@@ -205,6 +205,13 @@ When the scope's editor already has focus, pointer down on a non-selectable
 background preserves that focus and selection, and pointer up skips restoration.
 Selectable message text and interactive controls retain their native pointer
 behavior. An unfocused editor still receives focus after an eligible blank click.
+Horizontal bubble padding beside a rendered text line belongs to that message's
+native selection surface. A drag may start before its first character, including
+in captions and discussion comments; the origin remains selectable until the
+range is cleared. Headers, controls, loading/concealed content and message
+multi-selection do not claim this padding. Selection remains confined to the
+originating text, and clicks in the surrounding timeline retain blank-click focus
+behavior.
 
 ## Modal surfaces
 

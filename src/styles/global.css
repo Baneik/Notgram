@@ -1481,6 +1481,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-rich-text, .message-caption { user-select: text; -webkit-user-select: text; }
 .message-rich-text.is-loading { user-select: none; -webkit-user-select: none; }
 .conversation.is-message-text-selecting .message-rich-text { user-select: none; -webkit-user-select: none; }
+.conversation.is-message-text-selecting .message-bubble.is-text-selection-origin,
+.conversation.is-message-text-selecting .message-text-flow.is-text-selection-origin { user-select: text; -webkit-user-select: text; }
 .conversation.is-message-text-selecting .message-rich-text.is-selection-origin { user-select: text; -webkit-user-select: text; }
 .conversation.is-message-text-selecting .message-rich-text.is-loading.is-selection-origin { user-select: none; -webkit-user-select: none; }
 .message-bubble button, .message-bubble input, .message-bubble textarea, .message-bubble .message-meta { user-select: none; -webkit-user-select: none; }

@@ -132,6 +132,7 @@ import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
 import { formatSelectedMessages } from "../utils/messageClipboard";
 import {
   clampSelectionToMessageText,
+  messageTextSurfaceAtPointer,
   replyQuoteFromSelection,
   type SelectionPointerPosition,
 } from "../utils/messageTextSelection";
@@ -1675,6 +1676,9 @@ export function Conversation({
     const clearSelectionSurface = () => {
       conversationRef.current?.classList.remove("is-message-text-selecting");
       selectionMessageRef.current?.classList.remove("is-selection-origin");
+      const origin = selectionMessageRef.current?.closest(".message-bubble") ??
+        selectionMessageRef.current?.closest(".message-text-flow");
+      origin?.classList.remove("is-text-selection-origin");
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
@@ -1683,7 +1687,7 @@ export function Conversation({
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
-      const surface = target?.closest<HTMLElement>(".message-rich-text") ?? null;
+      const surface = messageTextSurfaceAtPointer(target, { x: event.clientX, y: event.clientY });
       const selection = globalThis.getSelection();
       const selectedSurface = selectedMessageSurface(selection);
       if (selectedSurface && selectedSurface !== surface) selection?.removeAllRanges();
@@ -1695,6 +1699,9 @@ export function Conversation({
       if (selectionMessageRef.current) {
         conversationRef.current?.classList.add("is-message-text-selecting");
         selectionMessageRef.current.classList.add("is-selection-origin");
+        const origin = selectionMessageRef.current.closest(".message-bubble") ??
+          selectionMessageRef.current.closest(".message-text-flow");
+        origin?.classList.add("is-text-selection-origin");
       }
       selectionPointerRef.current = { x: event.clientX, y: event.clientY };
     };
