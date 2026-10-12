@@ -73,6 +73,23 @@ const createHarness = () => {
 };
 
 describe("telegram store forum controller", () => {
+  it.each(["empty", "more", "failure"])("checks a TDLib last-topic cursor for %s before declaring the list complete", async tail => {
+    const harness = createHarness();
+    const page: ForumTopicPage = { topics: [topic("12")], hasMore: true,
+      nextOffsetDate: 100, nextOffsetMessageId: "200", nextOffsetTopicId: "12" };
+    vi.mocked(harness.transport.getForumTopics).mockResolvedValueOnce(page);
+    if (tail === "failure") vi.mocked(harness.transport.getForumTopics).mockRejectedValueOnce(new Error("offline"));
+    else vi.mocked(harness.transport.getForumTopics).mockResolvedValueOnce({
+      topics: tail === "more" ? [topic("18")] : [], hasMore: tail === "more",
+    });
+    await expect(harness.controller.loadForumTopics("forum-1")).resolves.toEqual({
+      ...page, hasMore: tail !== "empty",
+    });
+    expect(harness.transport.getForumTopics).toHaveBeenLastCalledWith({ chatId: "forum-1", limit: 1,
+      offsetDate: 100, offsetMessageId: "200", offsetTopicId: "12" });
+    expect(harness.getState().forumTopics.get("forum-1")).toEqual(page.topics);
+  });
+
   it("protects General and blocks delete without delete rights or topic ownership", async () => {
     const harness = createHarness();
     harness.getState().forumTopics.set("forum-1", [{ ...topic("1"), isGeneral: true }, topic("12")]);

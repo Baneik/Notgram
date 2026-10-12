@@ -1,7 +1,126 @@
 import { expect, it, vi } from "vitest";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import { createTelegramStore } from "./telegramStore";
-import { FORUM_ALL_TOPIC_ID, type Message } from "../telegram/types";
+import { FORUM_ALL_TOPIC_ID, type Message, type TelegramEvent } from "../telegram/types";
+
+const emit = (transport: MockTelegramTransport, event: TelegramEvent) => {
+  (transport as unknown as { listener: (event: TelegramEvent) => void }).listener(event);
+};
+
+it("updates the sidebar from topic acknowledgements when TDLib leaves the group count unchanged", async () => {
+  const transport = new MockTelegramTransport();
+  vi.spyOn(transport, "markForumTopicRead").mockResolvedValue(undefined);
+  const chatReads = vi.spyOn(transport, "markChatRead");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.unreadCount).toBe(0));
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "18")?.unreadCount).toBe(1);
+
+  const message: Message = { ...store.getState().messages.get("chat-forum")!.find(item => item.topicId === "12")!,
+    id: "design-incoming", topicId: "18", sentAt: "2026-08-01T09:50:00+08:00" };
+  store.setState({ messages: new Map(store.getState().messages).set("chat-forum", [
+    ...store.getState().messages.get("chat-forum")!, message,
+  ]) });
+  (transport as unknown as { snapshot: { messages: Message[] } }).snapshot.messages.push(message);
+  store.getState().selectForumTopic("18");
+  await vi.waitFor(() => expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(0));
+  expect(chatReads).not.toHaveBeenCalledWith("chat-forum");
+  await transport.disconnect();
+});
+
+it("repairs a stale group badge when the complete forum list already reports every topic as read", async () => {
+  const transport = new MockTelegramTransport();
+  const getTopics = transport.getForumTopics.bind(transport);
+  vi.spyOn(transport, "getForumTopics").mockImplementation(async input => {
+    const page = await getTopics(input);
+    return { ...page, topics: page.topics.map(topic => ({ ...topic, unreadCount: 0 })) };
+  });
+  const topicReads = vi.spyOn(transport, "markForumTopicRead");
+  const chatReads = vi.spyOn(transport, "markChatRead");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(0));
+  expect(topicReads).not.toHaveBeenCalled();
+  expect(chatReads).not.toHaveBeenCalledWith("chat-forum");
+  await transport.disconnect();
+});
+
+it.each(["filtered", "partial"])("keeps group unread counts when a %s topic list cannot cover the group", async mode => {
+  const transport = new MockTelegramTransport();
+  const getTopics = transport.getForumTopics.bind(transport);
+  vi.spyOn(transport, "getForumTopics").mockImplementation(async input => {
+    const page = await getTopics(input);
+    return { ...page, topics: page.topics.filter(topic => topic.id === "1"), hasMore: mode === "partial" };
+  });
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  await store.getState().loadForumTopics("chat-forum", mode === "filtered" ? "常规" : undefined);
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(4);
+  await transport.disconnect();
+});
+
+it("does not apply old topic totals after a new group count arrives during the list request", async () => {
+  const transport = new MockTelegramTransport();
+  let release!: () => void;
+  const getTopics = transport.getForumTopics.bind(transport);
+  vi.spyOn(transport, "getForumTopics").mockImplementationOnce(async input => {
+    const page = await getTopics(input);
+    await new Promise<void>(resolve => { release = resolve; });
+    return { ...page, topics: page.topics.map(topic => ({ ...topic, unreadCount: 0 })) };
+  });
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const loading = store.getState().loadForumTopics("chat-forum");
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+  store.setState({ chats: new Map(store.getState().chats).set("chat-forum", {
+    ...store.getState().chats.get("chat-forum")!, unreadCount: 5,
+  }) });
+  release();
+  await loading;
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(5);
+  await transport.disconnect();
+});
+
+it("keeps another topic unread after new arrivals, stale topic lists and repeated group snapshots", async () => {
+  const transport = new MockTelegramTransport();
+  vi.spyOn(transport, "markForumTopicRead").mockResolvedValue(undefined);
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1));
+  const rawChat = { ...store.getState().chats.get("chat-forum")!, unreadCount: 4 };
+  emit(transport, { type: "chat.upsert", chat: rawChat });
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  await store.getState().loadForumTopics("chat-forum");
+  const newer = { ...store.getState().messages.get("chat-forum")!.find(message => message.topicId === "12")!,
+    id: "new-topic-message", sentAt: "2026-08-01T10:00:00+08:00" };
+  emit(transport, { type: "chat.upsert", chat: { ...rawChat, unreadCount: 5 } });
+  emit(transport, { type: "message.upsert", message: newer, animateEntrance: true });
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(2);
+  await store.getState().markActiveChatRead();
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "18")?.unreadCount).toBe(1);
+  emit(transport, { type: "chat.upsert", chat: { ...rawChat, unreadCount: 1 } });
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  await transport.disconnect();
+});
+
+it("keeps both badges on a failed topic read and removes only that topic after retry", async () => {
+  const transport = new MockTelegramTransport();
+  vi.spyOn(transport, "markForumTopicRead").mockRejectedValueOnce(new Error("read failed")).mockResolvedValue(undefined);
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(store.getState().operationError).toBe("read failed"));
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(4);
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.unreadCount).toBe(3);
+  await store.getState().markActiveChatRead();
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  await transport.disconnect();
+});
 
 it("clears the sidebar count after reading every topic without clearing other topics prematurely", async () => {
   const transport = new MockTelegramTransport();

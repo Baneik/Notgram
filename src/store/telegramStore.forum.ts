@@ -1,6 +1,6 @@
 import { translate } from "../i18n";
 import type { TelegramTransport } from "../telegram/transport";
-import type { ForumTopic, ForumTopicPage } from "../telegram/types";
+import type { Chat, ForumTopic, ForumTopicPage } from "../telegram/types";
 import { hasChatDraftContent } from "../telegram/chatDraft";
 import { canDeleteForumTopic } from "../telegram/forumTopicPermissions";
 import type { TelegramState } from "./telegramStore.types";
@@ -33,7 +33,7 @@ export interface ForumControllerOptions {
   set: StoreSetter;
   topicKey: (chatId: string, topicId?: string) => string;
   onError: (error: unknown, fallback: string) => string;
-  onTopicsLoaded?: (chatId: string, query: string) => void;
+  onTopicsLoaded?: (chatId: string, query: string, page: ForumTopicPage, sourceChat: Chat | undefined) => void;
   captureDraftRevision?: () => number;
   acceptTopicDraft?: (key: string, draft: ForumTopic["draft"], revision: number) => void;
 }
@@ -60,13 +60,23 @@ export const createForumController = ({
     if (pending) return pending;
     const currentGeneration = generation;
     const draftRevision = captureDraftRevision?.() ?? 0;
+    const sourceChat = get().chats.get(chatId);
 
     const request = (async () => {
       const loading = new Set(get().forumTopicsLoading);
       loading.add(chatId);
       set({ forumTopicsLoading: loading });
       try {
-        const page = await transport.getForumTopics({ chatId, query, limit: 100 });
+        let page = await transport.getForumTopics({ chatId, query, limit: 100 });
+        if (currentGeneration !== generation) return undefined;
+        // TDLib returns a last-topic cursor even for the final nonempty page.
+        // Confirm exhaustion before using a small forum's totals for unread repair.
+        if (!query.trim() && page.hasMore && page.topics.length < 100) {
+          const tail = await transport.getForumTopics({ chatId, limit: 1,
+            offsetDate: page.nextOffsetDate, offsetMessageId: page.nextOffsetMessageId,
+            offsetTopicId: page.nextOffsetTopicId }).catch(() => undefined);
+          if (tail?.topics.length === 0 && !tail.hasMore) page = { ...page, hasMore: false };
+        }
         if (currentGeneration !== generation) return undefined;
         if (!query) topicPages.set(chatId, page);
         const forumTopics = new Map(get().forumTopics);
@@ -83,7 +93,7 @@ export const createForumController = ({
           else drafts.delete(key);
         }
         set({ forumTopics, ...(!acceptTopicDraft ? { drafts } : {}), operationError: undefined });
-        onTopicsLoaded?.(chatId, query);
+        onTopicsLoaded?.(chatId, query, page, sourceChat);
         return page;
       } catch (error) {
         if (currentGeneration !== generation) return undefined;

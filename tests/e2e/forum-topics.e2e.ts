@@ -14,6 +14,65 @@ const tab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-t
 const input = (page: Page) => page.getByRole("textbox", { name: "消息" });
 
 for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`topic reads clear the sidebar badge without All or a group read update at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/src/telegram/mockTransport.ts", async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, body: `${await response.text()}
+        const connectForTopicRead = MockTelegramTransport.prototype.connect;
+        MockTelegramTransport.prototype.connect = function (...args) {
+          this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadMentionCount = 0;
+          const source = this.snapshot.messages.find(message => message.id === "forum-release-1");
+          this.snapshot.messages.push({ ...source, id: "design-incoming", topicId: "18",
+            sentAt: "2026-08-01T09:50:00+08:00" });
+          return connectForTopicRead.apply(this, args);
+        };
+        MockTelegramTransport.prototype.markForumTopicRead = async function (chatId, topicId, messageId) {
+          const topic = this.ensureForumTopics(chatId).find(item => item.id === topicId);
+          // TDLib acknowledges only the topic boundary; the group count stays stale.
+          topic.lastReadInboxMessageId = messageId;
+          this.listener?.({ type: "forumTopics.changed", chatId,
+            topic: { id: topicId, lastReadInboxMessageId: messageId } });
+        };` });
+    });
+    await openForum(page);
+    const sidebar = page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]');
+    if (viewport.width === 1366) await expect(sidebar.locator(".unread-count")).toHaveText("4");
+    else await expect.poll(() => page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+    }, storePath)).toBe(4);
+    await tab(page, "12").click();
+    if (viewport.width === 1366) await expect(sidebar.locator(".unread-count")).toHaveText("1");
+    else await expect.poll(() => page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+    }, storePath)).toBe(1);
+    await expect(tab(page, "18").locator(".forum-topic-tab-count")).toHaveText("1");
+    await tab(page, "18").click();
+    if (viewport.width === 1366) await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+    else await expect.poll(() => page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+    }, storePath)).toBe(0);
+    await expect(tab(page, "18")).toHaveAttribute("aria-selected", "true");
+    await page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      await telegramStore.getState().loadForumTopics("chat-forum");
+    }, storePath);
+    await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+    await tab(page, "12").click();
+    await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+    if (viewport.width === 1366) {
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+      await sidebar.click();
+      await expect(tab(page, "12")).toHaveAttribute("aria-selected", "true");
+      await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+    }
+  });
+}
+
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
   test(`forum topic switches focus the new composer and restore its draft at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await openForum(page);

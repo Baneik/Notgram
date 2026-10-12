@@ -1,6 +1,6 @@
 # 论坛话题群组支持方案
 
-文档基线：2026-10-11
+文档基线：2026-10-13
 
 ## 1. 结论与范围
 
@@ -66,7 +66,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 
 1. 切换话题前刷新旧话题草稿；发送、失败重试和附件队列永远使用队列项中的 `topicId`。
 2. 话题打开后只读取对应历史游标，不能复用普通会话的 history state。
-3. 进入话题后只用该话题最后一条入站消息执行 `viewMessages(force_read=true, source=messageSourceForumTopicHistory)`，由 TDLib 更新该话题和群组计数；“全部”视图读取整群历史后使用整群 `markChatRead`。话题级请求不能使用 `messageSourceChatHistory`，否则 TDLib 推进的是整群已读边界。迟到回执不能覆盖新入站消息或新账号的未读状态。
+3. 进入话题后只用该话题最后一条入站消息执行 `viewMessages(force_read=true, source=messageSourceForumTopicHistory)`；“全部”视图读取整群历史后使用整群 `markChatRead`。TDLib 的话题阅读边界与群组 `unread_count` 独立，不能假定话题回执会同步减少群组计数。Store 在成功回执后同步扣除该话题实际读过的数量，同群组阅读请求串行处理；相同阅读边界去重，迟到群组计数下降吸收已扣数量，群组计数增加保留新消息。旧话题列表不能恢复已扣数量，新边界只消费旧边界后的入站消息。话题级请求不能使用 `messageSourceChatHistory`，否则 TDLib 推进的是整群已读边界。失败、迟到回执、新入站消息和账号切换都不得误清其他未读状态。
 4. `forumTopic.draft_message` 和实时 `chat.draftChanged` 都按话题 key 写入，服务端空草稿会删除对应 key。
 5. 旧消息缓存仍按 chat 存储，恢复后依靠 `Message.topicId` 过滤，避免破坏现有缓存迁移。
 6. 每个论坛群组最后打开的话题和已加载的话题元数据写入加密快照；重新进入时先恢复缓存会话，再在后台刷新服务端列表和历史。
@@ -77,6 +77,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 11. 所有话题列表草稿经过 `DraftSyncController`，读取开始时捕获本地修订号；发送/编辑后的迟到列表不能恢复旧文本。空草稿同步也从原草稿 key 取得 topicId；输入框卸载保存和停止输入状态携带原作用域，不读取切换后的 activeTopicId。
 12. 删除禁止常规话题；管理员需要 `canDeleteMessages`，创建者的消息数量/来源限制由服务端最终判定。失败保留话题和消息，成功移除本地消息/草稿并为活动话题回退到“全部”。
 13. 管理详情的 `canTransferOwnership` 包含两步验证与会话就绪检查；普通聊天更新仅携带角色能力。该字段的差异不能使已读取的管理资料失效；其他角色权限变化仍清理过期管理状态，阻止越权操作。
+14. 完整、未筛选的话题列表可向下校正群组残留角标；读取期间群组状态变化时不应用旧总数。TDLib 非空末页仍返回最后话题游标，小于 100 项的列表通过额外一项查询确认末尾为空；搜索、未确认分页和探测失败均不能按部分话题总数清除群组角标。
 
 ### 3.4 请求示例
 
