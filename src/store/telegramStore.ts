@@ -253,6 +253,7 @@ export const createTelegramStore = (
     let cacheWrite = Promise.resolve();
     let accountTransition = false;
     let accountGeneration = 0;
+    const cachedChatIds = new Set<string>();
     const chatJoinTargets = new Map<string, string>();
     const pendingPinnedReorders = new Map<string, {
       serverOrders: Map<string, string | undefined>;
@@ -1083,6 +1084,7 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      cachedChatIds.clear();
       incomingAlbums.reset();
       boundedMessages = undefined;
       boundedMessageCount = 0;
@@ -1240,6 +1242,7 @@ export const createTelegramStore = (
       const current = get();
       profileController.hydrateCachedProfiles(snapshot.profiles ?? []);
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
+      for (const chat of snapshot.chats) if (!current.chats.has(chat.id)) cachedChatIds.add(chat.id);
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
       const forumTopics = new Map(
         (snapshot.forumTopics ?? []).map((entry) => [entry.chatId, entry.topics]),
@@ -2061,6 +2064,7 @@ export const createTelegramStore = (
         const previousActiveChat = activeChatId ? previousChats.get(activeChatId) : undefined;
         const chats = new Map(previousChats);
         for (let chat of incomingChats) {
+          cachedChatIds.delete(chat.id);
           chat = forumUnreadState.observeChat(chat);
           for (const [listId, reorder] of pendingPinnedReorders) {
             if (!reorder.serverOrders.has(chat.id)) continue;
@@ -2070,6 +2074,16 @@ export const createTelegramStore = (
             }
           }
           chats.set(chat.id, chat);
+        }
+        if (event.type === "chats.upserted" && event.initialSyncComplete) {
+          // Drop only unconfirmed cache positions, never membership or history.
+          // Unloaded pages regain visibility through later TDLib position updates.
+          for (const id of cachedChatIds) {
+            const chat = chats.get(id);
+            if (chat) chats.set(id, { ...chat, visibleFolderIds: [], pinned: false,
+              pinnedFolderIds: [], listOrderByFolder: {} });
+          }
+          cachedChatIds.clear();
         }
         const firstChat = get().activeChatId || get().chatListReady
           ? undefined

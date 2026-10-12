@@ -64,6 +64,11 @@ const sanitizeCachedChat = (chat: Chat): Chat => {
   const title = sanitizeIdentityText(chat.title, translate("未命名会话"), 128);
   return {
     ...chat,
+    // Older native snapshots mixed membership with visibility. TDLib chat IDs
+    // are numeric; legacy Mock fixtures use names and optional pin-only orders.
+    visibleFolderIds: chat.visibleFolderIds ?? (/^-?\d+$/.test(chat.id) && chat.listOrderByFolder
+      ? Object.entries(chat.listOrderByFolder).filter(([, order]) => /^-?\d+$/.test(order) && BigInt(order) !== 0n).map(([id]) => id)
+      : undefined),
     ...(chat.previewCacheable === false ? { preview: "", previewSenderId: undefined } : {}),
     title,
     avatar: chat.kind === "saved"

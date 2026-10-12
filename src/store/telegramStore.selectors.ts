@@ -11,6 +11,9 @@ export const isChatPinnedInFolder = (chat: Chat, folderId: string) =>
     ? chat.pinned
     : chat.pinnedFolderIds.includes(folderId);
 
+export const isChatVisibleInFolder = (chat: Chat, folderId: string) =>
+  (chat.visibleFolderIds ?? chat.folderIds).includes(folderId);
+
 const listOrder = (chat: Chat, folderId: string) => {
   const value = chat.listOrderByFolder?.[folderId];
   if (!value || !/^-?\d+$/.test(value)) return 0n;
@@ -48,7 +51,7 @@ export const filterAndSortChats = (
 ) => {
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   return [...chats]
-    .filter((chat) => normalizedQuery || chat.folderIds.includes(folderId))
+    .filter((chat) => normalizedQuery || isChatVisibleInFolder(chat, folderId))
     .filter((chat) => {
       if (!normalizedQuery) return true;
       return `${chat.title} ${chat.preview}`
@@ -65,7 +68,7 @@ export const selectVisibleChats = (state: TelegramState) =>
 export const groupChatsByFolder = (chats: Iterable<Chat>, folders: ChatFolder[]) => {
   const grouped = new Map(folders.map((folder) => [folder.id, [] as Chat[]]));
   for (const chat of chats) {
-    for (const folderId of new Set(chat.folderIds)) grouped.get(folderId)?.push(chat);
+    for (const folderId of new Set(chat.visibleFolderIds ?? chat.folderIds)) grouped.get(folderId)?.push(chat);
   }
   for (const [folderId, rows] of grouped) rows.sort(compareChatsInFolder(folderId));
   return grouped;

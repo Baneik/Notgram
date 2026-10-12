@@ -13,7 +13,9 @@ type Internal = {
   mapChat: (chat: TdObject) => Chat;
   refreshChat: (id: string) => Promise<TdObject>;
   handleUpdateBatch: (updates: TdObject[]) => void;
-  finishInitialChatSync: () => void;
+  finishInitialChatSync: (complete?: boolean) => void;
+  startBootstrap: () => void;
+  settingsOnly: boolean;
   rawChats: Map<string, TdObject>;
 };
 
@@ -136,21 +138,67 @@ describe("TDLib chat position synchronization", () => {
     expect(filterAndSortChats(chats.values(), "folder:12", "")).toEqual([]);
   });
 
-  it.each(["main", "archive", "12"])("preserves %s membership before positioning and removes it independently", (folder) => {
+  it.each(["main", "archive", "12"])("does not display %s membership before a visible position", (folder) => {
     const { internal, chats } = setup();
     const list = position(folder, "0").list;
     const folderId = folder === "12" ? "folder:12" : folder;
     internal.upsertChat({ ...chat(7, []), chat_lists: [list] });
     internal.finishInitialChatSync();
     const visible = () => filterAndSortChats(chats.values(), folderId, "");
-    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
+    expect(visible()).toEqual([]);
     internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position(folder, "900", true) }]);
     expect(visible()).toMatchObject([{ id: "7", pinned: true, listOrderByFolder: { [folderId]: "900" } }]);
     internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position(folder, "0") }]);
-    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
-    internal.handleUpdateBatch([{ "@type": "updateChatRemovedFromList", chat_id: 7, chat_list: list }]);
     expect(visible()).toEqual([]);
     internal.handleUpdateBatch([{ "@type": "updateChatAddedToList", chat_id: 7, chat_list: list }]);
-    expect(visible()).toMatchObject([{ id: "7", pinned: false, listOrderByFolder: {} }]);
+    expect(visible()).toEqual([]);
+    expect(chats.get("7")?.folderIds).toContain(folderId);
+    internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: 7, position: position(folder, "800") }]);
+    expect(visible().map(value => value.id)).toEqual(["7"]);
+  });
+
+  it.each(["chatTypeBasicGroup", "chatTypeSupergroup"])("keeps a removed %s hidden across metadata and list reloads", async type => {
+    const { transport, internal, chats } = setup();
+    const raw = { ...chat(-7), type: type === "chatTypeBasicGroup"
+      ? { "@type": type, basic_group_id: 70 } : { "@type": type, supergroup_id: 70 },
+      chat_lists: [{ "@type": "chatListMain" }] };
+    internal.request = async request => request["@type"] === "getChats" ? { chat_ids: [] } : { "@type": "ok" };
+    internal.upsertChat(raw);
+    internal.finishInitialChatSync();
+    expect(filterAndSortChats(chats.values(), "main", "")).toHaveLength(1);
+    internal.handleUpdateBatch([{ "@type": "updateChatPosition", chat_id: -7, position: position("main", "0") }]);
+    internal.handleUpdateBatch([{ "@type": "updateChatTitle", chat_id: -7, title: "Left group" }]);
+    await transport.loadMoreChats("main");
+    expect(chats.get("-7")?.folderIds).toEqual(["main"]);
+    expect(filterAndSortChats(chats.values(), "main", "")).toEqual([]);
+  });
+
+  it("marks only successful bootstrap snapshots as complete, including after an earlier failure", async () => {
+    const { internal } = setup();
+    const events: TelegramEvent[] = [];
+    internal.listener = event => events.push(event);
+    internal.request = vi.fn(async request => {
+      if (request["@type"] === "getMe") return { id: 1 };
+      throw new Error("OFFLINE");
+    });
+    internal.startBootstrap();
+    await vi.waitFor(() => expect(events.some(event => event.type === "sync.error")).toBe(true));
+    expect(events.filter(event => event.type === "chats.upserted")).toEqual([{ type: "chats.upserted", chats: [] }]);
+    internal.request = vi.fn(async request => request["@type"] === "getMe" ? { id: 1 }
+      : request["@type"] === "getChats" ? { chat_ids: [] } : { "@type": "ok" });
+    internal.startBootstrap();
+    await vi.waitFor(() => expect(events.some(event => event.type === "chats.upserted" && event.initialSyncComplete)).toBe(true));
+  });
+
+  it("does not reconcile cached chat positions from a settings-only bootstrap", async () => {
+    const { internal } = setup();
+    const events: TelegramEvent[] = [];
+    internal.settingsOnly = true;
+    internal.listener = event => events.push(event);
+    internal.request = vi.fn(async () => ({ id: 1 }));
+    internal.startBootstrap();
+    await vi.waitFor(() => expect(events.some(event => event.type === "chats.upserted")).toBe(true));
+    expect(events.some(event => event.type === "chats.upserted" && event.initialSyncComplete)).toBe(false);
+    expect(internal.request).toHaveBeenCalledTimes(1);
   });
 });

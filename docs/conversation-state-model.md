@@ -23,6 +23,20 @@ the list could alternate between Virtuoso's correction and the application's cor
 
 ## State ownership
 
+TDLib chat list membership (`chat_lists`) is separate from visible positions.
+`folderIds` retains membership for folder management; `visibleFolderIds` contains
+only non-zero positions and drives sidebar panels and keyboard navigation.
+Zero-order updates hide a row immediately, even when membership remains. Search
+and history access can still address that chat. Legacy native UI snapshots derive
+visibility from saved list orders; old Mock fixtures retain their membership fallback.
+
+A successful initial TDLib sync retires positions belonging only to the restored
+UI cache. Partial updates and failed bootstrap attempts cannot reconcile them.
+Reconciliation preserves chat records, membership, messages, drafts and outbox;
+unloaded pages become visible again through subsequent live positions. A retry
+after bootstrap failure must publish the successful completion boundary, and
+account changes clear the pending cache identities.
+
 There are only two authoritative inputs:
 
 - The Telegram store owns the selected destination: `activeChatId` and `activeTopicId`.

@@ -15,7 +15,7 @@ import type { GlobalSearchState } from "../store/globalSearchState";
 import type { Chat, ChatFolder, GlobalSearchFilter, User } from "../telegram/types";
 import type { ChatMessageSearchState } from "../store/chatMessageSearchState";
 import type { SidebarSearchScope } from "../hooks/useSidebarSearch";
-import { groupChatsByFolder } from "../store/telegramStore.selectors";
+import { groupChatsByFolder, isChatVisibleInFolder } from "../store/telegramStore.selectors";
 import { Avatar } from "./Avatar";
 import { ChatSearchResults, GlobalSearchResults, type SidebarSearchSenderOption } from "./GlobalSearchView";
 import { ChatContextMenu } from "./SidebarContextMenus";
@@ -376,7 +376,7 @@ export function ChatSidebar({
         onLostPointerCapture={endResize}
       />
     </aside>
-    {contextMenu && contextMenu.folderId === folderId && contextChat && contextChat.folderIds.includes(folderId) && !searchQuery.trim() && !scopedSearch && !(mobileViewport && mobileChatOpen) && (
+    {contextMenu && contextMenu.folderId === folderId && contextChat && isChatVisibleInFolder(contextChat, folderId) && !searchQuery.trim() && !scopedSearch && !(mobileViewport && mobileChatOpen) && (
       <ChatContextMenu
         chat={contextChat}
         peer={contextChat.peerId ? users.get(contextChat.peerId) : undefined}

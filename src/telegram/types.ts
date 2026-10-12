@@ -556,6 +556,8 @@ export interface Chat {
   canSendMessages?: boolean;
   isBlocked?: boolean;
   folderIds: string[];
+  /** Visible TDLib positions, distinct from retained list membership. */
+  visibleFolderIds?: string[];
   title: string;
   avatar: Avatar;
   peerId?: string;
@@ -1175,7 +1177,7 @@ export type TelegramEvent =
     }
   | { type: "folders.replaced"; folders: ChatFolder[] }
   | { type: "chat.migrated"; fromChatId: string; toChatId: string }
-  | { type: "chats.upserted"; chats: Chat[] }
+  | { type: "chats.upserted"; chats: Chat[]; initialSyncComplete?: boolean }
   | { type: "users.upserted"; users: User[] }
   | { type: "chat.upsert"; chat: Chat; cacheRelevant?: boolean }
   | { type: "chat.historyDeleted"; chatId: string; lastMessageId?: string }

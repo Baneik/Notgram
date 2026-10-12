@@ -2703,7 +2703,7 @@ export class TauriTelegramTransport implements TelegramTransport {
         this.bootstrapComplete = true;
         this.bootstrapFailed = false;
         this.bootstrapRetryAttempt = 0;
-        this.finishInitialChatSync();
+        this.finishInitialChatSync(!this.settingsOnly);
         if (this.tdConnectionStatus === "online") this.emitConnectionStatus("online");
       })
       .catch((error) => {
@@ -3203,8 +3203,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private finishInitialChatSync() {
-    if (!this.initialChatSyncPending) return;
+  private finishInitialChatSync(initialSyncComplete = false) {
+    if (!this.initialChatSyncPending && !initialSyncComplete) return;
     this.initialChatSyncPending = false;
     this.initialUserSyncPending = false;
     if (this.initialUsers.size > 0) {
@@ -3218,7 +3218,7 @@ export class TauriTelegramTransport implements TelegramTransport {
       const chat = this.mapChat(raw);
       if (chat) chats.push(chat);
     }
-    this.listener?.({ type: "chats.upserted", chats });
+    this.listener?.({ type: "chats.upserted", chats, ...(initialSyncComplete ? { initialSyncComplete: true } : {}) });
     const drafts = [];
     const draftChatIds: string[] = [];
     for (const raw of this.rawChats.values()) {

@@ -1796,8 +1796,9 @@ export const mapTdChat = (
       if (folderId) folderIds.add(folderId);
     }
   }
-  // chat_lists describes membership even before a list has loaded a visible
-  // position. Position snapshots control ordering and pins, not membership.
+  const visibleFolderIds = [...folderIds];
+  // Membership can survive a zero-order removal. Keep it for folder management,
+  // but only positions determine which sidebar rows are visible.
   for (const list of asTdObjects(raw.chat_lists)) {
     const folderId = tdChatListId(list);
     if (folderId) folderIds.add(folderId);
@@ -1856,6 +1857,7 @@ export const mapTdChat = (
       statusType === "chatMemberStatusAdministrator" ||
       ((statusType === "chatMemberStatusCreator" || statusType === "chatMemberStatusRestricted") && status.is_member === true) } : {}),
     folderIds: [...folderIds],
+    visibleFolderIds,
     title: kind === "saved" ? translate("收藏夹") : title,
     avatar: kind === "saved" ? savedMessagesAvatar() : {
       label: initials(title),
