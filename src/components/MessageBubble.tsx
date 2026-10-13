@@ -36,6 +36,7 @@ import type {
   MessageReactionSenderPage,
   MessageReactionType,
   MessageReplyQuote,
+  StickerPreviewTarget,
   User,
 } from "../telegram/types";
 import { MessageMetadata } from "./MessageMetadata";
@@ -159,7 +160,7 @@ export interface MessageBubbleProps {
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
   onOpenMedia?: (messageId: string, chatId?: string, windowed?: boolean) => void;
-  onOpenStickerSet?: (stickerSetId: string) => void;
+  onOpenStickerSet?: (stickerSetId: string, sticker?: StickerPreviewTarget) => void;
   cornerAction?: ReactNode;
   albumItem?: boolean;
   sharedAlbumMetadata?: boolean;
@@ -1053,7 +1054,11 @@ function MessageBubbleComponent({
                     type="button"
                     aria-label={translate("查看贴纸包")}
                     title={translate("查看贴纸包")}
-                    onClick={() => onOpenStickerSet(content.stickerSetId!)}
+                    onClick={() => onOpenStickerSet(content.stickerSetId!, {
+                      fileId: content.fileId,
+                      remoteId: content.remoteId,
+                      remoteUniqueId: content.remoteUniqueId,
+                    })}
                   />
                 )}
               </div>

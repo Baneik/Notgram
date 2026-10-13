@@ -3,18 +3,20 @@ import { LoaderCircle, Plus, Sticker, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useTelegramStore } from "../store/telegramStore";
-import type { StickerSet } from "../telegram/types";
+import type { StickerPreviewTarget, StickerSet } from "../telegram/types";
+import { matchesFileIdentity } from "../telegram/messageFileState";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { EmojiAssetVisual } from "./EmojiAssetVisual";
 
 interface StickerSetPreviewProps {
   stickerSetId: string;
+  initialSticker?: StickerPreviewTarget;
   onClose: () => void;
   onRestoreFocus?: () => void;
 }
 
-export function StickerSetPreview({ stickerSetId, onClose, onRestoreFocus }: StickerSetPreviewProps) {
+export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRestoreFocus }: StickerSetPreviewProps) {
   const dialogRef = useModalFocus<HTMLElement>(onClose, false, undefined, false, onRestoreFocus);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
   const emojiRevision = useTelegramStore((state) => state.emojiRevision);
@@ -33,7 +35,7 @@ export function StickerSetPreview({ stickerSetId, onClose, onRestoreFocus }: Sti
   const [actionFailed, setActionFailed] = useState(false);
   const [retryRevision, setRetryRevision] = useState(0);
 
-  useEffect(() => { setSelectedStickerId(undefined); setActionFailed(false); }, [stickerSetId]);
+  useEffect(() => { setSelectedStickerId(undefined); setActionFailed(false); }, [initialSticker, stickerSetId]);
 
   useEffect(() => {
     let active = true;
@@ -50,9 +52,15 @@ export function StickerSetPreview({ stickerSetId, onClose, onRestoreFocus }: Sti
     return () => { active = false; };
   }, [emojiRevision, getCachedStickerSet, loadStickerSet, retryRevision, stickerSetId]);
 
-  const selectedSticker = useMemo(() => stickerSet?.stickers.find(
-    (sticker) => sticker.id === selectedStickerId,
-  ) ?? stickerSet?.stickers[0], [selectedStickerId, stickerSet]);
+  const selectedSticker = useMemo(() => {
+    const selected = stickerSet?.stickers.find((sticker) => sticker.id === selectedStickerId);
+    // Cached messages can outlive numeric TDLib file handles; prefer their stable identity.
+    const initial = initialSticker && stickerSet?.stickers.find((sticker) =>
+      initialSticker.remoteId || initialSticker.remoteUniqueId
+        ? matchesFileIdentity(initialSticker.remoteId, initialSticker.remoteUniqueId, sticker)
+        : initialSticker.fileId !== undefined && sticker.fileId === initialSticker.fileId);
+    return selected ?? initial ?? stickerSet?.stickers[0];
+  }, [initialSticker, selectedStickerId, stickerSet]);
 
   const addSet = async () => {
     if (addPending) return;

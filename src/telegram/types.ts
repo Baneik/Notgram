@@ -520,6 +520,8 @@ export interface EmojiPickerAsset {
   duration?: number;
 }
 
+export type StickerPreviewTarget = Partial<Pick<EmojiPickerAsset, "fileId" | "remoteId" | "remoteUniqueId">>;
+
 export interface StickerSetSummary {
   id: string;
   title: string;

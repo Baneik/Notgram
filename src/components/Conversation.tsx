@@ -61,6 +61,7 @@ import type {
   MessageReactionType,
   MessageReplyQuote,
   MessageTextEntity,
+  StickerPreviewTarget,
   ForwardMessagesResult,
   User,
 } from "../telegram/types";
@@ -397,7 +398,7 @@ interface ConversationProps {
   onOpenSenderProfile: (senderId: string) => void;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string, chatId?: string) => void;
-  onOpenStickerSet: (stickerSetId: string) => void;
+  onOpenStickerSet: (stickerSetId: string, sticker?: StickerPreviewTarget) => void;
   onClickSponsoredMessage?: (chatId: string, messageId: string, isMediaClick?: boolean) => Promise<void>;
   onStartPrivateChat: (senderId: string) => void;
   onSetChatPinned: (pinned: boolean) => Promise<boolean>;

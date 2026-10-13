@@ -50,6 +50,12 @@ clear previews and cancel their owners so late work cannot refill another accoun
 New or uncached stickers still require an initial background preparation; sending
 an already known asset never waits for it.
 
+Opening a pack from a message carries that sticker's file identity into the
+preview. Prefer its stable remote identity over runtime file handles and select
+it from cached or asynchronously loaded pack contents. Keep manual selection
+during refresh and reset it for a new opening target. Pack links without a
+target, or targets absent from the pack, fall back to the first sticker.
+
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message

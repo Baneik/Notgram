@@ -50,7 +50,7 @@ import {
   messageMatchesAdBlockingRules,
   textMatchesAdBlockingRules,
 } from "../utils/adBlocking";
-import type { Message, TelegramLinkTarget } from "../telegram/types";
+import type { Message, StickerPreviewTarget, TelegramLinkTarget } from "../telegram/types";
 import { isTelegramBotStartLink, isTelegramUserLink } from "../telegram/telegramLinks";
 import { connectionPresentation } from "../telegram/connectionState";
 import {
@@ -380,11 +380,14 @@ export function App() {
   const previousMobileChatOpenRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloadManagerOpen, setDownloadManagerOpen] = useState(false);
-  const [stickerSetPreviewId, setStickerSetPreviewId] = useState<string>();
+  const [stickerSetPreview, setStickerSetPreview] = useState<{
+    stickerSetId: string;
+    sticker?: StickerPreviewTarget;
+  }>();
   const stickerReturnFocus = useRef<(() => void) | undefined>(undefined);
-  const openStickerSetPreview = useCallback((id: string) => {
+  const openStickerSetPreview = useCallback((stickerSetId: string, sticker?: StickerPreviewTarget) => {
     stickerReturnFocus.current = rememberActiveComposerFocus();
-    setStickerSetPreviewId(id);
+    setStickerSetPreview({ stickerSetId, sticker });
   }, []);
   const [managedDownloadRequests, setManagedDownloadRequests] = useState<ReadonlyMap<string, ManagedDownloadRequest>>(
     readManagedDownloadRequests,
@@ -901,7 +904,7 @@ export function App() {
     setBotStartSending(false);
     setSettingsOpen(false);
     setDownloadManagerOpen(false);
-    setStickerSetPreviewId(undefined);
+    setStickerSetPreview(undefined);
     setFolderManagerOpen(false);
     setFolderManagerInitialId(undefined);
     setNewChatOpen(false);
@@ -1928,7 +1931,7 @@ export function App() {
     <>
       <main
         inert={accountSwitching}
-        aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || forumManagerOpen || Boolean(stickerSetPreviewId) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
+        aria-hidden={accountSwitching || settingsOpen || downloadManagerOpen || folderManagerOpen || newChatOpen || forumManagerOpen || Boolean(stickerSetPreview) || Boolean(pendingConfirmation) || Boolean(managementChatId) || undefined}
         className={`app-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}
       >
         <NavigationRail
@@ -2234,12 +2237,14 @@ export function App() {
           onClose={() => setChatInvite(undefined)} onOpenChat={chatId => openGlobalSearchChat(chatId, true)}
         /> : null}
       </MotionPresence>
-      <MotionPresence present={Boolean(stickerSetPreviewId)}>
-        {stickerSetPreviewId ? <StickerSetPreview
-          stickerSetId={stickerSetPreviewId}
+      <MotionPresence present={Boolean(stickerSetPreview)}>
+        {stickerSetPreview ? <StickerSetPreview
+          key={stickerSetPreview.stickerSetId}
+          stickerSetId={stickerSetPreview.stickerSetId}
+          initialSticker={stickerSetPreview.sticker}
           onRestoreFocus={stickerReturnFocus.current}
           onClose={() => {
-            setStickerSetPreviewId(undefined);
+            setStickerSetPreview(undefined);
           }}
         /> : null}
       </MotionPresence>
