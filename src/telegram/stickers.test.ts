@@ -29,6 +29,29 @@ const harness = () => {
 };
 
 describe("sticker contracts", () => {
+  it("persists remote identities and sends restored stickers without reading or downloading media", async () => {
+    const { transport, request } = harness();
+    request.mockResolvedValueOnce({ ...rawSet, stickers: [{ ...rawSet.stickers[0],
+      sticker: { id: 71, remote: { id: "remote-sticker", unique_id: "stable-sticker" }, local: {} },
+      thumbnail: { ...rawSet.stickers[0].thumbnail, file: { id: 72, remote: { id: "remote-thumbnail" }, local: {} } },
+    }] });
+    const set = await transport.getStickerSet(rawSet.id);
+    expect(set.stickers[0]).toMatchObject({ remoteId: "remote-sticker", remoteUniqueId: "stable-sticker", previewRemoteId: "remote-thumbnail" });
+    request.mockReset();
+    request.mockResolvedValue({ "@type": "ok" });
+    await transport.sendSticker({ chatId: "7", asset: set.stickers[0] });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0]).toMatchObject({ "@type": "sendMessage",
+      input_message_content: { sticker: { sticker: { "@type": "inputFileRemote", id: "remote-sticker" } } } });
+  });
+
+  it("resolves the current file ID for a persisted thumbnail independently of its old numeric ID", async () => {
+    const { transport, request } = harness();
+    request.mockResolvedValue({ "@type": "file", id: 993, local: { is_downloading_completed: true, path: "C:/cache/rebound.jpg" } });
+    await expect(transport.loadEmojiAsset({ id: "persisted", kind: "sticker", fileId: 72, remoteId: "remote-thumbnail", fileName: "thumbnail" }, 16))
+      .resolves.toBe("C:/cache/rebound.jpg");
+    expect(request).toHaveBeenCalledExactlyOnceWith({ "@type": "getRemoteFile", remote_file_id: "remote-thumbnail", file_type: null });
+  });
   it("loads the thumbnail file independently from its animated sticker", async () => {
     const { transport, request } = harness();
     const pack = await transport.getStickerSet(rawSet.id);

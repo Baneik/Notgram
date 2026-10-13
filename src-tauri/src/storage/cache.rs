@@ -196,7 +196,10 @@ pub(super) fn cached_asset_paths(snapshot: &Value, trusted_roots: &[PathBuf]) ->
                 }
             }
             Value::String(path)
-                if matches!(key, Some("imagePath" | "localPath" | "thumbnailPath")) =>
+                if matches!(
+                    key,
+                    Some("imagePath" | "localPath" | "thumbnailPath" | "previewPath")
+                ) =>
             {
                 if let Ok(path) = PathBuf::from(path).canonicalize()
                     && path.is_file()

@@ -2289,8 +2289,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.searchStickers(query, chatId);
   }
 
-  async loadEmojiAsset(asset: EmojiPickerAsset) {
-    return this.messageMediaService.loadEmojiAsset(asset);
+  async loadEmojiAsset(asset: EmojiPickerAsset, priority?: number) {
+    return this.messageMediaService.loadEmojiAsset(asset, priority);
   }
 
   async sendSticker(input: SendEmojiAssetInput) {

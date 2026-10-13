@@ -29,6 +29,7 @@ interface EmojiAssetVisualProps {
 export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previewOnly = false, className = "" }: EmojiAssetVisualProps) {
   const loadEmojiAsset = useTelegramStore((state) => state.loadEmojiAsset);
   const getCachedEmojiAsset = useTelegramStore((state) => state.getCachedEmojiAsset);
+  const getCachedStickerPickerPreview = useTelegramStore((state) => state.getCachedStickerPickerPreview);
   const recoverFile = useTelegramStore((state) => state.recoverFile);
   const accountId = useTelegramStore((state) => state.activeAccountId);
   const emojiRevision = useTelegramStore((state) => state.emojiRevision);
@@ -48,6 +49,7 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   const animated = asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm" || asset.kind === "animation";
   const hasPreview = Boolean(preview || asset.previewPath || asset.previewDataUrl);
   const cachedFull = getCachedEmojiAsset(asset);
+  const pickerPreview = asset.kind === "sticker" ? getCachedStickerPickerPreview(asset) : undefined;
   const wantsFull = previewOnly ? !animated && (!hasPreview || Boolean(cachedFull)) : !animated || autoplay || eager || !hasPreview;
   const cachedPreview = preview ? getCachedEmojiAsset(preview) : undefined;
   const key = accountId + ":" + emojiRevision + ":" + readRevision;
@@ -72,7 +74,7 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   const usablePreview = previewSource && !failedSources.has(previewSource) ? previewSource : undefined;
   const fullReady = Boolean(usableFull && readyFullSource === usableFull);
   const previewReady = Boolean(usablePreview && readyPreviewSource === usablePreview);
-  const ready = fullReady || previewReady;
+  const ready = fullReady || previewReady || Boolean(pickerPreview);
   const markFailed = (source: string, usingFull: boolean) => {
     setFailedSources((current) => new Set(current).add(source));
     if (!isTauri()) return;
@@ -91,7 +93,9 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
 
   return <span ref={visualRef} className={("emoji-asset-visual " + className).trim()} data-asset-id={asset.id}>
     {!ready && <StickerPlaceholder fileId={asset.kind === "sticker" ? asset.fileId : undefined} width={asset.width} height={asset.height} emoji={asset.emoji} />}
-    {usablePreview && !fullReady && <StableImage retainOnRemount={asset.kind === "sticker"} src={usablePreview} alt="" draggable={false}
+    {pickerPreview && !fullReady && <img className="stable-image" data-picker-preview="true" data-image-state="ready" data-image-transition="none"
+      src={pickerPreview} alt="" draggable={false} />}
+    {usablePreview && !fullReady && !pickerPreview && <StableImage retainOnRemount={asset.kind === "sticker"} src={usablePreview} alt="" draggable={false}
       onError={() => markFailed(usablePreview, false)} onReady={() => setReadyPreviewSource(usablePreview)} />}
     {usableFull && <span className="emoji-asset-full" data-asset-state={fullReady ? "ready" : "loading"}>
       {asset.mimeType === "application/x-tgsticker" ? (

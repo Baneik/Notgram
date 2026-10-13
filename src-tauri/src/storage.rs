@@ -1216,21 +1216,25 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         let avatar = trusted.join("avatar.jpg");
         let media = trusted.join("media.jpg");
+        let preview = trusted.join("sticker-preview.webp");
         let secret = outside.join("secret.txt");
         fs::write(&avatar, b"avatar").unwrap();
         fs::write(&media, b"media").unwrap();
+        fs::write(&preview, b"preview").unwrap();
         fs::write(&secret, b"secret").unwrap();
 
         let snapshot = serde_json::json!({
             "avatar": { "imagePath": avatar },
             "messages": [{ "content": { "localPath": media, "thumbnailPath": secret } }],
+            "emojiPickerCatalog": { "recentStickers": [{ "previewPath": preview }, { "previewPath": secret }] },
             "unrecognizedPath": trusted.join("ignored.jpg")
         });
         let paths = cached_asset_paths(&snapshot, &[trusted.canonicalize().unwrap()]);
 
-        assert_eq!(paths.len(), 2);
+        assert_eq!(paths.len(), 3);
         assert!(paths.contains(&avatar.canonicalize().unwrap()));
         assert!(paths.contains(&media.canonicalize().unwrap()));
+        assert!(paths.contains(&preview.canonicalize().unwrap()));
         assert!(!paths.contains(&secret.canonicalize().unwrap()));
         fs::remove_dir_all(root).unwrap();
     }

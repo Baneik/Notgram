@@ -5,6 +5,7 @@ export const emojiAssetPreview = (asset: EmojiPickerAsset): EmojiPickerAsset | u
   id: `preview:${asset.previewFileId}`,
   kind: "sticker",
   fileId: asset.previewFileId,
+  remoteId: asset.previewRemoteId,
   localPath: asset.previewPath,
   fileName: "thumbnail",
   mimeType: asset.previewMimeType,

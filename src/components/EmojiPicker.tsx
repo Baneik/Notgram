@@ -345,9 +345,9 @@ export function EmojiPicker({
                 <span>{translate("无法读取表情与贴纸")}</span>
                 <button type="button" onClick={() => setRetryRevision((value) => value + 1)}>{translate("重试")}</button>
               </div>
-            ) : !normalizedQuery && stickerSetLoading === selectedStickerSetId ? (
+            ) : !normalizedQuery && !selectedStickerSet && stickerSetLoading === selectedStickerSetId ? (
               <div className="emoji-picker-empty"><LoaderCircle className="spin" size={20} />{translate("正在加载贴纸包")}</div>
-            ) : !normalizedQuery && failedStickerSetIds.has(selectedStickerSetId) ? (
+            ) : !normalizedQuery && !selectedStickerSet && failedStickerSetIds.has(selectedStickerSetId) ? (
               <div className="emoji-picker-empty emoji-picker-error">
                 <span>{translate("贴纸包加载失败")}</span>
                 <button

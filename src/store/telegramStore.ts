@@ -1241,6 +1241,7 @@ export const createTelegramStore = (
       }
       const current = get();
       profileController.hydrateCachedProfiles(snapshot.profiles ?? []);
+      if (!snapshot.accountId || snapshot.accountId === current.activeAccountId) emojiPickerController.hydrate(snapshot);
       const chats = new Map(snapshot.chats.map((chat) => [chat.id, chat]));
       for (const chat of snapshot.chats) if (!current.chats.has(chat.id)) cachedChatIds.add(chat.id);
       const users = new Map(snapshot.users.map((user) => [user.id, user]));
@@ -1401,6 +1402,7 @@ export const createTelegramStore = (
     });
     const snapshotWithHistory = (...parameters: Parameters<typeof cachedSnapshotFrom>) => {
       const snapshot = cachedSnapshotFrom(...parameters);
+      Object.assign(snapshot, emojiPickerController.snapshot());
       const contexts = history.cachedContexts(snapshot.messages);
       if (contexts.length) snapshot.historyContexts = contexts;
       return snapshot;
@@ -1884,6 +1886,7 @@ export const createTelegramStore = (
     const applyEvent = (event: TelegramEvent, liveMessages: readonly Message[] = []) => {
       if (event.type === "emoji.catalogChanged" || event.type === "stickerSet.updated") {
         emojiPickerController.handleUpdate(event);
+        emojiPickerController.warm();
         return;
       }
       if (event.type === "file.updated") {
@@ -1906,6 +1909,7 @@ export const createTelegramStore = (
           authorizationError: undefined,
         });
         if (event.state.kind === "ready") {
+          emojiPickerController.warm();
           loadInitialVisibleFolder();
           void mediaFileRestorer.restore();
           scheduleCacheWrite();
@@ -1943,6 +1947,7 @@ export const createTelegramStore = (
 
       if (event.type === "sync.required") {
         emojiPickerController.invalidate();
+        emojiPickerController.warm();
         if (get().authorization.kind === "ready") {
           invalidateSyncState();
           refreshVisibleData();
@@ -1967,6 +1972,7 @@ export const createTelegramStore = (
           } else {
             loadInitialVisibleFolder();
           }
+          emojiPickerController.warm();
           draftSync.resumePending();
           void flushOutbox();
           const activeChatId = get().activeChatId;
@@ -2724,11 +2730,14 @@ export const createTelegramStore = (
       set,
       onError: errorMessage,
     });
+    let pickerWarmingEnabled = false;
     const emojiPickerController = createEmojiPickerController({
       transport,
       get,
       set,
       onError: errorMessage,
+      onCacheChanged: scheduleCacheWrite,
+      canWarm: () => pickerWarmingEnabled,
     });
 
     return {
@@ -2802,6 +2811,7 @@ export const createTelegramStore = (
       initialize: async (options = {}) => {
         if (get().phase !== "idle") return;
         const settingsOnly = options.settingsOnly === true;
+        pickerWarmingEnabled = !settingsOnly;
         const preserveAccountPending = options.preserveAccountPending === true;
         const skipAccountState = options.skipAccountState === true;
         set({
@@ -2936,6 +2946,7 @@ export const createTelegramStore = (
           void mediaFileRestorer.restore();
           void registerCurrentAccount();
           if (settingsOnly) return;
+          emojiPickerController.warm();
           loadInitialVisibleFolder();
           const refreshChatId = get().activeChatId ?? firstChat?.id;
           if (refreshChatId && authorization.kind === "ready") transport.setConversationFocus?.(refreshChatId);
@@ -4634,6 +4645,7 @@ export const createTelegramStore = (
       },
 
       getCachedEmojiPicker: emojiPickerController.getCachedEmojiPicker,
+      getCachedStickerPickerPreview: emojiPickerController.getCachedStickerPickerPreview,
       emojiRevision: 0,
       loadEmojiPicker: emojiPickerController.loadEmojiPicker,
       getCachedStickerSet: emojiPickerController.getCachedStickerSet,

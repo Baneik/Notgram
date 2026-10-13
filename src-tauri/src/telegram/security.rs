@@ -1122,9 +1122,22 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 .pointer(pointer)
                 .ok_or("Missing Telegram media file")?;
             let file_id = file.get("id").and_then(Value::as_i64).unwrap_or(0);
-            if file.get("@type").and_then(Value::as_str) != Some("inputFileId")
-                || !(1..=i64::from(i32::MAX)).contains(&file_id)
-            {
+            let numeric = file.get("@type").and_then(Value::as_str) == Some("inputFileId")
+                && (1..=i64::from(i32::MAX)).contains(&file_id);
+            // Picker snapshots retain Telegram's opaque identity across restarts.
+            // URL/local/generated file inputs remain outside the WebView boundary.
+            let remote = matches!(
+                content_type,
+                Some("inputMessageSticker" | "inputMessageAnimation")
+            ) && file.get("@type").and_then(Value::as_str) == Some("inputFileRemote")
+                && file.get("id").and_then(Value::as_str).is_some_and(|id| {
+                    !id.is_empty()
+                        && id.len() <= 4096
+                        && id.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'=')
+                        })
+                });
+            if !numeric && !remote {
                 return Err("Media must reference a valid Telegram file identifier".to_string());
             }
         }
@@ -2346,7 +2359,22 @@ mod tests {
             },
             "@extra": EXTRA
         });
-        assert!(validate_webview_tdlib_request(&remote_sticker).is_err());
+        assert!(validate_webview_tdlib_request(&remote_sticker).is_ok());
+        for id in [
+            "",
+            "https://example.com/sticker.webp",
+            "C:\\private.txt",
+            "invalid\0id",
+        ] {
+            let mut invalid = remote_sticker.clone();
+            invalid["input_message_content"]["sticker"]["sticker"]["id"] = json!(id);
+            assert!(validate_webview_tdlib_request(&invalid).is_err());
+        }
+        let mut remote_animation = animation.clone();
+        remote_animation["input_message_content"]["animation"]["animation"] = json!({
+            "@type": "inputFileRemote", "id": "Telegram_remote-file_id=="
+        });
+        assert!(validate_webview_tdlib_request(&remote_animation).is_ok());
 
         let replied_message = json!({
             "@type": "getRepliedMessage",

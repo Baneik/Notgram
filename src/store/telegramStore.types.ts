@@ -343,6 +343,7 @@ export interface TelegramState {
   loadSharedMedia: (input: SharedMediaSearchInput, force?: boolean) => Promise<SharedMediaPage | undefined>;
   deleteMessagesFromChat: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   getCachedEmojiPicker: () => EmojiPickerCatalog | undefined;
+  getCachedStickerPickerPreview: (asset: EmojiPickerAsset) => string | undefined;
   emojiRevision: number;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   getCachedStickerSet: (stickerSetId: string) => StickerSet | undefined;

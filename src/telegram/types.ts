@@ -503,8 +503,11 @@ export interface EmojiPickerAsset {
   id: string;
   kind: EmojiPickerAssetKind;
   fileId: number;
+  remoteId?: string;
+  remoteUniqueId?: string;
   stickerSetId?: string;
   previewFileId?: number;
+  previewRemoteId?: string;
   emoji?: string;
   fileName: string;
   mimeType?: string;
@@ -1080,6 +1083,9 @@ export interface TelegramSnapshot {
 export type LocalUnsentState = Pick<CachedTelegramSnapshot, "currentUserId" | "savedAt" | "drafts" | "localAttachmentDrafts" | "outbox">;
 
 export interface CachedTelegramSnapshot {
+  emojiPickerCatalog?: EmojiPickerCatalog;
+  emojiPickerSets?: StickerSet[];
+  emojiPickerPreviews?: Array<{ key: string; dataUrl: string }>;
   accountId?: string;
   version: 1 | 2 | 3 | 4;
   savedAt: string;

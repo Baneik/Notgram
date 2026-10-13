@@ -4,6 +4,7 @@ import { createTelegramStore } from "./telegramStore";
 import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type { EmojiPickerAsset, EmojiPickerCatalog, StickerSet } from "../telegram/types";
+import { migrateEmojiPickerCache } from "./telegramStore.emojiCache";
 
 const asset: EmojiPickerAsset = {
   id: "sticker:1",
@@ -32,7 +33,7 @@ const createHarness = () => {
   const set = vi.fn();
   const transport = {
     getEmojiPickerCatalog: vi.fn(async () => catalog),
-    getStickerSet: vi.fn(async () => stickerSet),
+    getStickerSet: vi.fn(async (_id: string) => stickerSet),
     addStickerSet: vi.fn(async () => undefined),
     removeStickerSet: vi.fn(async () => undefined),
     getStickerOutline: vi.fn(async () => "M0 0L512 512Z"),
@@ -254,6 +255,73 @@ describe("emoji picker cache", () => {
 });
 
 describe("emoji cache store integration", () => {
+  it("preloads installed pack metadata before a picker is opened and persists it across a restart", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const catalog = (await store.getState().loadEmojiPicker())!;
+    await vi.waitFor(() => expect(catalog.stickerSets.every(set => store.getState().getCachedStickerSet(set.id))).toBe(true));
+    await store.getState().rebuildCachedSnapshot();
+    const snapshot = (await transport.loadCachedSnapshot())!;
+    expect(snapshot.emojiPickerCatalog).toEqual(catalog);
+    expect(snapshot.emojiPickerSets?.map(set => set.id)).toEqual(catalog.stickerSets.map(set => set.id));
+
+    const restartedTransport = new MockTelegramTransport();
+    vi.spyOn(restartedTransport, "loadCachedSnapshot").mockResolvedValue(snapshot);
+    vi.spyOn(restartedTransport, "getEmojiPickerCatalog").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(restartedTransport, "getStickerSet").mockImplementation(() => new Promise(() => undefined));
+    const restarted = createTelegramStore(restartedTransport);
+    await restarted.getState().initialize();
+    expect(restarted.getState().getCachedEmojiPicker()).toEqual(catalog);
+    for (const set of snapshot.emojiPickerSets!) expect(restarted.getState().getCachedStickerSet(set.id)).toEqual(set);
+  });
+
+  it("does not warm sticker packs in a settings-only window", async () => {
+    const transport = new MockTelegramTransport();
+    const catalogRead = vi.spyOn(transport, "getEmojiPickerCatalog");
+    const store = createTelegramStore(transport);
+    await store.getState().initialize({ settingsOnly: true });
+    expect(catalogRead).not.toHaveBeenCalled();
+  });
+
+  it("ignores another account's persisted picker and tolerates malformed optional sections", async () => {
+    const cache = migrateEmojiPickerCache({ emojiPickerCatalog: 42, emojiPickerSets: [null, { id: "broken" }],
+      emojiPickerPreviews: [{ key: "1", dataUrl: "https://external.invalid/tracker" }, { key: "2", dataUrl: "data:image/svg+xml;base64,AAAA" }] });
+    expect(cache).toEqual({ emojiPickerCatalog: undefined, emojiPickerSets: [], emojiPickerPreviews: [] });
+    const transport = new MockTelegramTransport();
+    vi.spyOn(transport, "loadCachedSnapshot").mockResolvedValue({
+      version: 4, savedAt: new Date().toISOString(), accountId: "foreign-account", currentUserId: "foreign", users: [], folders: [], chats: [], messages: [],
+      emojiPickerCatalog: catalog, emojiPickerSets: [stickerSet], emojiPickerPreviews: [{ key: "1", dataUrl: "data:image/webp;base64,AAAA" }],
+    });
+    vi.spyOn(transport, "getEmojiPickerCatalog").mockImplementation(() => new Promise(() => undefined));
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    expect(store.getState().getCachedEmojiPicker()).toBeUndefined();
+    expect(store.getState().getCachedStickerPickerPreview(asset)).toBeUndefined();
+  });
+
+  it("restores previews by persistent identity while file IDs change and clears them on account reset", () => {
+    const { controller } = createHarness();
+    controller.hydrate({ emojiPickerCatalog: catalog, emojiPickerSets: [stickerSet],
+      emojiPickerPreviews: [{ key: "stable-file", dataUrl: "data:image/webp;base64,AAAA" }] });
+    const restored = { ...asset, fileId: 997, remoteUniqueId: "stable-file" };
+    expect(controller.getCachedStickerPickerPreview(restored)).toBe("data:image/webp;base64,AAAA");
+    expect(controller.snapshot().emojiPickerPreviews).toHaveLength(1);
+    controller.reset();
+    expect(controller.getCachedStickerPickerPreview(restored)).toBeUndefined();
+    expect(controller.snapshot().emojiPickerPreviews).toEqual([]);
+  });
+
+  it("retains every installed pack even after more than 128 packs are loaded", async () => {
+    const { controller, transport } = createHarness();
+    const sets = Array.from({ length: 140 }, (_, index) => ({ ...stickerSet, id: `installed-${index}` }));
+    transport.getEmojiPickerCatalog.mockResolvedValue({ ...catalog, stickerSets: sets });
+    transport.getStickerSet.mockImplementation(async id => sets.find(set => set.id === id)!);
+    await controller.loadEmojiPicker();
+    for (const set of sets) await controller.loadStickerSet(set.id);
+    expect(controller.getCachedStickerSet(sets[0].id)).toEqual(sets[0]);
+    expect(controller.snapshot().emojiPickerSets).toHaveLength(140);
+  });
   it("models actual installation and removal, including same-account updates from another client", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);
@@ -285,7 +353,7 @@ describe("emoji cache store integration", () => {
     expect(await store.getState().loadStickerSet(pack.id)).toBe(pack);
     expect(await store.getState().loadEmojiAsset(sent)).toBe(path);
     expect(catalogRead).toHaveBeenCalledOnce();
-    expect(packRead).toHaveBeenCalledOnce();
+    expect(packRead.mock.calls.filter(([id]) => id === pack.id)).toHaveLength(1);
     expect(assetRead).toHaveBeenCalledOnce();
 
     expect(await store.getState().sendSticker(sent, undefined, undefined, "chat-product")).toBe(true);

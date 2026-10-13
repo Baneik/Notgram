@@ -19,6 +19,7 @@ import type {
 import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
 import { isPerformanceMonitoringEnabled, logPerformance } from "../utils/performanceMonitor";
 import { channelDiscussionProjection } from "./telegramStore.messages";
+import { migrateEmojiPickerCache } from "./telegramStore.emojiCache";
 import type { TelegramState } from "./telegramStore.types";
 
 export const TELEGRAM_CACHE_VERSION = 4 as const;
@@ -318,6 +319,7 @@ export const migrateCachedSnapshot = (value: unknown): CachedSnapshotMigration =
     health: value.version === TELEGRAM_CACHE_VERSION ? "healthy" : "migrated",
     snapshot: {
       ...(value as unknown as CachedTelegramSnapshot),
+      ...migrateEmojiPickerCache(value),
       version: TELEGRAM_CACHE_VERSION,
       historyContexts: Array.isArray(value.historyContexts) ? value.historyContexts.filter(entry =>
         isRecord(entry) && typeof entry.chatId === "string" && typeof entry.targetId === "string" &&

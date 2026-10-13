@@ -129,8 +129,11 @@ const mapEmojiSticker = (
     id: `sticker:${tdId(sticker.id) || fileId}`,
     kind: "sticker",
     fileId,
+    remoteId: tdId(asTdObject(file?.remote)?.id) || undefined,
+    remoteUniqueId: tdId(asTdObject(file?.remote)?.unique_id) || undefined,
     stickerSetId: tdStickerSetId(sticker.set_id) ?? fallbackStickerSetId,
     previewFileId: tdNumber(thumbnailFile?.id),
+    previewRemoteId: tdId(asTdObject(thumbnailFile?.remote)?.id) || undefined,
     emoji: typeof sticker.emoji === "string" ? sticker.emoji : undefined,
     fileName: stickerFileName(mimeType),
     mimeType,
@@ -154,7 +157,10 @@ const mapEmojiAnimation = (value: unknown): EmojiPickerAsset | undefined => {
     id: `animation:${fileId}`,
     kind: "animation",
     fileId,
+    remoteId: tdId(asTdObject(file?.remote)?.id) || undefined,
+    remoteUniqueId: tdId(asTdObject(file?.remote)?.unique_id) || undefined,
     previewFileId: tdNumber(thumbnailFile?.id),
+    previewRemoteId: tdId(asTdObject(thumbnailFile?.remote)?.id) || undefined,
     fileName: typeof animation.file_name === "string" && animation.file_name
       ? animation.file_name
       : "animation.mp4",
@@ -539,15 +545,18 @@ export class TauriMessageMediaService {
       .filter((asset): asset is EmojiPickerAsset => Boolean(asset));
   }
 
-  async loadEmojiAsset(asset: EmojiPickerAsset) {
+  async loadEmojiAsset(asset: EmojiPickerAsset, priority = 28) {
     if (asset.localPath) return asset.localPath;
     // A missing frontend path does not mean the file needs downloading. Local
     // stickers must not wait behind network transfers in the shared queue.
-    const cached = await this.context.request({ "@type": "getFile", file_id: asset.fileId });
+    const cached = await this.context.request(asset.remoteId
+      ? { "@type": "getRemoteFile", remote_file_id: asset.remoteId, file_type: null }
+      : { "@type": "getFile", file_id: asset.fileId });
     const cachedPath = tdLocalFilePath(cached);
     if (cachedPath) return cachedPath;
-    await this.context.fileDownloads.cache(asset.fileId, 28);
-    const file = await this.context.request({ "@type": "getFile", file_id: asset.fileId });
+    const fileId = tdNumber(cached.id) ?? asset.fileId;
+    await this.context.fileDownloads.cache(fileId, priority);
+    const file = await this.context.request({ "@type": "getFile", file_id: fileId });
     return tdLocalFilePath(file);
   }
 
@@ -563,7 +572,8 @@ export class TauriMessageMediaService {
         "@type": "inputMessageSticker",
         sticker: {
           "@type": "inputSticker",
-          sticker: { "@type": "inputFileId", id: input.asset.fileId },
+          sticker: input.asset.remoteId ? { "@type": "inputFileRemote", id: input.asset.remoteId }
+            : { "@type": "inputFileId", id: input.asset.fileId },
           thumbnail: null,
           width: input.asset.width ?? 0,
           height: input.asset.height ?? 0,
@@ -586,7 +596,8 @@ export class TauriMessageMediaService {
         "@type": "inputMessageAnimation",
         animation: {
           "@type": "inputAnimation",
-          animation: { "@type": "inputFileId", id: input.asset.fileId },
+          animation: input.asset.remoteId ? { "@type": "inputFileRemote", id: input.asset.remoteId }
+            : { "@type": "inputFileId", id: input.asset.fileId },
           thumbnail: null,
           added_sticker_file_ids: [],
           duration: input.asset.duration ?? 0,

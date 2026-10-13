@@ -31,6 +31,25 @@ assets, tabs and dismissal remain usable. Guard duplicate clicks synchronously,
 allow retry after failure, and ignore UI acknowledgements after the picker closes
 or its account/conversation changes.
 
+Picker catalogs, installed pack contents and small raster previews are part of
+the account-scoped encrypted UI snapshot. Restore them before connecting; keep
+them visible and sendable during catalog refresh, reconnection, or a stalled
+pack read. Persist TDLib remote file IDs and unique IDs: restored sends use
+`inputFileRemote`, and media recovery resolves the current numeric ID with
+`getRemoteFile`. Original files and the shared Blob/decoded/player caches are
+replaceable; their eviction must not erase a saved picker preview.
+
+Main-window authorization and reconnection prepare installed packs in the
+background. Settings-only windows do not start this work. Pack reads and raster
+preparation each use at most two workers; downloads use background priority 16.
+Animated stickers prefer their thumbnail; otherwise capture a nonempty frame
+without autoplay or audio. Previews are 96px, at most 32 KiB of serialized data
+each and 24 MiB total in memory. Keep all installed pack metadata while bounding
+uninstalled previews to 128 packs. Account switch and explicit cache cleanup
+clear previews and cancel their owners so late work cannot refill another account.
+New or uncached stickers still require an initial background preparation; sending
+an already known asset never waits for it.
+
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message
