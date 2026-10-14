@@ -14,6 +14,128 @@ const tab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-t
 const input = (page: Page) => page.getByRole("textbox", { name: "消息" });
 
 for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`restarted read topics repair the sidebar despite metadata updates at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/src/telegram/mockTransport.ts", async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, body: `${await response.text()}
+        const connectForRestart = MockTelegramTransport.prototype.connect;
+        MockTelegramTransport.prototype.connect = function (...args) {
+          this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadMentionCount = 0;
+          return connectForRestart.apply(this, args);
+        };
+        const getTopicsForRestart = MockTelegramTransport.prototype.getForumTopics;
+        MockTelegramTransport.prototype.getForumTopics = async function (...args) {
+          const result = await getTopicsForRestart.apply(this, args);
+          const chat = this.snapshot.chats.find(chat => chat.id === args[0].chatId);
+          if (chat) this.listener?.({ type: "chat.upsert", chat: { ...structuredClone(chat), memberCount: 2 } });
+          return { ...result, topics: result.topics.map(topic => ({ ...topic, unreadCount: 0 })) };
+        };
+        const markChatReadForRestart = MockTelegramTransport.prototype.markChatRead;
+        MockTelegramTransport.prototype.markChatRead = async function (chatId) {
+          if (chatId === "chat-forum") throw new Error("Unexpected group read in a topic");
+          return markChatReadForRestart.call(this, chatId);
+        };` });
+    });
+    await openForum(page);
+    const expectReadForum = async () => {
+      await expect(tab(page, "1")).toHaveAttribute("aria-selected", "true");
+      await expect.poll(() => page.evaluate(async path => {
+        const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+        const state = telegramStore.getState();
+        return { unread: state.chats.get("chat-forum")?.unreadCount,
+          memberCount: state.chats.get("chat-forum")?.memberCount, error: state.operationError };
+      }, storePath)).toEqual({ unread: 0, memberCount: 2, error: undefined });
+      if (viewport.width === 1366) {
+        await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"] .unread-count')).toHaveCount(0);
+      }
+      await expect(tab(page, "__all__")).toHaveAttribute("aria-selected", "false");
+    };
+    await expectReadForum();
+    await page.reload();
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
+    await expect(page.locator('[data-message-id="forum-general-1"]')).toBeVisible();
+    await expectReadForum();
+  });
+
+  test(`late group counts converge after reading a topic and preserve other unread topics at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/src/telegram/mockTransport.ts", async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, body: `${await response.text()}
+        const connectForLateCount = MockTelegramTransport.prototype.connect;
+        MockTelegramTransport.prototype.connect = function (...args) {
+          this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadMentionCount = 0;
+          this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadCount = 3;
+          this.ensureForumTopics("chat-forum").find(topic => topic.id === "18").unreadCount = 0;
+          window.injectLateForumMessage = () => {
+            const source = this.snapshot.messages.find(message => message.id === "forum-release-1");
+            const message = { ...source, id: "late-topic-incoming", sentAt: "2026-08-01T10:00:00+08:00" };
+            this.snapshot.messages.push(message);
+            this.listener?.({ type: "message.upsert", message, animateEntrance: true });
+          };
+          window.injectOtherForumMessage = () => {
+            const source = this.snapshot.messages.find(message => message.id === "forum-release-1");
+            const message = { ...source, id: "other-topic-incoming", topicId: "18", sentAt: "2026-08-01T10:01:00+08:00" };
+            this.snapshot.messages.push(message);
+            const topic = this.ensureForumTopics("chat-forum").find(topic => topic.id === "18");
+            topic.unreadCount = 1;
+            topic.lastReadInboxMessageId = undefined;
+            const chat = this.snapshot.chats.find(chat => chat.id === "chat-forum");
+            chat.unreadCount = 5;
+            this.listener?.({ type: "chat.upsert", chat: structuredClone(chat) });
+            this.listener?.({ type: "message.upsert", message, animateEntrance: true });
+            this.listener?.({ type: "forumTopics.changed", chatId: "chat-forum", topic: { id: "18", unreadCount: 1 } });
+          };
+          return connectForLateCount.apply(this, args);
+        };
+        MockTelegramTransport.prototype.markForumTopicRead = async function (chatId, topicId, messageId) {
+          const topic = this.ensureForumTopics(chatId).find(topic => topic.id === topicId);
+          topic.unreadCount = 0;
+          topic.lastReadInboxMessageId = messageId;
+          this.listener?.({ type: "forumTopics.changed", chatId, topic: { id: topicId, lastReadInboxMessageId: messageId } });
+          if (messageId === "late-topic-incoming") window.publishLateForumCount = () => {
+            const chat = this.snapshot.chats.find(chat => chat.id === chatId);
+            chat.unreadCount = 4;
+            this.listener?.({ type: "chat.upsert", chat: structuredClone(chat) });
+          };
+        };
+        const markChatReadForLateCount = MockTelegramTransport.prototype.markChatRead;
+        MockTelegramTransport.prototype.markChatRead = async function (chatId) {
+          if (chatId === "chat-forum") throw new Error("Unexpected group read in a topic");
+          return markChatReadForLateCount.call(this, chatId);
+        };` });
+    });
+    const unreadCount = () => page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+    }, storePath);
+    await openForum(page);
+    await tab(page, "12").click();
+    await expect.poll(unreadCount).toBe(0);
+    await page.evaluate(() => (window as unknown as { injectLateForumMessage: () => void }).injectLateForumMessage());
+    await expect(page.locator('[data-message-id="late-topic-incoming"]')).toBeVisible();
+    await expect.poll(() => page.evaluate(async path => {
+      const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.lastReadInboxMessageId;
+    }, storePath)).toBe("late-topic-incoming");
+    await page.evaluate(() => (window as unknown as { publishLateForumCount: () => void }).publishLateForumCount());
+    await expect.poll(unreadCount).toBe(0);
+    await expect(tab(page, "__all__")).toHaveAttribute("aria-selected", "false");
+    if (viewport.width === 1366) {
+      await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"] .unread-count')).toHaveCount(0);
+    }
+    await page.evaluate(() => (window as unknown as { injectOtherForumMessage: () => void }).injectOtherForumMessage());
+    await expect(tab(page, "18").locator(".forum-topic-tab-count")).toHaveText("1");
+    await expect.poll(unreadCount).toBe(1);
+    await tab(page, "18").click();
+    await expect(page.locator('[data-message-id="other-topic-incoming"]')).toBeVisible();
+    await expect.poll(unreadCount).toBe(0);
+    await expect(tab(page, "__all__")).toHaveAttribute("aria-selected", "false");
+  });
+}
+
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
   for (const refreshedCount of [false, true]) {
     test(`pending topic reads retain their group deduction after a new message at ${viewport.width}px (count refresh: ${refreshedCount})`, async ({ page }) => {
       await page.setViewportSize(viewport);

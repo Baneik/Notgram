@@ -4,6 +4,7 @@ interface ForumUnreadCount {
   serverCount: number;
   unreadCount: number;
   readBoundaries: Map<string, string>;
+  revision: number;
 }
 
 interface TopicReadCount {
@@ -19,6 +20,7 @@ interface TopicReadCount {
 /** Reconciles independent TDLib group counts with acknowledged topic reads. */
 export class ForumUnreadState {
   private counts = new Map<string, ForumUnreadCount>();
+  private nextRevision = 0;
 
   reset() {
     this.counts.clear();
@@ -36,6 +38,15 @@ export class ForumUnreadState {
     return this.counts.get(chatId)?.readBoundaries.get(topicId);
   }
 
+  revision(chatId: string) {
+    return this.counts.get(chatId)?.revision;
+  }
+
+  observeIncoming(chatId: string) {
+    const count = this.counts.get(chatId);
+    if (count) count.revision = ++this.nextRevision;
+  }
+
   observeChat(chat: Chat): Chat {
     if (!chat.isForum) {
       this.discard(chat.id);
@@ -47,11 +58,13 @@ export class ForumUnreadState {
         serverCount: chat.unreadCount,
         unreadCount: chat.unreadCount,
         readBoundaries: new Map(),
+        revision: ++this.nextRevision,
       });
       return chat;
     }
     // Increases represent new unread messages. Decreases first absorb topic
     // reads already reflected locally, so a later group ack cannot deduct twice.
+    if (chat.unreadCount !== previous.serverCount) previous.revision = ++this.nextRevision;
     previous.unreadCount = chat.unreadCount > previous.serverCount
       ? previous.unreadCount + chat.unreadCount - previous.serverCount
       : Math.min(previous.unreadCount, chat.unreadCount);
@@ -76,6 +89,7 @@ export class ForumUnreadState {
         read.previousUnreadCount + Math.max(0, count.serverCount - read.serverCount) - count.unreadCount);
       count.unreadCount = Math.max(0, count.unreadCount - Math.max(0, read.unreadCount - alreadyDeducted));
       count.readBoundaries.set(read.topicId, read.messageId);
+      count.revision = ++this.nextRevision;
     }
     return count.unreadCount;
   }

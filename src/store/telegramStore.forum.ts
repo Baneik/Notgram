@@ -33,7 +33,9 @@ export interface ForumControllerOptions {
   set: StoreSetter;
   topicKey: (chatId: string, topicId?: string) => string;
   onError: (error: unknown, fallback: string) => string;
-  onTopicsLoaded?: (chatId: string, query: string, page: ForumTopicPage, sourceChat: Chat | undefined) => void;
+  onTopicsLoaded?: (chatId: string, query: string, page: ForumTopicPage, sourceChat: Chat | undefined,
+    unreadRevision: number | undefined) => void;
+  captureUnreadRevision?: (chatId: string) => number | undefined;
   captureDraftRevision?: () => number;
   acceptTopicDraft?: (key: string, draft: ForumTopic["draft"], revision: number) => void;
 }
@@ -46,6 +48,7 @@ export const createForumController = ({
   topicKey,
   onError,
   onTopicsLoaded,
+  captureUnreadRevision,
   captureDraftRevision,
   acceptTopicDraft,
 }: ForumControllerOptions): ForumController => {
@@ -61,6 +64,7 @@ export const createForumController = ({
     const currentGeneration = generation;
     const draftRevision = captureDraftRevision?.() ?? 0;
     const sourceChat = get().chats.get(chatId);
+    const unreadRevision = captureUnreadRevision?.(chatId);
 
     const request = (async () => {
       const loading = new Set(get().forumTopicsLoading);
@@ -93,7 +97,7 @@ export const createForumController = ({
           else drafts.delete(key);
         }
         set({ forumTopics, ...(!acceptTopicDraft ? { drafts } : {}), operationError: undefined });
-        onTopicsLoaded?.(chatId, query, page, sourceChat);
+        onTopicsLoaded?.(chatId, query, page, sourceChat, unreadRevision);
         return page;
       } catch (error) {
         if (currentGeneration !== generation) return undefined;

@@ -300,6 +300,7 @@ export const createTelegramStore = (
     const forumUnreadState = new ForumUnreadState();
     const topicReadRequests = new Map<string, Promise<boolean>>();
     const forumTopicsRefreshedAt = new Map<string, number>();
+    const forumRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     let groupManagementLoadRevision = 0;
     const chatAdministratorLabelLoads = new Map<string, Promise<Record<string, string>>>();
@@ -1130,6 +1131,8 @@ export const createTelegramStore = (
       chatAdministratorLabelLoads.clear();
       chatAdministratorLabelsGeneration += 1;
       forumTopicsRefreshedAt.clear();
+      for (const timer of forumRefreshTimers.values()) globalThis.clearTimeout(timer);
+      forumRefreshTimers.clear();
       searchController.reset();
       profileController.reset();
       emojiPickerController.reset();
@@ -1419,6 +1422,8 @@ export const createTelegramStore = (
       forumController.reset();
       history.invalidate();
       forumTopicsRefreshedAt.clear();
+      for (const timer of forumRefreshTimers.values()) globalThis.clearTimeout(timer);
+      forumRefreshTimers.clear();
       set({ chatLists: new Map() });
     };
 
@@ -1747,6 +1752,8 @@ export const createTelegramStore = (
       groupManagementLoads.delete(fromChatId);
       chatAdministratorLabelLoads.delete(fromChatId);
       forumTopicsRefreshedAt.delete(fromChatId);
+      globalThis.clearTimeout(forumRefreshTimers.get(fromChatId));
+      forumRefreshTimers.delete(fromChatId);
       sharedMediaIndex.clearChat(fromChatId);
       sharedMediaIndex.clearChat(toChatId);
 
@@ -2120,6 +2127,12 @@ export const createTelegramStore = (
         });
         for (const chat of incomingChats) {
           scheduleSavedMessagesRead(chat);
+          if (chat.isForum && chat.id === get().activeChatId &&
+            (chats.get(chat.id)?.unreadCount ?? 0) > (previousChats.get(chat.id)?.unreadCount ?? 0)) {
+            // The group count can arrive after the topic read receipt. Recheck
+            // complete topic totals instead of requiring the user to open All.
+            void refreshForumConversation(chat.id, true);
+          }
           if (chat.unreadMentionCount === 0 && (previousChats.get(chat.id)?.unreadMentionCount ?? 0) > 0) {
             clearUnreadMentionAttention(chat.id);
           }
@@ -2364,6 +2377,7 @@ export const createTelegramStore = (
             if (live && !previousMessage) {
               markMessageEntrance(message);
               newLiveMessages.push(message);
+              if (!message.outgoing) forumUnreadState.observeIncoming(chatId);
             }
             if (live && !message.outgoing) setTypingUser(message.chatId, message.senderId, false);
             queueBlockedReactionReads([message]);
@@ -2434,6 +2448,7 @@ export const createTelegramStore = (
       );
       if (isNewLiveMessage) {
         markMessageEntrance(event.message);
+        if (!event.message.outgoing) forumUnreadState.observeIncoming(event.message.chatId);
       }
       if (!event.message.outgoing) {
         setTypingUser(event.message.chatId, event.message.senderId, false);
@@ -2680,16 +2695,30 @@ export const createTelegramStore = (
       onError: errorMessage,
       captureDraftRevision: () => draftSync.captureRevision(),
       acceptTopicDraft: (key, draft, revision) => { draftSync.acceptServerDraft(key, draft, revision, true); },
-      onTopicsLoaded: (chatId, query, page, sourceChat) => {
+      captureUnreadRevision: chatId => forumUnreadState.revision(chatId),
+      onTopicsLoaded: (chatId, query, page, sourceChat, unreadRevision) => {
         if (!query.trim()) {
           forumTopicsRefreshedAt.set(chatId, Date.now());
-          if (!page.hasMore && sourceChat === get().chats.get(chatId)) {
+          // A topic refresh can overlap harmless chat metadata updates. Keep the
+          // unread-state snapshot guard, but do not require object identity: a
+          // title, avatar, or permission update must not prevent a complete list
+          // from repairing a stale forum badge after restart.
+          const currentChat = get().chats.get(chatId);
+          if (!page.hasMore && currentChat &&
+            currentChat.unreadCount === sourceChat?.unreadCount &&
+            currentChat.lastReadInboxMessageId === sourceChat?.lastReadInboxMessageId &&
+            unreadRevision === forumUnreadState.revision(chatId)) {
             const unreadCount = forumUnreadState.reconcileTopics(chatId,
               page.topics.reduce((count, topic) => count + topic.unreadCount, 0));
-            if (sourceChat && unreadCount !== undefined && unreadCount !== sourceChat.unreadCount) {
-              set({ chats: new Map(get().chats).set(chatId, { ...sourceChat, unreadCount }) });
+            if (unreadCount !== undefined && unreadCount !== currentChat.unreadCount) {
+              set({ chats: new Map(get().chats).set(chatId, { ...currentChat, unreadCount }) });
               scheduleCacheWrite();
             }
+          } else if (!page.hasMore && (currentChat?.unreadCount ?? 0) > 0 &&
+            get().activeChatId === chatId) {
+            // A changed read boundary or incoming message invalidates old totals;
+            // retain a trailing refresh so the rejected snapshot can converge.
+            void refreshForumConversation(chatId, true);
           }
           if (expectedUnreadReactionCount(chatId) > 0) {
             void refreshUnreadReactionAttention(chatId);
@@ -2722,7 +2751,21 @@ export const createTelegramStore = (
       const minimumAge = changed
         ? FORUM_TOPICS_CHANGE_COALESCE_MS
         : FORUM_TOPICS_REFRESH_TTL_MS;
-      if (topics.length > 0 && Date.now() - refreshedAt < minimumAge) return;
+      const remainingAge = minimumAge - (Date.now() - refreshedAt);
+      if (topics.length > 0 && remainingAge > 0) {
+        if (changed && !forumRefreshTimers.has(chatId)) {
+          const generation = accountGeneration;
+          forumRefreshTimers.set(chatId, globalThis.setTimeout(() => {
+            forumRefreshTimers.delete(chatId);
+            if (generation === accountGeneration && get().authorization.kind === "ready") {
+              void refreshForumConversation(chatId, true);
+            }
+          }, remainingAge));
+        }
+        return;
+      }
+      globalThis.clearTimeout(forumRefreshTimers.get(chatId));
+      forumRefreshTimers.delete(chatId);
       const page = await forumController.loadForumTopics(chatId);
       if (!page || get().activeChatId !== chatId || !get().chats.get(chatId)?.isForum) return;
       const currentTopicId = get().activeTopicId;

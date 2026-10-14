@@ -2526,6 +2526,8 @@ export class MockTelegramTransport implements TelegramTransport {
     const key = topicId ? `${chatId}:topic:${topicId}` : chatId;
     if (draft) this.drafts.set(key, draft);
     else this.drafts.delete(key);
+    const topic = topicId ? this.forumTopics.get(chatId)?.find(topic => topic.id === topicId) : undefined;
+    if (topic) topic.draft = clone(draft);
     this.listener?.({ type: "chat.draftChanged", chatId, ...(topicId ? { topicId } : {}), draft: clone(draft) });
   }
 

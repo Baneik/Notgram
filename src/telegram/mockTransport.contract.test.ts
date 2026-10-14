@@ -3,6 +3,17 @@ import { MockTelegramTransport } from "./mockTransport";
 import type { Message, OutgoingAttachmentKind } from "./types";
 
 describe("Mock transport fixture contracts", () => {
+  it("returns acknowledged topic drafts on later forum list refreshes", async () => {
+    const transport = new MockTelegramTransport();
+    await transport.getForumTopics({ chatId: "chat-forum" });
+    await transport.setChatDraft({ chatId: "chat-forum", topicId: "12", text: "Keep this draft" });
+    expect((await transport.getForumTopics({ chatId: "chat-forum" })).topics.find(topic => topic.id === "12")?.draft)
+      .toMatchObject({ topicId: "12", text: "Keep this draft" });
+    await transport.setChatDraft({ chatId: "chat-forum", topicId: "12", text: "" });
+    expect((await transport.getForumTopics({ chatId: "chat-forum" })).topics.find(topic => topic.id === "12")?.draft)
+      .toBeUndefined();
+  });
+
   it("loads non-forum thread comments and nested replies while excluding other chats and threads", async () => {
     const transport = new MockTelegramTransport();
     const internal = transport as unknown as { snapshot: { messages: Message[] } };
