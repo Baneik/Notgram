@@ -70,6 +70,52 @@ test("browser-delivered file drags keep protected data unread until drop", async
   }
 });
 
+for (const width of [1366, 390]) {
+  test(`browser-delivered drops inside the expanded staging tray retain attachments at ${width}px`, async ({ page }) => {
+    const directory = await mkdtemp(join(tmpdir(), "notgram-staging-drop-"));
+    const path = join(directory, "tray-image.png");
+    try {
+      await writeFile(path, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+      await page.setViewportSize({ width, height: 768 });
+      await page.goto("/");
+      if (width === 390) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+      await input(page).fill("retain this caption");
+      await expect(input(page)).toBeFocused();
+      const session = await page.context().newCDPSession(page);
+      const data = { items: [], files: [path], dragOperationsMask: 1 };
+      const surface = await page.locator(".message-list-shell").boundingBox();
+      await session.send("Input.dispatchDragEvent", {
+        type: "dragEnter", x: surface!.x + surface!.width / 2, y: surface!.y + surface!.height / 2, data,
+      });
+      await expect(placeholders(page)).toHaveCount(1);
+      const slot = await placeholders(page).locator(".composer-attachment-open").boundingBox();
+      const position = { x: slot!.x + slot!.width / 2, y: slot!.y + slot!.height / 2 };
+      await session.send("Input.dispatchDragEvent", { type: "dragOver", ...position, data });
+      await expect(placeholders(page)).toHaveCount(1);
+      expect(await draftKeys(page)).toEqual([]);
+      await session.send("Input.dispatchDragEvent", { type: "drop", ...position, data });
+      await expect(tray(page)).toBeVisible();
+      await expect(placeholders(page)).toHaveCount(0);
+      await expect(tray(page).getByText("tray-image.png", { exact: true })).toBeVisible();
+      await expect.poll(() => draftKeys(page)).toEqual(["chat-product"]);
+      await expect(input(page)).toHaveJSProperty("value", "retain this caption");
+      await expect(input(page)).toBeFocused();
+      await expect.poll(() => page.evaluate(() => {
+        const snapshot = JSON.parse(localStorage.getItem("notgram:ui-cache:v1") ?? "null");
+        return snapshot?.drafts.find((draft: { chatId: string }) => draft.chatId === "chat-product")?.text;
+      }), { timeout: 15_000 }).toBe("retain this caption");
+      await page.reload();
+      if (width === 390) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+      await expect(tray(page).getByText("tray-image.png", { exact: true })).toBeVisible();
+      await expect(input(page)).toHaveJSProperty("value", "retain this caption");
+      await session.detach();
+    } finally {
+      await unlink(path);
+      await rmdir(directory);
+    }
+  });
+}
+
 for (const layout of [
   { width: 1366, height: 768, scale: 100, theme: "notgram-light" },
   { width: 390, height: 660, scale: 100, theme: "notgram-dark" },
@@ -138,7 +184,7 @@ test("existing attachments append multiple reserved slots and cancellation keeps
     bubbles: true, relatedTarget: document.querySelector(".composer-input"),
   })));
   await expect(placeholders(page)).toHaveCount(2);
-  await dispatchFiles(input(page), "drop", 2);
+  await dispatchFiles(placeholders(page).last().locator("small"), "drop", 2);
   await expect(tray(page).locator("article")).toHaveCount(3);
   await dispatchFiles(surface, "dragenter", 1, true);
   await page.keyboard.press("Escape");
@@ -158,6 +204,10 @@ test("existing attachments append multiple reserved slots and cancellation keeps
   await page.evaluate(() => window.dispatchEvent(new Event("dragend")));
   await expect(placeholders(page)).toHaveCount(0);
   await expect(tray(page).locator("article")).toHaveCount(3);
+  await dispatchFiles(surface, "dragenter", 1, true);
+  await dispatchFiles(page.locator(".chat-list").filter({ visible: true }).first(), "drop");
+  await expect(placeholders(page)).toHaveCount(0);
+  await expect(tray(page).locator("article")).toHaveCount(3);
 });
 
 test("a multiline caption uses the same staging constraints before and after drop", async ({ page }) => {
@@ -169,7 +219,7 @@ test("a multiline caption uses the same staging constraints before and after dro
   await expect(placeholders(page)).toHaveCount(1);
   const reserved = await placeholders(page).boundingBox();
   const editor = await input(page).boundingBox();
-  await dispatchFiles(page.locator(".message-list-shell"), "drop");
+  await dispatchFiles(placeholders(page).locator("small"), "drop");
   await expect(tray(page).locator("article")).toHaveCount(1);
   const dropped = await tray(page).locator("article").boundingBox();
   for (const dimension of ["x", "y", "width", "height"] as const) expect(dropped![dimension]).toBeCloseTo(reserved![dimension], 0);
@@ -253,7 +303,9 @@ test("forum topics and nested channel discussions receive drops in their own dra
   await page.locator('.forum-topic-strip [data-topic-id="12"]').click();
   await expect(placeholders(page)).toHaveCount(0);
   await expect(page.locator(".message-list-shell")).not.toHaveAttribute("inert");
-  await dispatchFiles(page.locator(".message-list-shell"), "drop");
+  await dispatchFiles(page.locator(".message-list-shell"), "dragenter", 1, true);
+  await expect(placeholders(page)).toHaveCount(1);
+  await dispatchFiles(placeholders(page).locator("small"), "drop");
   await expect.poll(() => draftKeys(page)).toEqual(["chat-forum:topic:12"]);
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
@@ -263,7 +315,7 @@ test("forum topics and nested channel discussions receive drops in their own dra
   await dispatchFiles(panel.locator(".channel-discussion-messages"), "dragenter", 1, true);
   await expect(panel.locator(".composer-attachment-placeholder")).toHaveCount(1);
   await expect(page.locator(".conversation > .composer-wrap .composer-attachment-placeholder")).toHaveCount(0);
-  await dispatchFiles(panel.locator(".channel-discussion-header"), "drop");
+  await dispatchFiles(panel.locator(".composer-attachment-placeholder .composer-attachment-open"), "drop");
   await expect(panel.getByText("dropped-0.txt", { exact: true })).toBeVisible();
   await expect.poll(() => draftKeys(page)).toEqual(["chat-forum:topic:12", scope]);
 });

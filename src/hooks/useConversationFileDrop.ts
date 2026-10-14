@@ -48,8 +48,9 @@ export function useConversationFileDrop(
       if (!isFileDrag(event) || !ownsTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
+      const files = canReceive(event.target) ? Array.from(event.dataTransfer!.files) : [];
       reset();
-      if (canReceive(event.target)) onDrop(Array.from(event.dataTransfer!.files));
+      if (files.length > 0) onDrop(files);
     };
     const outside = (event: DragEvent) => {
       if (!ownsTarget(event.target)) reset();
@@ -68,7 +69,8 @@ export function useConversationFileDrop(
     scope.addEventListener("drop", drop, true);
     window.addEventListener("dragenter", outside, true);
     window.addEventListener("dragover", outside, true);
-    window.addEventListener("drop", reset, true);
+    // Keep an owned drop target mounted until the scope has captured its files.
+    window.addEventListener("drop", outside, true);
     window.addEventListener("dragend", reset);
     window.addEventListener("blur", reset);
     window.addEventListener("keydown", cancel, true);
@@ -79,7 +81,7 @@ export function useConversationFileDrop(
       scope.removeEventListener("drop", drop, true);
       window.removeEventListener("dragenter", outside, true);
       window.removeEventListener("dragover", outside, true);
-      window.removeEventListener("drop", reset, true);
+      window.removeEventListener("drop", outside, true);
       window.removeEventListener("dragend", reset);
       window.removeEventListener("blur", reset);
       window.removeEventListener("keydown", cancel, true);

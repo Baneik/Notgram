@@ -164,8 +164,11 @@ Preview and dropped cards use the same constrained staging/editor layout.
 Protected drag data supplies only file counts; file reads and durable attachment
 writes begin on drop. Existing attachment limits also bound the placeholder count,
 and a constrained grid scrolls to reveal the pending slots. Drop replaces the slots
-in place without replaying a staging entrance transform. Leaving the scope,
-cancelling the drag, losing window focus or changing account/topic removes only
+in place without replaying a staging entrance transform.
+Dropping onto the staging tray itself retains its target until the owning scope
+has checked availability and captured the files; window capture only clears
+previews belonging to other scopes. Leaving the scope, cancelling the drag,
+losing window focus or changing account/topic removes only
 the preview. Escape during a file drag cancels that preview and preserves staged
 files; outside a drag, staging retains its usual discard shortcut. Nested discussion
 scopes, inert backgrounds, editing, sending/restoration, menus and active dialogs
