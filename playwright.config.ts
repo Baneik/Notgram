@@ -22,6 +22,9 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:1422",
     headless: true,
+    // Use full Chromium's headless mode to avoid the separate Windows
+    // chrome-headless-shell executable implicated in native crash dialogs.
+    channel: "chromium",
     locale: "zh-CN",
     trace: diagnostics ? "on" : process.env.CI ? "on-first-retry" : "off",
     screenshot: diagnostics ? "on" : "only-on-failure",

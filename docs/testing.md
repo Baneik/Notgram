@@ -11,6 +11,8 @@ transport and Rust tests.
 All browser commands start a fresh Mock server, run headless with muted audio,
 and stop the server when finished. They use one Chromium worker so timing and
 frame-by-frame geometry checks do not compete with other browser tests.
+The explicit `chromium` channel uses full Chromium's headless mode, avoiding
+the separate `chrome-headless-shell.exe` that produced Windows crash dialogs.
 
 | Command | Selection |
 | --- | --- |
