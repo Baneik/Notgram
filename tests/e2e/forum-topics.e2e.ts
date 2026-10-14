@@ -14,6 +14,69 @@ const tab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-t
 const input = (page: Page) => page.getByRole("textbox", { name: "消息" });
 
 for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  for (const refreshedCount of [false, true]) {
+    test(`pending topic reads retain their group deduction after a new message at ${viewport.width}px (count refresh: ${refreshedCount})`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/src/telegram/mockTransport.ts", async route => {
+        const response = await route.fetch();
+        await route.fulfill({ response, body: `${await response.text()}
+          const connectForPendingRead = MockTelegramTransport.prototype.connect;
+          MockTelegramTransport.prototype.connect = function (...args) {
+            this.snapshot.chats.find(chat => chat.id === "chat-forum").unreadMentionCount = 0;
+            const source = this.snapshot.messages.find(message => message.id === "forum-release-1");
+            this.snapshot.messages.push({ ...source, id: "design-incoming", topicId: "18",
+              sentAt: "2026-08-01T09:50:00+08:00" });
+            return connectForPendingRead.apply(this, args);
+          };
+          MockTelegramTransport.prototype.markForumTopicRead = async function (chatId, topicId, messageId) {
+            const topic = this.ensureForumTopics(chatId).find(item => item.id === topicId);
+            topic.lastReadInboxMessageId = messageId;
+            this.listener?.({ type: "forumTopics.changed", chatId,
+              topic: { id: topicId, lastReadInboxMessageId: messageId } });
+            if (topicId !== "12" || this.pendingTopicReadStarted) return;
+            this.pendingTopicReadStarted = true;
+            const chat = this.snapshot.chats.find(chat => chat.id === chatId);
+            chat.unreadCount += 1;
+            this.listener?.({ type: "chat.upsert", chat: structuredClone(chat) });
+            const source = this.snapshot.messages.find(message => message.id === messageId);
+            const incoming = { ...source, id: "pending-read-incoming", sentAt: "2026-08-01T10:00:00+08:00" };
+            this.snapshot.messages.push(incoming);
+            ${refreshedCount ? `topic.unreadCount = 1;
+              this.listener?.({ type: "forumTopics.changed", chatId,
+                topic: { id: topicId, lastReadInboxMessageId: messageId, unreadCount: 1 } });` : ""}
+            this.listener?.({ type: "message.upsert", message: incoming, animateEntrance: true });
+            await new Promise(resolve => { window.releasePendingTopicRead = resolve; });
+          };` });
+      });
+      await openForum(page);
+      await tab(page, "12").click();
+      await expect.poll(() => page.evaluate(() => typeof (window as unknown as { releasePendingTopicRead?: () => void }).releasePendingTopicRead)).toBe("function");
+      await expect.poll(() => page.evaluate(async path => {
+        const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+        return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+      }, storePath)).toBe(5);
+      await expect(page.locator('[data-message-id="pending-read-incoming"]')).toBeVisible();
+      await page.evaluate(() => (window as unknown as { releasePendingTopicRead: () => void }).releasePendingTopicRead());
+      const sidebar = page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]');
+      await expect.poll(() => page.evaluate(async path => {
+        const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+        return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+      }, storePath)).toBe(1);
+      if (viewport.width === 1366) await expect(sidebar.locator(".unread-count")).toHaveText("1");
+      await expect(tab(page, "12").locator(".forum-topic-tab-count")).toBeHidden();
+      await expect(tab(page, "18").locator(".forum-topic-tab-count")).toHaveText("1");
+      await tab(page, "18").click();
+      await expect(sidebar.locator(".unread-count")).toHaveCount(0);
+      await expect.poll(() => page.evaluate(async path => {
+        const { telegramStore } = await import(path) as typeof import("../../src/store/telegramStore");
+        return telegramStore.getState().chats.get("chat-forum")?.unreadCount;
+      }, storePath)).toBe(0);
+      await expect(tab(page, "__all__")).toHaveAttribute("aria-selected", "false");
+    });
+  }
+}
+
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
   test(`topic reads clear the sidebar badge without All or a group read update at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.route("**/src/telegram/mockTransport.ts", async route => {

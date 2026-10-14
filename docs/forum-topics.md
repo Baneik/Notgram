@@ -66,7 +66,7 @@ messages: Map<chatId, Message[]>  // UI 按 topicId 过滤
 
 1. 切换话题前刷新旧话题草稿；发送、失败重试和附件队列永远使用队列项中的 `topicId`。
 2. 话题打开后只读取对应历史游标，不能复用普通会话的 history state。
-3. 进入话题后只用该话题最后一条入站消息执行 `viewMessages(force_read=true, source=messageSourceForumTopicHistory)`；“全部”视图读取整群历史后使用整群 `markChatRead`。TDLib 的话题阅读边界与群组 `unread_count` 独立，不能假定话题回执会同步减少群组计数。Store 在成功回执后同步扣除该话题实际读过的数量，同群组阅读请求串行处理；相同阅读边界去重，迟到群组计数下降吸收已扣数量，群组计数增加保留新消息。旧话题列表不能恢复已扣数量，新边界只消费旧边界后的入站消息。话题级请求不能使用 `messageSourceChatHistory`，否则 TDLib 推进的是整群已读边界。失败、迟到回执、新入站消息和账号切换都不得误清其他未读状态。
+3. 进入话题后只用该话题最后一条入站消息执行 `viewMessages(force_read=true, source=messageSourceForumTopicHistory)`；“全部”视图读取整群历史后使用整群 `markChatRead`。TDLib 的话题阅读边界与群组 `unread_count` 独立，不能假定话题回执会同步减少群组计数。Store 在成功回执后同步扣除该话题实际读过的数量，同群组阅读请求串行处理；相同阅读边界去重，迟到群组计数下降吸收已扣数量，群组计数增加保留新消息。请求期间新入站消息或话题更新只能阻止旧回执覆盖新话题计数，不能跳过已成功阅读边界对应的群组扣减与缓存写入；后续阅读从该确认边界继续扣减。旧话题列表不能恢复已扣数量，新边界只消费旧边界后的入站消息。话题级请求不能使用 `messageSourceChatHistory`，否则 TDLib 推进的是整群已读边界。失败、迟到回执、新入站消息和账号切换都不得误清其他未读状态。
 4. `forumTopic.draft_message` 和实时 `chat.draftChanged` 都按话题 key 写入，服务端空草稿会删除对应 key。
 5. 旧消息缓存仍按 chat 存储，恢复后依靠 `Message.topicId` 过滤，避免破坏现有缓存迁移。
 6. 每个论坛群组最后打开的话题和已加载的话题元数据写入加密快照；重新进入时先恢复缓存会话，再在后台刷新服务端列表和历史。

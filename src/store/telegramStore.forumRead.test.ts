@@ -7,6 +7,78 @@ const emit = (transport: MockTelegramTransport, event: TelegramEvent) => {
   (transport as unknown as { listener: (event: TelegramEvent) => void }).listener(event);
 };
 
+it.each(["boundary", "refreshed-count"])("deducts an acknowledged read while preserving a newer incoming message (%s)", async update => {
+  const transport = new MockTelegramTransport();
+  let finish!: () => void;
+  vi.spyOn(transport, "markForumTopicRead")
+    .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValue(undefined);
+  const chatReads = vi.spyOn(transport, "markChatRead");
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  const previous = store.getState().messages.get("chat-forum")!.find(message => message.topicId === "12")!;
+  const newer = { ...previous, id: "pending-read-incoming", sentAt: "2026-08-01T10:00:00+08:00" };
+  emit(transport, { type: "chat.upsert", chat: { ...store.getState().chats.get("chat-forum")!, unreadCount: 5 } });
+  // Mirror TDLib's boundary update and a possible server count refresh, without
+  // its independent group count ever reporting the topic read.
+  emit(transport, { type: "forumTopics.changed", chatId: "chat-forum", topic: {
+    id: "12", lastReadInboxMessageId: previous.id, muted: false, unreadMentionCount: 0, unreadReactionCount: 0,
+    ...(update === "refreshed-count" ? { unreadCount: 1 } : {}),
+  } });
+  // Avoid the automatic read timer so the first acknowledgement is observable.
+  store.setState({ messages: new Map(store.getState().messages).set("chat-forum", [
+    ...store.getState().messages.get("chat-forum")!, newer,
+  ]) });
+  finish();
+  await vi.waitFor(() => expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(2));
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.unreadCount)
+    .toBe(update === "refreshed-count" ? 1 : 3);
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "18")?.unreadCount).toBe(1);
+  await store.getState().markActiveChatRead();
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1);
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.unreadCount).toBe(0);
+  expect(chatReads).not.toHaveBeenCalledWith("chat-forum");
+  await transport.disconnect();
+});
+
+it("deducts a successful topic read even when an unrelated topic update changes its metadata", async () => {
+  const transport = new MockTelegramTransport();
+  let finish!: () => void;
+  vi.spyOn(transport, "markForumTopicRead").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  emit(transport, { type: "forumTopics.changed", chatId: "chat-forum", topic: {
+    id: "12", muted: true, unreadMentionCount: 0, unreadReactionCount: 0,
+  } });
+  finish();
+  await vi.waitFor(() => expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(1));
+  expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.muted).toBe(true);
+  await transport.disconnect();
+});
+
+it("does not apply a retired topic acknowledgement to another account", async () => {
+  const transport = new MockTelegramTransport();
+  let finish!: () => void;
+  vi.spyOn(transport, "markForumTopicRead").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  store.getState().selectChat("chat-forum", { forumTopicId: "12" });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  const accountChat = { ...store.getState().chats.get("chat-forum")!, unreadCount: 7 };
+  const reading = store.getState().markActiveChatRead();
+  await store.getState().switchAccount("account-secondary");
+  store.setState({ chats: new Map([[accountChat.id, accountChat]]) });
+  finish();
+  await reading;
+  expect(store.getState().chats.get("chat-forum")?.unreadCount).toBe(7);
+  expect(store.getState().activeAccountId).toBe("account-secondary");
+  await transport.disconnect();
+});
+
 it("updates the sidebar from topic acknowledgements when TDLib leaves the group count unchanged", async () => {
   const transport = new MockTelegramTransport();
   vi.spyOn(transport, "markForumTopicRead").mockResolvedValue(undefined);

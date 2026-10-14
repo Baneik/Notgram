@@ -1572,10 +1572,21 @@ export const createTelegramStore = (
         const hasNewIncoming = (get().messages.get(chatId) ?? []).some(message =>
           message.topicId === topicId && !message.outgoing && !message.isLocallyDeleted && !message.isRemoving &&
           compareMessages(message, latestIncoming!) > 0);
+        // The receipt still covers the captured boundary when newer messages or
+        // topic metadata arrive. Preserve their topic state without losing the
+        // acknowledged group deduction or the boundary used by the next read.
+        const unreadCount = forumUnreadState.acknowledgeRead(readCount);
+        const chat = get().chats.get(chatId);
+        const chats = new Map(get().chats);
+        if (chat && unreadCount !== undefined) chats.set(chatId, { ...chat, unreadCount });
         if (hasNewIncoming || (currentTopic !== topic && (
           currentTopic?.lastReadInboxMessageId !== latestIncoming.id ||
           (currentTopic?.unreadCount ?? 0) > (topic?.unreadCount ?? 0)
-        ))) return true;
+        ))) {
+          set({ chats });
+          scheduleCacheWrite();
+          return true;
+        }
         const forumTopics = new Map(get().forumTopics);
         forumTopics.set(chatId, (forumTopics.get(chatId) ?? []).map((topic) => topic.id === topicId
           ? {
@@ -1584,10 +1595,6 @@ export const createTelegramStore = (
               lastReadInboxMessageId: latestIncoming.id,
             }
           : topic));
-        const unreadCount = forumUnreadState.acknowledgeRead(readCount);
-        const chat = get().chats.get(chatId);
-        const chats = new Map(get().chats);
-        if (chat && unreadCount !== undefined) chats.set(chatId, { ...chat, unreadCount });
         set({ forumTopics, chats });
         scheduleCacheWrite();
         return true;
