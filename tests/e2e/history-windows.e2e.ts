@@ -33,6 +33,7 @@ const fixture = async (page: Page) => {
     }` });
   });
   await page.goto("/");
+  if ((page.viewportSize()?.width ?? 900) < 600) await page.getByRole("button", { name: /^产品讨论/ }).click();
   await expect(page.locator('.conversation .message-list')).toHaveAttribute("aria-busy", "false");
   await page.locator('.message-list').press("End");
   await expect(page.locator('[data-message-id="10000"]')).toBeVisible();
@@ -107,6 +108,41 @@ test("reply navigation selects its context and End restores the latest window", 
   await expect(page.locator('[data-message-id="115"]')).toHaveCount(0);
   await expect.poll(() => page.locator('.message-list').evaluate(list => list.scrollHeight - list.clientHeight - list.scrollTop)).toBeLessThanOrEqual(1);
 });
+
+for (const width of [1366, 390]) {
+  for (const input of ["wheel", "PageDown"]) {
+    test(`a distant reply continues loading below its context with ${input} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await fixture(page);
+      await page.locator('[data-message-id="10000"] .message-reply-preview').click();
+      await expect(page.locator('[data-message-id="115"]')).toBeVisible();
+      const list = page.locator('.conversation .message-list');
+      await expect(list).toHaveAttribute("aria-busy", "false");
+      const newest = () => page.evaluate(() => Number((window as unknown as { __windowStore: { getState: () => TelegramState } })
+        .__windowStore.getState().histories.get("chat-product")!.view!.newest!.id));
+      await list.hover();
+      for (let turn = 0; turn < 2; turn++) {
+        const before = await newest();
+        await expect.poll(async () => {
+          if (input === "wheel") await page.mouse.wheel(0, await list.evaluate(element => element.scrollHeight));
+          else await list.press("PageDown");
+          return newest();
+        }, { timeout: 8000 }).toBeGreaterThan(before);
+        await expect(list).toHaveAttribute("aria-busy", "false");
+      }
+      const visibleIds = await page.evaluate(() => {
+        const state = (window as unknown as { __windowStore: { getState: () => TelegramState } }).__windowStore.getState();
+        const ids = state.histories.get("chat-product")!.view!.messageIds!;
+        return state.messages.get("chat-product")!.filter(message => ids.has(message.id)).map(message => Number(message.id));
+      });
+      expect(visibleIds).toEqual(Array.from({ length: visibleIds.at(-1)! - visibleIds[0] + 1 }, (_, i) => visibleIds[0] + i));
+      expect(visibleIds.at(-1)).toBeLessThan(10000);
+      await list.press("End");
+      await expect(page.locator('[data-message-id="10000"]')).toBeVisible();
+      await expect(page.locator('[data-message-id="115"]')).toHaveCount(0);
+    });
+  }
+}
 
 test("return from a distant reply restores the original detached reading offset", async ({ page }) => {
   await fixture(page);

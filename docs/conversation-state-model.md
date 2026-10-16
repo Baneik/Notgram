@@ -476,6 +476,11 @@ or disprove continuity. Explicit navigation selects a window in the same transac
 viewport request. End/latest selects the latest window; jump return can select a cached context and
 restore its original pixel offset. A context's local bottom is not the latest conversation window.
 
+Newly loaded, restored and recovery-detached contexts expose `hasNewer` so downward wheel or keyboard
+input can page from their newest covered message. Only confirmed server exhaustion or overlap with
+the latest timeline ends that walk. Reusing an overlapping context preserves its confirmed exhaustion;
+opening a context alone never starts a scan toward latest.
+
 Recovery captures the recent server-message boundary before accepting new live updates. It refreshes
 from the head until that boundary is returned/passed or the server confirms exhaustion. Distant
 context membership is never a recovery target. Each recovery has a total nine-page budget (including

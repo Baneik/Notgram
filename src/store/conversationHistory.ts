@@ -158,7 +158,8 @@ export class ConversationHistory {
       const ids = new Set(context.messageIds);
       const messages = this.host.messages(context.chatId, context.topicId).filter(message => ids.has(message.id));
       if (!messages.length) continue;
-      const window: Window = { id: `context:${context.targetId}`, ids: new Set(messages.map(message => message.id)), cursor: messages[0]?.id, hasMore: true };
+      const window: Window = { id: `context:${context.targetId}`, ids: new Set(messages.map(message => message.id)),
+        cursor: messages[0]?.id, hasMore: true, hasNewer: true };
       extendRange(window, messages);
       scope.contexts.set(window.id, window);
       scope.excluded = new Set([...scope.excluded, ...window.ids]);
@@ -386,7 +387,8 @@ export class ConversationHistory {
     const previous = overlapping.find(window => window === scope.selected) ?? overlapping[0];
     const existing = previous ? this.host.messages(chatId, topicId).filter(message => previous.ids.has(message.id)) : [];
     const ordered = [...existing, ...scoped].sort(compareMessages);
-    const window: Window = previous ?? { id: `context:${targetId}`, ids: new Set(), hasMore: true };
+    // A detached context does not establish the newest server boundary.
+    const window: Window = previous ?? { id: `context:${targetId}`, ids: new Set(), hasMore: true, hasNewer: true };
     const cursor = ordered[0]?.id;
     if (cursor !== window.cursor) window.hasMore = true;
     window.ids = new Set([...window.ids, ...returnedIds]);
@@ -520,7 +522,7 @@ export class ConversationHistory {
     // navigation/cache path, without presenting the unfilled gap as adjacent rows.
     const target = cached.find(message => message.id === scope.targetId) ?? cached.at(-1)!;
     const window: Window = { id: `context:${target.id}`, ids: new Set(cached.map(message => message.id)),
-      cursor: cached[0].id, hasMore: true };
+      cursor: cached[0].id, hasMore: true, hasNewer: true };
     extendRange(window, cached);
     scope.contexts.set(window.id, window);
     scope.excluded = new Set([...scope.excluded, ...window.ids]);

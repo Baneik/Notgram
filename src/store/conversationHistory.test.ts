@@ -349,6 +349,74 @@ describe("conversation history ownership", () => {
     expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12", "13"]);
   });
 
+  it.each([undefined, "1"].flatMap(topicId => [false, true].map(restored => ({ topicId, restored }))))(
+    "pages down from a distant context and rejoins latest (topic: $topicId, restored: $restored)", async ({ topicId, restored }) => {
+      const scoped = (ids: number[]) => ids.map(id => ({ ...message(id), topicId }));
+      const context = scoped([10, 11, 12]);
+      const h = harness(restored ? [...context, ...scoped([19, 20])] : scoped([19, 20]));
+      if (restored) h.history.restoreContexts([{ chatId: "7", topicId, targetId: "11", messageIds: ["10", "11", "12"] }]);
+      else h.history.context("7", topicId, "11", context);
+      h.history.focus("7", topicId, "11");
+      expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12"]);
+      expect(h.request).not.toHaveBeenCalled();
+      const respond = (ids: number[]) => h.request.mockResolvedValue({ ...page(ids), messages: scoped(ids) });
+      respond([13, 14]);
+      await h.history.newer("7", topicId);
+      expect(h.request).toHaveBeenLastCalledWith("7", topicId, { purpose: "newer", fromMessageId: "12" });
+      expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12", "13", "14"]);
+      expect(h.state().view).toMatchObject({ id: "context:11", hasNewer: true });
+      respond([9, 8]);
+      await h.history.older("7", topicId);
+      expect(h.request).toHaveBeenLastCalledWith("7", topicId, { purpose: "older", fromMessageId: "10" });
+      respond([15, 16]);
+      await h.history.newer("7", topicId);
+      expect(h.request).toHaveBeenLastCalledWith("7", topicId, { purpose: "newer", fromMessageId: "14" });
+      respond([17, 18, 19]);
+      await h.history.newer("7", topicId);
+      expect(h.state().view?.id).toBe("latest");
+      expect(h.state().view?.hasNewer).toBeFalsy();
+      expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 13 }, (_, i) => i + 8));
+      h.merge(scoped([21]));
+      expect(h.visible().at(-1)?.id).toBe("21");
+      h.history.clear();
+    },
+  );
+
+  it("pages down from a cached reading checkpoint detached by a paused refresh", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(10), message(11), message(1000)]);
+    h.history.focus("7", undefined, "11");
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 1000;
+      return page(Array.from({ length: 30 }, (_, i) => from - i));
+    });
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("paused");
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11"]);
+    h.request.mockClear().mockResolvedValue(page([12, 13]));
+    await h.history.newer("7");
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "newer", fromMessageId: "11" });
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12", "13"]);
+    h.history.clear();
+  });
+
+  it("keeps confirmed newer exhaustion when another jump overlaps the context", async () => {
+    const h = harness([]);
+    h.history.context("7", undefined, "11", [message(10), message(11), message(12)]);
+    h.history.focus("7", undefined, "11");
+    h.request.mockResolvedValue(page([13], false));
+    await h.history.newer("7");
+    expect(h.request).toHaveBeenCalledTimes(1);
+    expect(h.state().view?.hasNewer).toBe(false);
+    h.history.context("7", undefined, "12", [message(11), message(12), message(13)]);
+    h.history.focus("7", undefined, "12");
+    await h.history.newer("7");
+    expect(h.request).toHaveBeenCalledTimes(1);
+    expect(h.visible().map(m => m.id)).toEqual(["10", "11", "12", "13"]);
+    h.history.clear();
+  });
+
   it("uses the oldest message ID when a context's messages share one timestamp", async () => {
     const h = harness([message(100)]);
     h.history.focus("7", undefined, "11");
