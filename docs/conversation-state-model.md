@@ -227,28 +227,38 @@ displacements from ordered stable virtual block IDs (including sponsored blocks)
 committed render: subtract inserted blocks only when the entire old sequence is an unchanged suffix
 of the new one, and add removed blocks only for the inverse operation.
 
-Each reading prepend has one geometry owner. During continuous detached scrolling, use the resolved origin
-and let Virtuoso preserve motion. Its temporary content margin and deferred `scrollBy` form one
-pass; application layout, row-resize and total-height callbacks must yield until that margin clears.
-Do not cancel that ownership guard on wheel input or cover this pass with a static snapshot. Capture
-the final live reading position when it ends. An idle reader instead keeps the committed origin and
-uses the before-mutation application anchor, including grouping and late-content adjustments. A
-single input followed by a pause is idle: compare input sequence against the pagination request's
-checkpoint, which survives cancellation of its old anchor. Programmatic navigation and bottom following
-retain their existing positioning paths. Never run reading-anchor compensation alongside
-Virtuoso's prepend compensation. Cache origins and block sequences commit together; abandoned
-renders do not publish either.
+Each detached reading prepend keeps the committed origin and uses the before-mutation application
+anchor. Virtuoso's prepend estimate uses the last cached block size; variable text, grouping and
+unknown media sizes can make that estimate several viewports wrong. Do not combine its prepend
+compensation with application corrections. Cache origins and block sequences commit together;
+abandoned renders do not publish either. Programmatic navigation and bottom following retain their
+existing positioning paths.
 
-Idle history transactions capture the visible body, media card or album caption by message identity,
+Live input never receives a static history snapshot. A single gesture followed by a pause is idle:
+compare input sequence against the pagination request's checkpoint, which survives cancellation of
+its old anchor. If a reading target is unmounted, seek once using Virtuoso's existing size ranges,
+then let the bounded application coordinator restore mounted content. Do not use `scrollToIndex`
+for this reading seek: its internal measurement retries survive wheel cancellation and can move the
+reader back to an obsolete target.
+
+Reading transactions capture the visible body, media card or album caption by message identity,
 plus up to two surviving neighbors. Keep those content positions, not a sender header's row top:
 pagination can turn the old first message into a group continuation and remove its header. If the
 content changes size/topology (for example a single photo becoming an album tile), prefer a captured
 unchanged neighbor and never switch back within that transaction. Missing content falls back to the
 existing row anchor. All application layout/resize callbacks use the same transaction's content
 points. Release the static snapshot after those positions and dimensions converge, with the existing
-bounded deadline; `ui_history_render.timedOut` distinguishes deadline release. Re-capture ordinary
-row-based reading memory from the final live viewport, so later passive resizes do not interpret a
-body offset as a row offset. Explicit input, navigation and view changes cancel this ownership.
+bounded deadline; `ui_history_render.timedOut` distinguishes deadline release. Keep a view-local numeric
+content checkpoint after settlement for delayed image decoding, video metadata and other row resizes.
+Ordinary saved row memory remains separate. Passive corrections update its scroll position without
+re-capturing the content checkpoint, so pixel rounding cannot accumulate with each media completion.
+Media geometry commits notify the existing batched layout coordinator before paint; row-size and
+total-height callbacks use the same content points. Wheel/key scrolling translates expected offsets
+by actual scroll movement (accounting for interface scale and boundary clamping); application writes
+update that movement checkpoint. Explicit input cancels the bounded settlement and snapshot while
+the next layout still preserves the user's new reading position. Navigation and view generations
+invalidate the content checkpoint. Pointer dragging and middle autoscroll keep their exclusive input
+ownership and yield detached anchor writes for the full interaction.
 
 Upward intent requests the next history page within one viewport of the loaded boundary, with a
 64px minimum. Passive scroll/measurement events never arm requests. Finishing a request while the

@@ -17,7 +17,7 @@ const rowSelector = "[data-message-id], [data-caption-message-id]";
 const contentClasses = ["message-rich-text", "photo-preview", "attachment-message", "poll-message"];
 const contentSelector = contentClasses.map(name => `.${name}`).join(", ");
 
-/** Transaction-local content positions survive virtual remounts. Sender/day
+/** View-local numeric content positions survive virtual remounts. Sender/day
  * headers may disappear during pagination, so their row top is not a reading point. */
 export const captureConversationReadingAnchor = (
   list: HTMLElement,

@@ -299,7 +299,9 @@ export const useConversationScroll = ({
   const bottomPinRequestRef = useRef<BottomPinRequest | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
   const contentAnchorFrameRef = useRef<number | undefined>(undefined);
-  const virtualizerPrependRef = useRef<{ key: string; frame?: number } | undefined>(undefined);
+  const readingMemoryRef = useRef<{
+    key: string; generation: number; scrollTop: number; reading: ConversationReadingAnchor;
+  } | undefined>(undefined);
   const contentAnchorOwnerRef = useRef<{
     key: string; generation: number; messageId: string; offset: number;
     reading?: ConversationReadingAnchor;
@@ -492,15 +494,14 @@ export const useConversationScroll = ({
     resolvedVirtuosoFirstItemIndex < diagnosticModelRef.current.firstItemIndex;
   const pagination = historyPaginationRef.current;
   const readingPrepend = prepending && scrollControlRef.current.mode === "detached" && !revealTargetTokenRef.current;
-  const virtualizerOwnsPrepend = readingPrepend &&
+  const liveReadingInput = scrollControlRef.current.mode === "detached" && !revealTargetTokenRef.current &&
     (pointerActiveRef.current || middleAutoScrollRef.current ||
       ((performance.now() <= userIntentUntilRef.current || (userScrollMemoryStableRef.current?.frames ?? 2) < 2) &&
         (!pagination || pagination.key !== currentScrollKey ||
           pagination.inputSequence !== userInputSequenceRef.current)));
-  // An idle reader needs the application anchor for changed grouping/layout.
-  // During live scrolling Virtuoso preserves motion through its own prepend.
-  // Never ask both owners to compensate the same insertion.
-  const virtuosoFirstItemIndex = readingPrepend && !virtualizerOwnsPrepend
+  // Variable-height blocks cannot use Virtuoso's last-row prepend estimate.
+  // Preserve the content position before paint, including during live input.
+  const virtuosoFirstItemIndex = readingPrepend
     ? diagnosticModelRef.current.firstItemIndex
     : resolvedVirtuosoFirstItemIndex;
   useLayoutEffect(() => {
@@ -710,8 +711,17 @@ export const useConversationScroll = ({
     followLatest: boolean,
     pendingNewCount: number,
     captureAnchor: boolean,
+    // Passive corrections keep content offsets, avoiding cumulative pixel rounding.
+    captureReading = captureAnchor,
   ) => {
     const anchor = captureAnchor ? visibleAnchor(element) : undefined;
+    if (captureReading && !followLatest) {
+      const reading = captureConversationReadingAnchor(element, messageItemIndexesRef.current);
+      readingMemoryRef.current = reading ? {
+        key: element.dataset.conversationVirtuosoKey ?? "",
+        generation: scrollControlRef.current.generation, scrollTop: element.scrollTop, reading,
+      } : undefined;
+    } else if (followLatest) readingMemoryRef.current = undefined;
     const memory: ConversationScrollMemory = {
       scrollTop: element.scrollTop,
       followLatest,
@@ -1250,6 +1260,8 @@ export const useConversationScroll = ({
           writeConversationScrollTop(element, nextTop, scrollWriter.anchor);
         }
       }
+      const checkpoint = readingMemoryRef.current;
+      if (reading && checkpoint?.reading === reading) checkpoint.scrollTop = element.scrollTop;
       return true;
     };
     if (correctMountedAnchor()) return;
@@ -1257,18 +1269,38 @@ export const useConversationScroll = ({
     if (itemIndex === undefined) return;
     const generation = scrollControlRef.current.generation;
     const key = element.dataset.conversationVirtuosoKey;
+    const inputSequence = userInputSequenceRef.current;
     const pending = indexRestoreRequestRef.current;
     if (historyRestoreFrameRef.current !== undefined && pending?.element === element &&
       pending.key === key && pending.generation === generation &&
       pending.messageId === messageId && pending.offset === expectedOffset) return;
     indexRestoreRequestRef.current = { element, key, generation, messageId, offset: expectedOffset };
     markControlledCorrection();
-    traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
-      index: itemIndex,
-      align: "start",
-      offset: -expectedOffset,
-      behavior: "auto",
-    });
+    if (reading) {
+      // scrollToIndex retries when measurements arrive, even after a wheel has
+      // cancelled our transaction. Seek once using the existing size cache;
+      // this coordinator then corrects mounted content and owns all retries.
+      virtuosoRef.current?.getState(({ ranges }) => {
+        if (messageListRef.current !== element || element.dataset.conversationVirtuosoKey !== key ||
+          scrollControlRef.current.generation !== generation || !ranges.length) return;
+        const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+        const header = element.querySelector<HTMLElement>(".message-list-start-spacer");
+        const prefix = ranges.reduce((total, range) => total +
+          Math.max(0, Math.min(itemIndex, range.endIndex + 1) - range.startIndex) * range.size, 0);
+        writeConversationScrollTop(element,
+          Math.max(0, prefix + (header?.getBoundingClientRect().height ?? 0) / scale - expectedOffset / scale),
+          scrollWriter.anchor);
+        const checkpoint = readingMemoryRef.current;
+        if (checkpoint?.reading === reading) checkpoint.scrollTop = element.scrollTop;
+      });
+    } else {
+      traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
+        index: itemIndex,
+        align: "start",
+        offset: -expectedOffset,
+        behavior: "auto",
+      });
+    }
     if (historyRestoreFrameRef.current !== undefined) {
       cancelAnimationFrame(historyRestoreFrameRef.current);
     }
@@ -1277,9 +1309,37 @@ export const useConversationScroll = ({
       indexRestoreRequestRef.current = undefined;
       if (messageListRef.current !== element || element.dataset.conversationVirtuosoKey !== key ||
         scrollControlRef.current.generation !== generation) return;
+      if (reading && (userInputSequenceRef.current !== inputSequence ||
+        readingMemoryRef.current?.reading !== reading)) return;
       correctMountedAnchor();
     });
   }, []);
+
+  const reconcileReadingPosition = useCallback((element: HTMLElement, includeUserScroll: boolean) => {
+    const control = scrollControlRef.current;
+    const checkpoint = readingMemoryRef.current;
+    const memory = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
+    if (control.mode !== "detached" || revealTargetTokenRef.current || pointerActiveRef.current ||
+      middleAutoScrollRef.current || !memory?.anchorMessageId || memory.anchorOffset === undefined ||
+      !checkpoint || checkpoint.key !== element.dataset.conversationVirtuosoKey ||
+      checkpoint.generation !== control.generation) return false;
+    // Native input moves the reading points; layout changes do not. Account for
+    // actual scrolling rather than wheel delta, which can be clamped at an edge.
+    const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+    const movement = includeUserScroll ? (element.scrollTop - checkpoint.scrollTop) * scale : 0;
+    if (movement) {
+      checkpoint.reading = { ...checkpoint.reading,
+        points: checkpoint.reading.points.map(point => ({ ...point, offset: point.offset - movement })) };
+      memory.anchorOffset -= movement;
+    }
+    if (!measureConversationReadingAnchor(element, checkpoint.reading).length) {
+      readingMemoryRef.current = undefined;
+      return false;
+    }
+    restoreAnchor(element, memory.anchorMessageId, memory.anchorOffset, checkpoint.reading);
+    memory.scrollTop = element.scrollTop;
+    return true;
+  }, [currentScrollKey, restoreAnchor]);
 
   const settleAnchorPosition = useCallback((
     element: HTMLElement,
@@ -1404,15 +1464,15 @@ export const useConversationScroll = ({
     const element = messageListRef.current;
     if (!element?.isConnected) return;
     conversationTraceFor(element)?.record(traceKind.commitAfter);
-    if (virtualizerPrependRef.current?.key === element?.dataset.conversationVirtuosoKey) return;
     if (removalRef.current) { removalRef.current.refresh(); return; }
     const request = bottomPinRequestRef.current;
     const control = scrollControlRef.current;
     const owner = contentAnchorOwnerRef.current;
     if (element && owner && owner.key === element.dataset.conversationVirtuosoKey &&
       owner.generation === control.generation) {
-      // The active anchor loop already reconciles once per frame. Child text
-      // commits must not each measure and restart the same missing index.
+      // Child commits are batched into one geometry check. Media may change
+      // after this frame's RAF, so finish its correction before painting.
+      restoreAnchor(element, owner.messageId, owner.offset, owner.reading);
       return;
     }
     if (!request) {
@@ -1424,6 +1484,9 @@ export const useConversationScroll = ({
         // The coordinator checks the committed endpoint itself. A separate
         // distance guard duplicates its geometry read and pin decision.
         scheduleBottomPin(undefined, "track");
+      } else if (element) {
+        reconcileReadingPosition(element, pointerActiveRef.current || middleAutoScrollRef.current ||
+          performance.now() <= userIntentUntilRef.current);
       }
       return;
     }
@@ -1432,7 +1495,7 @@ export const useConversationScroll = ({
     // Virtuoso can commit newly measured rows after this frame's pin. Finish
     // that active tracking pass before paint, preserving its existing deadline.
     scheduleBottomPin(undefined, request.mode);
-  }, [scheduleBottomPin]);
+  }, [reconcileReadingPosition, restoreAnchor, scheduleBottomPin]);
 
   const onListLayoutCommitted = useCallback(() => {
     if (layoutCommitQueuedRef.current) return;
@@ -1453,7 +1516,6 @@ export const useConversationScroll = ({
     });
     const control = scrollControlRef.current;
     const memory = currentScrollKey ? conversationScrollMemory.get(currentScrollKey) : undefined;
-    if (!structuralChange && virtualizerPrependRef.current) return;
     if (!element || !currentScrollKey || searchActive ||
       element.dataset.conversationVirtuosoKey !== virtuosoKey ||
       control.mode === "navigating" || revealTargetTokenRef.current ||
@@ -1558,20 +1620,16 @@ export const useConversationScroll = ({
     const history = pending?.key === currentScrollKey &&
       pending.previousFirstId !== firstVisibleMessageIdRef.current &&
       visibleMessagesRef.current.length > pending.beforeCount ? pending : undefined;
-    const previousMessages = diagnosticModelRef.current.messages;
-    const historyPrepend = structuralChange && !virtualizerOwnsPrepend &&
-      visibleMessagesRef.current.length > previousMessages.length &&
-      firstVisibleMessageIdRef.current !== previousMessages[0]?.id &&
-      messageItemIndexesRef.current.has(previousMessages[0]?.id ?? "");
-    const reading = existing?.reading ?? (historyPrepend
+    const reading = existing?.reading ?? (control.mode === "detached"
       ? captureConversationReadingAnchor(element, messageItemIndexesRef.current) : undefined);
+    if (reading) readingMemoryRef.current = { key: virtuosoKey, generation, scrollTop: element.scrollTop, reading };
     if (history) {
       history.anchorMessageId = anchor.messageId;
       history.anchorOffset = anchor.offset;
     }
     // Capture at DOM commit, not when the network request starts. The user may
     // have continued reading during that request. No React state is set here.
-    if (structuralChange && !virtualizerOwnsPrepend && !historySnapshotRef.current) {
+    if (structuralChange && !liveReadingInput && !historySnapshotRef.current) {
       const snapshot = captureConversationJumpSnapshot(element, { isolate: true });
       if (snapshot) {
         snapshot.element.dataset.conversationHistorySnapshot = "true";
@@ -1580,45 +1638,6 @@ export const useConversationScroll = ({
           releaseTimer: globalThis.setTimeout(clearHistorySnapshot, HISTORY_SNAPSHOT_MAX_MS),
         };
       }
-    }
-    if (virtualizerOwnsPrepend) {
-      // Virtuoso applies a temporary margin, then scrollBy, then clears the
-      // margin. Application writes during this pass duplicate its correction.
-      if (virtualizerPrependRef.current?.frame !== undefined) cancelAnimationFrame(virtualizerPrependRef.current.frame);
-      const prepend = { key: virtuosoKey, frame: undefined as number | undefined };
-      virtualizerPrependRef.current = prepend;
-      if (contentAnchorFrameRef.current !== undefined) cancelAnimationFrame(contentAnchorFrameRef.current);
-      contentAnchorFrameRef.current = undefined;
-      contentAnchorOwnerRef.current = undefined;
-      if (historyRestoreFrameRef.current !== undefined) cancelAnimationFrame(historyRestoreFrameRef.current);
-      historyRestoreFrameRef.current = undefined;
-      if (anchorFrameRef.current !== undefined) cancelAnimationFrame(anchorFrameRef.current);
-      anchorFrameRef.current = undefined;
-      return () => {
-        let frames = 0;
-        const finish = () => {
-          if (virtualizerPrependRef.current !== prepend) return;
-          if (messageListRef.current !== element || element.dataset.conversationVirtuosoKey !== prepend.key) {
-            virtualizerPrependRef.current = undefined;
-            return;
-          }
-          frames++;
-          const content = element.querySelector<HTMLElement>(".message-list-content");
-          if (frames < CONTENT_ANCHOR_RECONCILE_MAX_FRAMES && (frames < 3 ||
-            (Number.parseFloat(content?.style.marginTop ?? "0") || 0) !== 0)) {
-            prepend.frame = requestAnimationFrame(finish);
-            return;
-          }
-          virtualizerPrependRef.current = undefined;
-          if (history && pendingHistoryRestoreRef.current === history) pendingHistoryRestoreRef.current = undefined;
-          const current = conversationScrollMemory.get(currentScrollKey);
-          if (scrollControlRef.current.mode === "following") scheduleBottomPin(undefined, "track");
-          else if (scrollControlRef.current.mode === "detached") {
-            writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true);
-          }
-        };
-        prepend.frame = requestAnimationFrame(finish);
-      };
     }
     return () => {
       if (messageListRef.current !== element || scrollControlRef.current.generation !== generation) return;
@@ -1631,7 +1650,7 @@ export const useConversationScroll = ({
         if (history && pendingHistoryRestoreRef.current === history) pendingHistoryRestoreRef.current = undefined;
         clearHistorySnapshot();
         writeMemory(currentScrollKey, element, false,
-          conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
+          conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true, !reading);
         if (history) {
           const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
           const target = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.messageId)}"]`);
@@ -1647,7 +1666,7 @@ export const useConversationScroll = ({
       }, reading);
     };
   }, [cancelRemovalMotion, reduceMotion, restoreAnchor, clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
-    matchingMessageRequest?.loading, virtualizerOwnsPrepend, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
+    matchingMessageRequest?.loading, liveReadingInput, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   useLayoutEffect(() => {
     if (!messageListElement || !currentScrollKey || searchActive) return;
@@ -1666,7 +1685,6 @@ export const useConversationScroll = ({
       const control = scrollControlRef.current;
       const memory = conversationScrollMemory.get(currentScrollKey);
       if (element.dataset.conversationVirtuosoKey !== virtuosoKey) return;
-      if (virtualizerPrependRef.current?.key === virtuosoKey) return;
       // Media/caption layout can change after the previous bottom transaction
       // settled. Real row resizes must reconcile before paint as well.
       if (reconcileBottomViewport()) return;
@@ -1679,7 +1697,18 @@ export const useConversationScroll = ({
         memory?.followLatest !== false || !memory.anchorMessageId || memory.anchorOffset === undefined) return;
       if (pointerActiveRef.current || middleAutoScrollRef.current ||
         performance.now() <= userIntentUntilRef.current) {
-        writeMemory(currentScrollKey, element, false, memory.pendingNewCount, true);
+        const restored = reconcileReadingPosition(element, true);
+        writeMemory(currentScrollKey, element, false, memory.pendingNewCount, true, !restored);
+        return;
+      }
+      const checkpoint = readingMemoryRef.current;
+      const reading = checkpoint?.key === virtuosoKey && checkpoint.generation === control.generation
+        ? checkpoint.reading : undefined;
+      if (reading) {
+        settleContentAnchorPosition(element, memory.anchorMessageId, memory.anchorOffset, virtuosoKey, () => {
+          writeMemory(currentScrollKey, element, false,
+            conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true, false);
+        }, reading);
         return;
       }
       const target = element.querySelector<HTMLElement>(
@@ -1698,10 +1727,10 @@ export const useConversationScroll = ({
       }
       settleContentAnchorPosition(element, memory.anchorMessageId, memory.anchorOffset, virtuosoKey, () => {
         writeMemory(currentScrollKey, element, false,
-          conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
+          conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true, false);
       });
     });
-  }, [currentScrollKey, messageListElement, reconcileBottomViewport, restoreAnchor, searchActive,
+  }, [currentScrollKey, messageListElement, reconcileBottomViewport, reconcileReadingPosition, restoreAnchor, searchActive,
     settleContentAnchorPosition, virtuosoKey, writeMemory]);
 
   const loadOlder = useCallback(() => {
@@ -2909,8 +2938,6 @@ export const useConversationScroll = ({
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
     }
-    if (virtualizerPrependRef.current?.frame !== undefined) cancelAnimationFrame(virtualizerPrependRef.current.frame);
-    virtualizerPrependRef.current = undefined;
     if (positioningAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(positioningAnchorFrameRef.current);
     }
@@ -2927,7 +2954,6 @@ export const useConversationScroll = ({
     conversationTraceFor(messageListRef.current)?.record(traceKind.totalHeight);
     if (removalRef.current) { removalRef.current.refresh(); return; }
     if (!currentScrollKey || searchActive) return;
-    if (virtualizerPrependRef.current?.key === messageListRef.current?.dataset.conversationVirtuosoKey) return;
     if (performance.now() < smoothScrollUntilRef.current) return;
     // The prepend transaction owns anchor correction until its settlement
     // callback. Letting this generic signal schedule another RAF can make the
@@ -2942,6 +2968,9 @@ export const useConversationScroll = ({
     }
     const memory = conversationScrollMemory.get(currentScrollKey);
     const control = scrollControlRef.current;
+    const list = messageListRef.current;
+    if (list && reconcileReadingPosition(list, pointerActiveRef.current || middleAutoScrollRef.current ||
+      performance.now() <= userIntentUntilRef.current)) return;
     if (control.mode === "restoring" && entryMemoryRef.current?.fitBoundary &&
       !entryMemoryRef.current.fitChecked) return;
     if (
@@ -2966,8 +2995,10 @@ export const useConversationScroll = ({
     if (!element) return;
     // Virtuoso reports measured geometry before paint. Deferring this correction
     // to another RAF exposes one frame of a resized image or virtual row.
-    restoreAnchor(element, memory.anchorMessageId, memory.anchorOffset);
-  }, [currentScrollKey, restoreAnchor, scheduleBottomPin, searchActive]);
+    const checkpoint = readingMemoryRef.current;
+    restoreAnchor(element, memory.anchorMessageId, memory.anchorOffset,
+      checkpoint?.key === virtuosoKey && checkpoint.generation === control.generation ? checkpoint.reading : undefined);
+  }, [currentScrollKey, reconcileReadingPosition, restoreAnchor, scheduleBottomPin, searchActive, virtuosoKey]);
 
   const onInitialRangeChanged = useCallback(() => {
     markConversationSwitch(
@@ -3259,11 +3290,18 @@ export const useConversationScroll = ({
       if (control.mode === "detached" && !contentAnchorOwnerRef.current && !revealTargetTokenRef.current) {
         // Record the final native/virtual scroll position as well as wheel
         // events. A later image resize must preserve the currently visible pixels.
-        writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true);
+        reconcileReadingPosition(element, false);
+        writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true, false);
       }
       return;
     }
     if (!pointerInitiated && contentAnchorOwnerRef.current) return;
+    if (!pointerInitiated && scrollControlRef.current.mode === "detached" &&
+      performance.now() <= anchorCorrectionUntilRef.current) {
+      writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true, false);
+      return;
+    }
+    reconcileReadingPosition(element, true);
     const atBottom = !hasNewerMessages && distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
     const previousScrollTop = userScrollTopRef.current;
     const measuredDirection = previousScrollTop === undefined

@@ -20,6 +20,8 @@ import {
 import {
   memo,
   useEffect,
+  useContext,
+  useLayoutEffect,
   useCallback,
   useRef,
   useState,
@@ -40,7 +42,7 @@ import type {
   User,
 } from "../telegram/types";
 import { MessageMetadata } from "./MessageMetadata";
-import { MessageTextFlow } from "./MessageTextFlow";
+import { MessageTextFlow, MessageTextLayoutContext } from "./MessageTextFlow";
 import { fitMediaLayout } from "../utils/mediaLayout";
 import { isGroupFirst, type MessageGroupPosition } from "../utils/messageGrouping";
 import { TgsSticker } from "./TgsSticker";
@@ -377,6 +379,12 @@ function MessageBubbleComponent({
         },
       )
     : undefined;
+  const onLayoutCommitted = useContext(MessageTextLayoutContext);
+  // Unknown source dimensions can replace the placeholder after decoding.
+  // Reconcile the viewport in this commit, before a ResizeObserver delivery.
+  useLayoutEffect(() => {
+    onLayoutCommitted?.();
+  }, [mediaLayout?.width, mediaLayout?.height, onLayoutCommitted]);
   const reactions = visibleMessageReactions(message, blockedReactionSenderIds);
   const showReactionFooter = !selectionMode && !isService && !albumItem && reactions.length > 0;
 

@@ -73,20 +73,24 @@ test("eviction preserves a detached reader frame by frame and newer paging resto
       const rect = row.getBoundingClientRect(); return rect.bottom > bounds.top + 1 && rect.top < bounds.bottom - 1;
     })!;
     const before = anchor.getBoundingClientRect().top;
-    const samples: Array<{ shift: number; missing: boolean }> = [];
+    const samples: Array<{ shift: number; missing: boolean; covered: boolean }> = [];
     let stop = false;
     const sample = () => {
       const current = list.querySelector<HTMLElement>(`[data-message-id="${anchor.dataset.messageId}"]`);
-      samples.push({ shift: current ? Math.abs(current.getBoundingClientRect().top - before) : 0, missing: !current });
-      if (!stop) requestAnimationFrame(sample);
+      samples.push({ shift: current ? Math.abs(current.getBoundingClientRect().top - before) : 0, missing: !current,
+        covered: Boolean(document.querySelector("[data-conversation-history-snapshot]")) });
+      if (!stop) requestAnimationFrame(() => setTimeout(sample, 0));
     };
     sample();
     await store.getState().loadMoreHistory("chat-product");
     await new Promise(resolve => setTimeout(resolve, 900));
     stop = true;
     const state = store.getState();
-    return { anchor: anchor.dataset.messageId, top: list.scrollTop, count: state.messages.get("chat-product")!.length, samples: samples.length,
-      missing: samples.some(s => s.missing), shift: Math.max(...samples.map(s => s.shift)),
+    // A covered DOM seek is not a visible frame. Keep checking every exposed
+    // frame, including missing anchors, once the history snapshot releases.
+    const exposed = samples.filter(sample => !sample.covered);
+    return { anchor: anchor.dataset.messageId, top: list.scrollTop, count: state.messages.get("chat-product")!.length, samples: exposed.length,
+      missing: exposed.some(s => s.missing), shift: Math.max(...exposed.map(s => s.shift)),
       context: state.histories.get("chat-product")!.view!.id, hasNewer: state.histories.get("chat-product")!.view!.hasNewer };
   });
   expect(result.count).toBeLessThanOrEqual(2400);
