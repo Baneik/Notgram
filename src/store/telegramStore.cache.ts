@@ -19,7 +19,7 @@ import type {
 import { normalizeIdentityText, sanitizeIdentityText } from "../telegram/identityText";
 import { isPerformanceMonitoringEnabled, logPerformance } from "../utils/performanceMonitor";
 import { channelDiscussionProjection } from "./telegramStore.messages";
-import { migrateEmojiPickerCache } from "./telegramStore.emojiCache";
+import { isEmojiPickerAsset, migrateEmojiPickerCache } from "./telegramStore.emojiCache";
 import type { TelegramState } from "./telegramStore.types";
 
 export const TELEGRAM_CACHE_VERSION = 4 as const;
@@ -220,7 +220,10 @@ const isQueuedMessage = (item: unknown): item is QueuedOutgoingMessage =>
     isRecord(item.replyQuote) && typeof item.replyQuote.text === "string" &&
     typeof item.replyQuote.position === "number" && Number.isInteger(item.replyQuote.position) && item.replyQuote.position >= 0
   )) &&
-  (item.kind === undefined || item.kind === "text" || item.kind === "attachments") &&
+  (item.kind === undefined || item.kind === "text" || item.kind === "attachments" || item.kind === "emoji") &&
+  (item.kind === "emoji"
+    ? isEmojiPickerAsset(item.emojiAsset) && Boolean(item.emojiAsset.remoteId) && item.attachments === undefined
+    : item.emojiAsset === undefined) &&
   (item.caption === undefined || typeof item.caption === "string") &&
   (item.error === undefined || typeof item.error === "string") &&
   (item.attachments === undefined || (Array.isArray(item.attachments) && item.attachments.length > 0 && item.attachments.every(isQueuedAttachment)));

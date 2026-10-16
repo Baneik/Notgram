@@ -17,7 +17,7 @@ type StoreSetter = (
 
 export interface OutboxController {
   setOutbox: (outbox: QueuedOutgoingMessage[]) => void;
-  persistOutboxState: () => Promise<boolean>;
+  persistOutboxState: (localOnly?: boolean) => Promise<boolean>;
   flushOutbox: () => Promise<void>;
   resetOutbox: () => void;
 }
@@ -27,6 +27,7 @@ export interface OutboxControllerOptions {
   get: () => TelegramState;
   set: StoreSetter;
   flushCachedSnapshot: () => Promise<void>;
+  flushLocalState?: () => Promise<void>;
   topicKey: (chatId: string, topicId?: string) => string;
   onError: (error: unknown, fallback: string) => string;
 }
@@ -41,6 +42,7 @@ export const createOutboxController = ({
   get,
   set,
   flushCachedSnapshot,
+  flushLocalState,
   topicKey,
   onError,
 }: OutboxControllerOptions): OutboxController => {
@@ -68,10 +70,10 @@ export const createOutboxController = ({
     });
   };
 
-  const persistOutboxState = async () => {
+  const persistOutboxState = async (localOnly = false) => {
     const savedGeneration = generation;
     try {
-      await flushCachedSnapshot();
+      await (localOnly && flushLocalState ? flushLocalState() : flushCachedSnapshot());
       return true;
     } catch {
       if (savedGeneration === generation) set({ cacheHealth: "invalid" });
@@ -112,14 +114,19 @@ export const createOutboxController = ({
         }
         if (!item) return;
         setOutbox(get().outbox.map((candidate) => candidate.id === item.id ? { ...candidate, status: "sending" } : candidate));
-        if (!await persistOutboxState()) {
+        if (!await persistOutboxState(item.kind === "emoji")) {
           if (!currentAccount()) return;
           setOutbox(get().outbox.map((candidate) => candidate.id === item.id ? { ...candidate, status: "failed" } : candidate));
           return;
         }
         if (!currentAccount()) return;
         try {
-          if (item.attachments?.length) {
+          if (item.emojiAsset) {
+            const input = { chatId: item.chatId, topicId: item.topicId, asset: item.emojiAsset,
+              replyToMessageId: item.replyToMessageId, replyQuote: item.replyQuote, disableNotification: item.disableNotification };
+            if (item.emojiAsset.kind === "sticker") await transport.sendSticker(input);
+            else await transport.sendAnimation(input);
+          } else if (item.attachments?.length) {
             const stored = await attachmentOutbox.get(item.id, get().activeAccountId);
             if (!currentAccount()) return;
             if (!stored) throw new Error(translate("离线附件已过期或文件内容已变更，请重新选择"));
@@ -167,7 +174,7 @@ export const createOutboxController = ({
             setOutbox(get().outbox.map(candidate => candidate.id === item.id
               ? { ...candidate, status: "queued", error: undefined, ...outboxRetryState(error, candidate.retryAttempt) }
               : candidate));
-            if (!await persistOutboxState()) return;
+            if (!await persistOutboxState(item.kind === "emoji")) return;
             continue;
           }
           setOutbox(get().outbox.map((candidate) =>
@@ -178,16 +185,17 @@ export const createOutboxController = ({
           set({
             operationError: onError(
               error,
-              item.attachments?.length ? translate("离线附件恢复发送失败") : translate("离线消息恢复发送失败"),
+              item.emojiAsset ? item.emojiAsset.kind === "sticker" ? translate("贴纸发送失败") : translate("GIF 发送失败")
+                : item.attachments?.length ? translate("离线附件恢复发送失败") : translate("离线消息恢复发送失败"),
             ),
           });
-          await persistOutboxState();
+          await persistOutboxState(item.kind === "emoji");
           return;
         }
 
         if (!currentAccount()) return;
         setOutbox(get().outbox.filter((candidate) => candidate.id !== item.id));
-        if (!await persistOutboxState()) return;
+        if (!await persistOutboxState(item.kind === "emoji")) return;
         if (item.attachments?.length) await attachmentOutbox.remove(item.id, accountId);
       }
     })();

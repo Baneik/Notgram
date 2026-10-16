@@ -47,14 +47,14 @@ export function EmojiAssetVisual({ asset, autoplay, label, eager = false, previe
   }, [accountId, asset.id]);
   const preview = useMemo(() => emojiAssetPreview(asset), [asset]);
   const animated = asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm" || asset.kind === "animation";
-  const hasPreview = Boolean(preview || asset.previewPath || asset.previewDataUrl);
   const cachedFull = getCachedEmojiAsset(asset);
   const pickerPreview = asset.kind === "sticker" ? getCachedStickerPickerPreview(asset) : undefined;
-  const wantsFull = previewOnly ? !animated && (!hasPreview || Boolean(cachedFull)) : !animated || autoplay || eager || !hasPreview;
+  const hasPreview = Boolean(pickerPreview || preview || asset.previewPath || asset.previewDataUrl);
+  const wantsFull = previewOnly ? !pickerPreview && !animated && (!hasPreview || Boolean(cachedFull)) : !animated || autoplay || eager || !hasPreview;
   const cachedPreview = preview ? getCachedEmojiAsset(preview) : undefined;
   const key = accountId + ":" + emojiRevision + ":" + readRevision;
   const thumbnail = useVisibleResource(
-    preview && (!wantsFull || !cachedFull || cachedPreview) ? key + ":preview:" + preview.fileId : undefined,
+    !pickerPreview && preview && (!wantsFull || !cachedFull || cachedPreview) ? key + ":preview:" + preview.fileId : undefined,
     visible,
     cachedPreview,
     () => preview ? loadEmojiAsset(preview) : Promise.resolve(undefined),

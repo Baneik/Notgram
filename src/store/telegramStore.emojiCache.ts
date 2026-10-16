@@ -1,7 +1,7 @@
 import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, StickerSet, StickerSetSummary } from "../telegram/types";
 
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
-const asset = (value: unknown): value is EmojiPickerAsset => record(value) && typeof value.id === "string" &&
+export const isEmojiPickerAsset = (value: unknown): value is EmojiPickerAsset => record(value) && typeof value.id === "string" &&
   (value.kind === "sticker" || value.kind === "animation") && Number.isSafeInteger(value.fileId) &&
   Number(value.fileId) > 0 && typeof value.fileName === "string" &&
   ["remoteId", "remoteUniqueId", "previewRemoteId", "stickerSetId", "emoji", "mimeType", "previewMimeType", "localPath", "previewPath"].every(
@@ -11,7 +11,7 @@ const asset = (value: unknown): value is EmojiPickerAsset => record(value) && ty
   (value.previewDataUrl === undefined || (typeof value.previewDataUrl === "string" && value.previewDataUrl.length <= 65_536 &&
     (/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value.previewDataUrl) ||
       /^data:image\/svg\+xml;charset=utf-8,/.test(value.previewDataUrl))));
-const assets = (value: unknown, limit: number) => Array.isArray(value) ? value.filter(asset).slice(0, limit) : [];
+const assets = (value: unknown, limit: number) => Array.isArray(value) ? value.filter(isEmojiPickerAsset).slice(0, limit) : [];
 const summary = (value: unknown): StickerSetSummary | undefined => {
   if (!record(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.title !== "string" ||
     typeof value.size !== "number" || !Number.isFinite(value.size) || value.size < 0) return undefined;

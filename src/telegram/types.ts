@@ -1132,7 +1132,8 @@ export interface QueuedOutgoingMessage {
   acceptedAttachmentIds?: string[];
   retryAt?: number;
   retryAttempt?: number;
-  kind?: "text" | "attachments";
+  kind?: "text" | "attachments" | "emoji";
+  emojiAsset?: EmojiPickerAsset;
   caption?: string;
   attachments?: QueuedOutgoingAttachment[];
   error?: string;
@@ -1162,7 +1163,7 @@ export type MessageFileState = Pick<TransferableMessageContent,
 > & { fileId: number };
 
 export type TelegramEvent =
-  | { type: "emoji.catalogChanged"; installedStickerSetIds?: string[] }
+  | { type: "emoji.catalogChanged"; section?: "stickers" | "animations"; installedStickerSetIds?: string[] }
   | { type: "stickerSet.updated"; stickerSet: StickerSet }
   | { type: "file.updated"; file: MessageFileState }
   | { type: "authorization.changed"; state: AuthorizationState }

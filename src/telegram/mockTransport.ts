@@ -2319,7 +2319,7 @@ export class MockTelegramTransport implements TelegramTransport {
     const accountId = this.accountState.activeAccountId;
     const recent = this.recentStickerAssets.get(accountId) ?? mockStickerSets[0].stickers.slice(0, 4);
     this.recentStickerAssets.set(accountId, [input.asset, ...recent.filter((asset) => asset.fileId !== input.asset.fileId)].slice(0, 100));
-    this.listener?.({ type: "emoji.catalogChanged" });
+    this.listener?.({ type: "emoji.catalogChanged", section: "stickers" });
   }
 
   async sendAnimation(input: SendEmojiAssetInput) {

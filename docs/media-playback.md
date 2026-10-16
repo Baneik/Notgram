@@ -26,10 +26,14 @@ TDLib's local file state before entering the download queue; a completed file
 must remain available even while all twelve network slots are occupied. Keep
 an available thumbnail painted until the full image or animated frame is ready.
 Preparing or decoding a preview must never be a prerequisite for sending its
-Telegram file ID. Pending sends only disable the matching file's button; other
-assets, tabs and dismissal remain usable. Guard duplicate clicks synchronously,
-allow retry after failure, and ignore UI acknowledgements after the picker closes
-or its account/conversation changes.
+Telegram file ID. Stable remote identities enter the existing durable outbox:
+paint a sending sticker immediately and close the picker after local acceptance.
+Persist the local queue before submitting to TDLib, using the small unsent-state
+write rather than rebuilding history. Failed or interrupted sends stay visible
+for review/retry; an ambiguous result must never replay automatically. Runtime-only
+numeric files retain direct sending because their identity cannot survive restart.
+Those pending sends only disable the matching button. Guard duplicate clicks
+synchronously and ignore acknowledgements after the account/conversation changes.
 
 Picker catalogs, installed pack contents and small raster previews are part of
 the account-scoped encrypted UI snapshot. Restore them before connecting; keep
@@ -40,8 +44,15 @@ pack read. Persist TDLib remote file IDs and unique IDs: restored sends use
 replaceable; their eviction must not erase a saved picker preview.
 
 Main-window authorization and reconnection prepare installed packs in the
-background. Settings-only windows do not start this work. Pack reads and raster
-preparation each use at most two workers; downloads use background priority 16.
+background. Settings-only windows do not start this work. Pack reads, preview
+loads and raster preparation are bounded separately to two workers each; local
+pixels can prepare while both network loads wait. Thumbnails and static stickers
+use the existing small-preview priority 19, independent of the three full-file
+prefetch slots. Full animation fallbacks retain priority 16 and may occupy only
+one preview load, leaving room for small assets. Failed preparation retries with
+exponential backoff capped at one minute; reset cancels retries and queued frames.
+Pixel publications are coalesced over 16ms. Sticker metadata becomes usable before
+the saved-GIF request finishes, preserving previous GIFs during that refresh.
 Animated stickers prefer their thumbnail; otherwise capture a nonempty frame
 without autoplay or audio. Previews are 96px, at most 32 KiB of serialized data
 each and 24 MiB total in memory. Keep all installed pack metadata while bounding
@@ -49,6 +60,10 @@ uninstalled previews to 128 packs. Account switch and explicit cache cleanup
 clear previews and cancel their owners so late work cannot refill another account.
 New or uncached stickers still require an initial background preparation; sending
 an already known asset never waits for it.
+
+Picker grids paint saved pixels without fetching the original file or mounting
+an animation player. Hover or keyboard focus opts the selected sticker into its
+full preview, respecting motion preferences; pack stages retain their full preview.
 
 Opening a pack from a message carries that sticker's file identity into the
 preview. Prefer its stable remote identity over runtime file handles and select

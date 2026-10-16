@@ -32,6 +32,7 @@ export const messageFromOutbox = (
 ): Message => {
   const attachmentCount = item.attachments?.length ?? 0;
   const firstAttachment = item.attachments?.[0];
+  const asset = item.emojiAsset;
   const totalBytes = item.attachments?.reduce((sum, attachment) => sum + attachment.size, 0) ?? 0;
   return {
     id: outboxMessageId(item.id),
@@ -50,7 +51,29 @@ export const messageFromOutbox = (
           quote: item.replyQuote?.text,
         }
       : undefined,
-    content: firstAttachment
+    content: asset
+      ? {
+          kind: "media",
+          mediaType: asset.kind === "sticker" ? "sticker" : "animation",
+          fileName: asset.fileName,
+          sizeLabel: "",
+          fileId: asset.fileId,
+          remoteId: asset.remoteId,
+          remoteUniqueId: asset.remoteUniqueId,
+          stickerSetId: asset.stickerSetId,
+          mimeType: asset.mimeType,
+          localPath: asset.localPath,
+          thumbnailPath: asset.previewPath,
+          thumbnailFileId: asset.previewFileId,
+          thumbnailRemoteId: asset.previewRemoteId,
+          previewDataUrl: asset.previewDataUrl,
+          width: asset.width ?? 512,
+          height: asset.height ?? 512,
+          duration: asset.duration,
+          canDownload: false,
+          isDownloaded: Boolean(asset.localPath),
+        }
+      : firstAttachment
       ? {
           kind: "file",
           fileName: attachmentCount > 1

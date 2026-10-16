@@ -63,6 +63,7 @@ test("a ready thumbnail stays painted while the full sticker decodes", async ({ 
     const visual = picker(page).locator('[data-asset-id="delayed-full"]');
     await expect(visual.locator('img[src="/mock-video-poster.jpg"][data-image-state="ready"]')).toBeVisible({ timeout: 1500 });
     await expect(visual.locator(".sticker-placeholder")).toHaveCount(0);
+    await visual.hover();
     releaseFull();
     await expect(visual.locator('img[src="/delayed-full-sticker.jpg"][data-image-state="ready"]')).toBeVisible();
     await expect(visual.locator('img[src="/mock-video-poster.jpg"]')).toHaveCount(0);
@@ -152,6 +153,7 @@ for (const width of [1366, 390]) {
       const visual = picker(page).locator('[data-asset-id="local-webm"]');
       await expect(visual.locator('img[data-image-state="ready"]')).toBeVisible();
       await expect(visual.locator(".sticker-placeholder")).toHaveCount(0);
+      await visual.hover();
       await expect(visual.locator("video")).toHaveJSProperty("muted", true);
       await expect(visual.locator(".emoji-asset-full")).toHaveAttribute("data-asset-state", "loading");
       releaseVideo();

@@ -97,6 +97,9 @@ function LazyEmojiAsset({
   sending: boolean;
 }) {
   const label = asset.kind === "animation" ? translate("发送 GIF") : translate("发送贴纸 {{value0}}", { value0: asset.emoji ?? "" }).trim();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const active = hovered || focused;
 
   return (
     <button
@@ -106,9 +109,14 @@ function LazyEmojiAsset({
       title={label}
       disabled={sending}
       aria-busy={sending}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       onClick={() => onSelect(asset)}
     >
-      <EmojiAssetVisual asset={asset} autoplay={autoplay} label={label} />
+      <EmojiAssetVisual asset={asset} autoplay={autoplay && (asset.kind === "animation" || active)}
+        previewOnly={asset.kind === "sticker" && !active} label={label} />
       {sending && <LoaderCircle className="emoji-asset-sending spin" size={18} />}
     </button>
   );

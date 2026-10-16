@@ -211,7 +211,7 @@ export interface TelegramTransport {
   pinMessage(input: PinMessageInput): Promise<void>;
   unpinMessage(chatId: string, messageId: string): Promise<void>;
   setChatMessageAutoDeleteTime(input: SetChatMessageAutoDeleteTimeInput): Promise<void>;
-  getEmojiPickerCatalog(): Promise<EmojiPickerCatalog>;
+  getEmojiPickerCatalog(onStickersReady?: (catalog: EmojiPickerCatalog) => void): Promise<EmojiPickerCatalog>;
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
   addStickerSet(stickerSetId: string): Promise<void>;
   removeStickerSet(stickerSetId: string): Promise<void>;

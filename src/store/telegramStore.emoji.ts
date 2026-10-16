@@ -7,6 +7,7 @@ import { stickerOutlinePath } from "../media/stickerOutline";
 import { prepareStickerPickerPreview } from "../media/stickerPickerPreview";
 import { emojiAssetPreview } from "../media/emojiAssetPreview";
 import type { TelegramTransport } from "../telegram/transport";
+import { FILE_PREVIEW_PRIORITY } from "../telegram/fileDownloadQueue";
 import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, TelegramEvent } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
@@ -56,6 +57,8 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   let uiRevision = 0;
   const notify = () => { set({ emojiRevision: ++uiRevision }); onCacheChanged?.(); };
   let catalogRevision = 0;
+  let animationRevision = 0;
+  let catalogRequestId = 0;
   let catalog: CachedValue<EmojiPickerCatalog> | undefined;
   let catalogRequest: Promise<EmojiPickerCatalog | undefined> | undefined;
   const stickerSets = new Map<string, CachedValue<StickerSet>>();
@@ -70,11 +73,52 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   let previewAbort = new AbortController();
   const previewQueue = new Map<string, EmojiPickerAsset>();
   const previewPending = new Set<string>();
+  const previewRetries = new Map<string, { asset: EmojiPickerAsset; failures: number; notBefore: number }>();
+  let previewRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let previewNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+  const frameQueue: Array<{ run: () => void; cancel: () => void }> = [];
   let preparing = 0;
+  let loadingPreviews = 0;
+  let loadingAnimationPreviews = 0;
   let warmingSets: Promise<void> | undefined;
 
+  const notifyPreview = () => {
+    previewNotifyTimer ??= globalThis.setTimeout(() => { previewNotifyTimer = undefined; notify(); }, 16);
+  };
+  const prepareFrame = (asset: EmojiPickerAsset, path: string, signal: AbortSignal) => new Promise<string | undefined>((resolve, reject) => {
+    const run = () => {
+      if (signal.aborted) { reject(new Error("Sticker preview cancelled")); return; }
+      preparing++;
+      void preparePreview(asset, path, signal).then(resolve, reject).finally(() => {
+        if (signal.aborted) return;
+        preparing--;
+        frameQueue.shift()?.run();
+      });
+    };
+    if (preparing < 2) run();
+    else frameQueue.push({ run, cancel: () => reject(new Error("Sticker preview cancelled")) });
+  });
+  const schedulePreviewRetry = () => {
+    if (previewRetryTimer !== undefined) globalThis.clearTimeout(previewRetryTimer);
+    previewRetryTimer = undefined;
+    let next = Infinity;
+    for (const [key, retry] of previewRetries) {
+      if (!previewPending.has(key) && !previewQueue.has(key) && !previews.has(key)) next = Math.min(next, retry.notBefore);
+    }
+    if (!Number.isFinite(next)) return;
+    previewRetryTimer = globalThis.setTimeout(() => {
+      previewRetryTimer = undefined;
+      if (get().authorization.kind !== "ready") return;
+      for (const [key, retry] of previewRetries) {
+        if (retry.notBefore > Date.now() || previews.has(key) || previewPending.has(key)) continue;
+        previewQueue.set(key, retry.asset);
+      }
+      pumpPreviews();
+    }, Math.max(0, next - Date.now()));
+  };
+
   const rememberPreview = (key: string, dataUrl: string) => {
-    if (!/^data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) || dataUrl.length > 32_768) return;
+    if (!/^data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) || dataUrl.length > 32_768) return false;
     const bytes = dataUrl.length * 2;
     previewBytes -= (previews.get(key)?.length ?? 0) * 2;
     previews.delete(key);
@@ -85,42 +129,61 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     }
     previews.set(key, dataUrl);
     previewBytes += bytes;
+    return true;
   };
 
   const pumpPreviews = () => {
     if (typeof document === "undefined") return;
-    while (preparing < 2 && previewQueue.size && get().authorization.kind === "ready") {
-      const [key, asset] = previewQueue.entries().next().value!;
+    if (get().authorization.kind !== "ready") return;
+    for (const [key, asset] of previewQueue) {
+      const thumbnail = emojiAssetPreview(asset);
+      const local = getCachedEmojiAsset(asset) ? asset : thumbnail && getCachedEmojiAsset(thumbnail) ? thumbnail : undefined;
+      // Network waits never own a raster slot or prevent already-local stickers from preparing.
+      if (!local && loadingPreviews >= 2) continue;
+      if (!local && !thumbnail && (asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm") && loadingAnimationPreviews) continue;
       previewQueue.delete(key);
       const isCurrent = currentRequest();
       const signal = previewAbort.signal;
-      preparing++;
+      if (!local) loadingPreviews++;
       previewPending.add(key);
       void (async () => {
-        // Prefer a thumbnail for animations; static stickers retain their detail.
-        const animated = asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm";
-        const thumbnail = animated ? emojiAssetPreview(asset) : undefined;
-        const fullPath = getCachedEmojiAsset(asset);
-        const candidates = thumbnail && (!fullPath || getCachedEmojiAsset(thumbnail)) ? [thumbnail, asset] : [asset];
+        const candidates = local ? [local] : thumbnail ? [thumbnail, asset] : [asset];
         for (const visual of candidates) {
+          let ownsAnimationSlot = false;
           try {
             if (!isCurrent() || signal.aborted) return;
-            const path = getCachedEmojiAsset(visual) ?? await transport.loadEmojiAsset(visual, 16);
+            const animated = visual.mimeType === "application/x-tgsticker" || visual.mimeType === "video/webm";
+            if (animated && !getCachedEmojiAsset(visual)) {
+              if (loadingAnimationPreviews) continue;
+              loadingAnimationPreviews++;
+              ownsAnimationSlot = true;
+            }
+            const path = getCachedEmojiAsset(visual) ?? await transport.loadEmojiAsset({ ...visual, localPath: undefined }, animated ? 16 : FILE_PREVIEW_PRIORITY);
             if (!isCurrent() || signal.aborted) return;
             if (!path) continue;
-            const dataUrl = await preparePreview(visual, path, signal);
+            remember(assetPaths, visual.fileId, path, MAX_ASSET_PATHS);
+            const dataUrl = await prepareFrame(visual, path, signal);
             if (!isCurrent() || signal.aborted) return;
             if (!dataUrl) continue;
-            rememberPreview(key, dataUrl);
-            notify();
+            if (!rememberPreview(key, dataUrl)) return;
+            previewRetries.delete(key);
+            notifyPreview();
             return;
-          } catch { if (!isCurrent() || signal.aborted) return; }
+          } catch {
+            if (!isCurrent() || signal.aborted) return;
+            remember(assetPaths, visual.fileId, undefined, MAX_ASSET_PATHS);
+          } finally {
+            if (ownsAnimationSlot && isCurrent()) loadingAnimationPreviews--;
+          }
         }
+        const failures = (previewRetries.get(key)?.failures ?? 0) + 1;
+        previewRetries.set(key, { asset, failures, notBefore: Date.now() + Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6)) });
       })().catch(() => undefined).finally(() => {
         if (!isCurrent()) return;
-        preparing--;
+        if (!local) loadingPreviews--;
         previewPending.delete(key);
         pumpPreviews();
+        schedulePreviewRetry();
       });
     }
   };
@@ -128,7 +191,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     for (const asset of assets) {
       if (asset.kind !== "sticker") continue;
       const key = previewKey(asset);
-      if (!previews.has(key) && !previewPending.has(key)) previewQueue.set(key, asset);
+      if (!previews.has(key) && !previewPending.has(key) && (previewRetries.get(key)?.notBefore ?? 0) <= Date.now()) previewQueue.set(key, asset);
     }
     pumpPreviews();
   };
@@ -158,28 +221,45 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     if (catalogRequest) return catalogRequest;
     const isCurrent = currentRequest();
     const revision = catalogRevision;
-    const request = transport.getEmojiPickerCatalog().then((value) => {
+    const savedAnimationRevision = animationRevision;
+    const requestId = ++catalogRequestId;
+    let resolveCatalog!: (value: EmojiPickerCatalog | undefined) => void;
+    const request = new Promise<EmojiPickerCatalog | undefined>(resolve => { resolveCatalog = resolve; });
+    catalogRequest = request;
+    const publish = (value: EmojiPickerCatalog, partial = false) => {
       if (!isCurrent()) return undefined;
+      if (requestId !== catalogRequestId) return catalog?.value;
       // Sending/installing while a read is pending must not restore the old catalog.
-      if (revision !== catalogRevision) return catalog?.value;
+      if (revision !== catalogRevision) {
+        // A sticker update must not discard the independently loaded GIF section.
+        if (!partial && catalog && savedAnimationRevision === animationRevision) {
+          catalog = { ...catalog, value: { ...catalog.value, savedAnimations: value.savedAnimations } };
+          notify();
+        }
+        return catalog?.value;
+      }
+      if (partial) value = { ...value, savedAnimations: catalog?.value.savedAnimations ?? [] };
       catalog = { value, loadedAt: Date.now() };
       queuePreviews([...value.recentStickers, ...value.stickerSets.flatMap(set => set.covers)]);
       if (typeof document !== "undefined" && canWarm()) void warmStickerSets();
       notify();
       return value;
+    };
+    void transport.getEmojiPickerCatalog(value => resolveCatalog(publish(value, true))).then(value => {
+      resolveCatalog(publish(value));
     }).catch((error: unknown) => {
-      if (!isCurrent()) return undefined;
+      if (!isCurrent()) { resolveCatalog(undefined); return; }
       if (!catalog && !background) set({ operationError: onError(error, translate("无法读取表情与贴纸")) });
-      return catalog?.value;
+      resolveCatalog(catalog?.value);
     }).finally(() => {
       if (catalogRequest === request) catalogRequest = undefined;
     });
-    catalogRequest = request;
     return request;
   };
 
-  const invalidateCatalog = () => {
+  const invalidateCatalog = (stickersOnly = false) => {
     catalogRevision += 1;
+    if (!stickersOnly) animationRevision += 1;
     catalogRequest = undefined;
     if (catalog) catalog = { ...catalog, loadedAt: -Infinity };
   };
@@ -191,7 +271,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     for (const asset of value.stickers) {
       if (outlines.get(asset.fileId)?.value === "") outlines.delete(asset.fileId);
     }
-    invalidateCatalog();
+    invalidateCatalog(true);
     if (catalog) {
       const sets = catalog.value.stickerSets;
       const next = value.isInstalled === false ? sets.filter((set) => set.id !== value.id)
@@ -212,7 +292,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       if (!isCurrent()) return false;
       const cached = stickerSets.get(id);
       if (cached) rememberStickerSet({ ...cached.value, isInstalled: installed, isArchived: false });
-      else { invalidateCatalog(); notify(); }
+      else { invalidateCatalog(true); notify(); }
       set({ operationError: undefined });
       void loadEmojiPicker();
       return true;
@@ -321,7 +401,15 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       previewBytes = 0;
       previewQueue.clear();
       previewPending.clear();
+      previewRetries.clear();
+      if (previewRetryTimer !== undefined) globalThis.clearTimeout(previewRetryTimer);
+      if (previewNotifyTimer !== undefined) globalThis.clearTimeout(previewNotifyTimer);
+      previewRetryTimer = undefined;
+      previewNotifyTimer = undefined;
+      for (const task of frameQueue.splice(0)) task.cancel();
       preparing = 0;
+      loadingPreviews = 0;
+      loadingAnimationPreviews = 0;
       warmingSets = undefined;
       notify();
     },
@@ -367,7 +455,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
           }) } };
         }
       }
-      invalidateCatalog();
+      invalidateCatalog(event.section === "stickers" || event.installedStickerSetIds !== undefined);
       notify();
     },
 

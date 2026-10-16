@@ -29,6 +29,20 @@ const harness = () => {
 };
 
 describe("sticker contracts", () => {
+  it("delivers stickers before a stalled GIF list and still delivers GIFs when ready", async () => {
+    const { transport, request } = harness();
+    let finish!: (value: TdObject) => void;
+    request.mockImplementation(async input => input["@type"] === "getSavedAnimations"
+      ? new Promise<TdObject>(resolve => { finish = resolve; })
+      : input["@type"] === "getRecentStickers" ? { stickers: rawSet.stickers } : { sets: [] });
+    const partial = vi.fn();
+    const reading = transport.getEmojiPickerCatalog(partial);
+    await vi.waitFor(() => expect(partial).toHaveBeenCalledOnce());
+    expect(partial.mock.calls[0][0].recentStickers).toHaveLength(1);
+    finish({ animations: [] });
+    expect((await reading).recentStickers).toHaveLength(1);
+  });
+
   it("persists remote identities and sends restored stickers without reading or downloading media", async () => {
     const { transport, request } = harness();
     request.mockResolvedValueOnce({ ...rawSet, stickers: [{ ...rawSet.stickers[0],
@@ -144,7 +158,7 @@ describe("sticker contracts", () => {
     expect(events).toMatchObject([
       { type: "stickerSet.updated", stickerSet: { id: rawSet.id, isInstalled: false } },
       { type: "emoji.catalogChanged", installedStickerSetIds: [rawSet.id] },
-      { type: "emoji.catalogChanged" }, { type: "emoji.catalogChanged" },
+      { type: "emoji.catalogChanged", section: "stickers" }, { type: "emoji.catalogChanged", section: "animations" },
     ]);
     internal.handleUpdate({ "@type": "updateRecentStickers", is_attached: true });
     internal.handleUpdate({ "@type": "updateInstalledStickerSets", sticker_type: { "@type": "stickerTypeMask" }, sticker_set_ids: [] });

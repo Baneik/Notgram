@@ -37,6 +37,7 @@ import type {
   Message,
   MessagePermissions,
   QueuedOutgoingMessage,
+  SendEmojiAssetInput,
   TelegramEvent,
   TelegramAccountState,
   User,
@@ -2684,6 +2685,7 @@ export const createTelegramStore = (
       get,
       set,
       flushCachedSnapshot,
+      flushLocalState: flushUnsentState,
       topicKey,
       onError: errorMessage,
     });
@@ -2789,6 +2791,23 @@ export const createTelegramStore = (
       onCacheChanged: scheduleCacheWrite,
       canWarm: () => pickerWarmingEnabled,
     });
+    const queueEmojiAsset = (input: SendEmojiAssetInput) => {
+      // Only stable Telegram identities can safely survive a queued send and restart.
+      if (!input.asset.remoteId) return false;
+      const asset = { ...input.asset,
+        previewDataUrl: emojiPickerController.getCachedStickerPickerPreview(input.asset) ?? input.asset.previewDataUrl };
+      const { asset: _asset, ...context } = input;
+      const item: QueuedOutgoingMessage = { ...context, id: globalThis.crypto.randomUUID(),
+        text: "", kind: "emoji", emojiAsset: asset, clearDraft: false, createdAt: new Date().toISOString(), status: "queued" };
+      setOutbox([...get().outbox, item]);
+      if (asset.kind === "sticker") emojiPickerController.rememberSentSticker(asset);
+      recordConversationSentMessages(get().activeAccountId, input.chatId);
+      set({ operationError: undefined });
+      // The existing drainer persists before submitting, while the UI can show sending immediately.
+      void flushOutbox();
+      scheduleCacheWrite();
+      return true;
+    };
 
     return {
       phase: "idle",
@@ -4732,6 +4751,8 @@ export const createTelegramStore = (
         const localOnlyReply = replyToMessageId
           ? get().messages.get(chatId)?.some((message) => message.id === replyToMessageId && message.isLocallyDeleted) === true
           : false;
+        if (queueEmojiAsset({ chatId, topicId, asset, replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+          replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined, disableNotification })) return true;
         try {
           await transport.sendSticker({
             chatId,
@@ -4748,12 +4769,14 @@ export const createTelegramStore = (
           scheduleCacheWrite();
           return true;
         } catch (error) {
+          if (get().activeAccountId !== accountId) return false;
           set({ operationError: errorMessage(error, translate("贴纸发送失败")) });
           return false;
         }
       },
 
       sendAnimation: async (asset, replyToMessageId, replyQuote, preferredChatId, disableNotification) => {
+        const accountId = get().activeAccountId;
         const chatId = preferredChatId ?? get().activeChatId;
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
         if (!chatId) return false;
@@ -4764,6 +4787,8 @@ export const createTelegramStore = (
         const localOnlyReply = replyToMessageId
           ? get().messages.get(chatId)?.some((message) => message.id === replyToMessageId && message.isLocallyDeleted) === true
           : false;
+        if (queueEmojiAsset({ chatId, topicId, asset, replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+          replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined, disableNotification })) return true;
         try {
           await transport.sendAnimation({
             chatId,
@@ -4773,11 +4798,13 @@ export const createTelegramStore = (
             replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined,
             disableNotification,
           });
+          if (get().activeAccountId !== accountId) return false;
           recordConversationSentMessages(get().activeAccountId, chatId);
           set({ operationError: undefined });
           scheduleCacheWrite();
           return true;
         } catch (error) {
+          if (get().activeAccountId !== accountId) return false;
           set({ operationError: errorMessage(error, translate("GIF 发送失败")) });
           return false;
         }
@@ -5334,7 +5361,8 @@ export const createTelegramStore = (
               : candidate,
           ));
           try {
-            await flushCachedSnapshot();
+            if (item.emojiAsset) await flushUnsentState();
+            else await flushCachedSnapshot();
           } catch (error) {
             setOutbox(previous);
             set({

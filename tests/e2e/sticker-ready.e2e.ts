@@ -145,7 +145,7 @@ test("background preparation shares two slots, uses thumbnail identity, and igno
     await new Promise(resolve => setTimeout(resolve, 0));
     return { queued, completed: controller.snapshot().emojiPickerPreviews, calls: calls.length };
   });
-  expect(result.queued).toEqual([{ fileId: 11, remoteId: "thumbnail-1", priority: 16 }, { fileId: 12, remoteId: "thumbnail-2", priority: 16 }]);
+  expect(result.queued).toEqual([{ fileId: 11, remoteId: "thumbnail-1", priority: 19 }, { fileId: 12, remoteId: "thumbnail-2", priority: 19 }]);
   expect(result.completed).toEqual([]);
   expect(result.calls).toBe(2);
 });

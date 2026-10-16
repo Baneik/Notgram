@@ -529,7 +529,7 @@ export class TauriTelegramTransport implements TelegramTransport {
           installedStickerSetIds: Array.isArray(update.sticker_set_ids) ? update.sticker_set_ids.map(tdId) : [],
         });
       } else if (type !== "updateRecentStickers" || update.is_attached !== true) {
-        this.listener?.({ type: "emoji.catalogChanged" });
+        this.listener?.({ type: "emoji.catalogChanged", section: type === "updateSavedAnimations" ? "animations" : "stickers" });
       }
     },
   };
@@ -2265,8 +2265,8 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.setChatMessageAutoDeleteTime(input);
   }
 
-  async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
-    return this.messageMediaService.getEmojiPickerCatalog();
+  async getEmojiPickerCatalog(onStickersReady?: (catalog: EmojiPickerCatalog) => void): Promise<EmojiPickerCatalog> {
+    return this.messageMediaService.getEmojiPickerCatalog(onStickersReady);
   }
 
   async getStickerSet(stickerSetId: string): Promise<StickerSet> {

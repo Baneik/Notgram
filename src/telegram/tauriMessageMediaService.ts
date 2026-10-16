@@ -486,21 +486,28 @@ export class TauriMessageMediaService {
     await this.context.refreshChat(input.chatId);
   }
 
-  async getEmojiPickerCatalog(): Promise<EmojiPickerCatalog> {
+  async getEmojiPickerCatalog(onStickersReady?: (catalog: EmojiPickerCatalog) => void): Promise<EmojiPickerCatalog> {
     const stickerType = { "@type": "stickerTypeRegular" };
-    const [recent, installed, saved] = await Promise.all([
+    // Observe GIF errors immediately, even if the sticker requests are still pending.
+    const savedRequest = this.context.request({ "@type": "getSavedAnimations" })
+      .then(value => ({ value }), (error: unknown) => ({ error }));
+    const [recent, installed] = await Promise.all([
       this.context.request({ "@type": "getRecentStickers", is_attached: false }),
       this.context.request({ "@type": "getInstalledStickerSets", sticker_type: stickerType }),
-      this.context.request({ "@type": "getSavedAnimations" }),
     ]);
-    return {
+    const stickers: EmojiPickerCatalog = {
       recentStickers: asTdObjects(recent.stickers)
         .map((sticker) => mapEmojiSticker(sticker))
         .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
       stickerSets: asTdObjects(installed.sets)
         .map(mapStickerSetSummary)
         .filter((stickerSet): stickerSet is StickerSetSummary => Boolean(stickerSet)),
-      savedAnimations: asTdObjects(saved.animations)
+      savedAnimations: [],
+    };
+    onStickersReady?.(stickers);
+    const saved = await savedRequest;
+    if ("error" in saved) throw saved.error;
+    return { ...stickers, savedAnimations: asTdObjects(saved.value.animations)
         .map(mapEmojiAnimation)
         .filter((asset): asset is EmojiPickerAsset => Boolean(asset)),
     };
