@@ -129,10 +129,8 @@ test("a three-digit unread entry positions once without exposing intermediate ju
   expect(result.targetOffset, JSON.stringify(result)).toBeGreaterThanOrEqual(-1);
   expect(result.targetOffset, JSON.stringify(result)).toBeLessThan(result.listHeight);
   expect(result.latestVisible).toBe(false);
-  expect(
-    result.placeholderFrameCount + result.transitionCoveredFrameCount,
-  ).toBe(0);
-  expect(result.snapshotCoveredFrameCount).toBeGreaterThan(0);
+  expect(result.transitionCoveredFrameCount).toBe(0);
+  expect(result.snapshotCoveredFrameCount).toBe(0);
   expect(result.emptySnapshotFrameCount).toBe(0);
   expect(result.exposedPositionSpan, JSON.stringify(result.exposedPositions)).toBeLessThanOrEqual(4);
   expect(result.scrollBehavior).toBe("auto");
@@ -150,119 +148,7 @@ test("a three-digit unread entry positions once without exposing intermediate ju
   }, "/src/utils/performanceMonitor.ts")).toBe(0);
 });
 
-test("conversation switch snapshot preserves the source message geometry", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-
-  const geometry = await page.evaluate(async () => {
-    const snapshotModule = await (0, eval)(
-      'import("/src/utils/conversationSwitchSnapshot.ts")',
-    ) as {
-      captureConversationSwitchSnapshot: (targetIdentity: string) => {
-        element: HTMLElement;
-        content: HTMLElement;
-      } | undefined;
-      removeConversationSwitchSnapshot: (
-        snapshot: { element: HTMLElement; content: HTMLElement } | undefined,
-      ) => void;
-    };
-    const sourceList = document.querySelector<HTMLElement>(
-      ".conversation .message-list",
-    );
-    const sourceContent = sourceList?.querySelector<HTMLElement>(".message-list-content");
-    if (!sourceList || !sourceContent) throw new Error("Source message list is unavailable");
-
-    const readRows = (list: HTMLElement) => {
-      const listBounds = list.getBoundingClientRect();
-      return new Map(
-        [...list.querySelectorAll<HTMLElement>("[data-message-id]")].flatMap((row) => {
-          const bubble = row.querySelector<HTMLElement>(".message-bubble-shell");
-          if (!row.dataset.messageId || !bubble) return [];
-          const bubbleBounds = bubble.getBoundingClientRect();
-          const textBounds = row.querySelector<HTMLElement>(".message-rich-text")
-            ?.getBoundingClientRect();
-          return [[row.dataset.messageId, {
-            left: bubbleBounds.left - listBounds.left,
-            right: listBounds.right - bubbleBounds.right,
-            top: bubbleBounds.top - listBounds.top,
-            bottom: listBounds.bottom - bubbleBounds.bottom,
-            width: bubbleBounds.width,
-            textWidth: textBounds?.width ?? 0,
-            textHeight: textBounds?.height ?? 0,
-          }] as const];
-        }),
-      );
-    };
-    const readList = (list: HTMLElement, content: HTMLElement) => ({
-      clientWidth: list.clientWidth,
-      clientHeight: list.clientHeight,
-      contentWidth: content.getBoundingClientRect().width,
-      scrollTop: list.scrollTop,
-      scrollbarWidth: getComputedStyle(list).scrollbarWidth,
-      hasPinnedBanner: Boolean(list.parentElement?.querySelector(".pinned-message-banner")),
-    });
-
-    const sourceRows = readRows(sourceList);
-    const source = readList(sourceList, sourceContent);
-    const viewport = sourceList.getBoundingClientRect();
-    const sourceCanvases = [...sourceList.querySelectorAll<HTMLCanvasElement>("canvas")]
-      .filter((canvas) => {
-        const bounds = canvas.getBoundingClientRect();
-        const style = getComputedStyle(canvas);
-        return bounds.width > 0 && bounds.height > 0 && bounds.bottom > viewport.top &&
-          bounds.top < viewport.bottom && bounds.right > viewport.left && bounds.left < viewport.right &&
-          style.opacity !== "0" && style.visibility !== "hidden";
-      });
-    const snapshot = snapshotModule.captureConversationSwitchSnapshot("geometry-test");
-    if (!snapshot) throw new Error("Conversation switch snapshot was not captured");
-    try {
-      const cloneList = snapshot.content.closest<HTMLElement>(".message-list");
-      if (!cloneList) throw new Error("Snapshot message list is unavailable");
-      const cloneRows = readRows(cloneList);
-      const cloneCanvases = [...cloneList.querySelectorAll<HTMLCanvasElement>('canvas[data-snapshot-media="canvas"]')];
-      const differences = [...sourceRows].flatMap(([id, sourceRow]) => {
-        const cloneRow = cloneRows.get(id);
-        if (!cloneRow) return [];
-        return Object.keys(sourceRow).map((key) =>
-          Math.abs(
-            sourceRow[key as keyof typeof sourceRow] - cloneRow[key as keyof typeof cloneRow],
-          )
-        );
-      });
-      return {
-        source,
-        clone: readList(cloneList, snapshot.content),
-        sharedRows: [...sourceRows.keys()].filter((id) => cloneRows.has(id)).length,
-        maxRowDifference: Math.max(0, ...differences),
-        canvasCount: sourceCanvases.length,
-        canvasPixelsMatch: cloneCanvases.length === sourceCanvases.length &&
-          cloneCanvases.every((canvas, index) => {
-            const expected = document.createElement("canvas");
-            expected.width = canvas.width;
-            expected.height = canvas.height;
-            expected.getContext("2d")!.drawImage(sourceCanvases[index]!, 0, 0, expected.width, expected.height);
-            return canvas.toDataURL() === expected.toDataURL();
-          }),
-      };
-    } finally {
-      snapshotModule.removeConversationSwitchSnapshot(snapshot);
-    }
-  });
-
-  expect(geometry.source.hasPinnedBanner).toBe(true);
-  expect(geometry.clone.hasPinnedBanner).toBe(true);
-  expect(geometry.clone.scrollbarWidth).toBe(geometry.source.scrollbarWidth);
-  expect(geometry.clone.clientWidth).toBe(geometry.source.clientWidth);
-  expect(geometry.clone.clientHeight).toBe(geometry.source.clientHeight);
-  expect(geometry.clone.contentWidth).toBeCloseTo(geometry.source.contentWidth, 1);
-  expect(geometry.clone.scrollTop).toBeCloseTo(geometry.source.scrollTop, 1);
-  expect(geometry.sharedRows).toBeGreaterThan(0);
-  expect(geometry.maxRowDifference).toBeLessThanOrEqual(0.1);
-  expect(geometry.canvasCount).toBeGreaterThan(0);
-  expect(geometry.canvasPixelsMatch).toBe(true);
-});
-
-test("read conversations settle behind a non-empty switch snapshot", async ({ page }) => {
+test("read conversations reveal only their positioned destination", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 
@@ -312,7 +198,7 @@ test("read conversations settle behind a non-empty switch snapshot", async ({ pa
     expect(positioned.length, JSON.stringify(frames)).toBeGreaterThan(0);
     expect(Math.max(...positioned.map((frame) => Math.abs(frame.distanceBottom))))
       .toBeLessThanOrEqual(1);
-    expect(frames.some((frame) => frame.snapshotCovered), JSON.stringify(frames)).toBe(true);
+    expect(frames.some((frame) => frame.snapshotCovered), JSON.stringify(frames)).toBe(false);
   };
 
   expectOnlyBottomFrames(await sampleChenSwitch());
@@ -367,7 +253,7 @@ test("conversation selection, header, and rows commit to one target", async ({ p
   expect(samples.every((sample) => sample.activeChatId === "chat-chen"), JSON.stringify(samples))
     .toBe(true);
   expect(samples.every((sample) => sample.title === "陈默"), JSON.stringify(samples)).toBe(true);
-  expect(samples.some((sample) => sample.snapshot), JSON.stringify(samples)).toBe(true);
+  expect(samples.some((sample) => sample.snapshot), JSON.stringify(samples)).toBe(false);
   expect(samples.some((sample) => sample.sourceRowsInTarget > 0), JSON.stringify(samples)).toBe(false);
 
   await page.evaluate(() => {

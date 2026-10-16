@@ -103,6 +103,7 @@ interface HistoryHost {
   request: (chatId: string, topicId: string | undefined, request: HistoryPageRequest) => Promise<ChatHistoryPage>;
   error: (error: unknown, topicId?: string) => void;
   diagnostic: (chatId: string, details: Record<string, number | boolean>) => void;
+  yieldForBackground?: () => Promise<void>;
 }
 
 /** Owns refresh and reader cursors independently. A context read is never a
@@ -590,6 +591,9 @@ export class ConversationHistory {
             }
             break;
           }
+          if (!this.host.active(scope.chatId, scope.topicId)) { stopReason = 3; break; }
+          await this.host.yieldForBackground?.();
+          if (!this.current(scope, generation)) return;
           if (!this.host.active(scope.chatId, scope.topicId)) { stopReason = 3; break; }
         }
         if (scope.needsRefresh) {

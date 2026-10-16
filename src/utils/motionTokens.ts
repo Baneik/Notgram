@@ -37,7 +37,6 @@ export const asyncFeedbackTiming = {
 export const motionLifecycleTiming = {
   exitFallbackBuffer: 40,
   popoverHoverClose: 80,
-  snapshotRelease: 90,
   historyScrollbarSettle: 120,
   messageRemoval: 220,
   popoverHoverOpen: 260,
@@ -45,6 +44,5 @@ export const motionLifecycleTiming = {
   messageEntranceClaim: 1_000,
   transientIndicatorHold: 1_200,
   smoothScrollFallback: 1_440,
-  snapshotMaximum: 1_500,
   desktopNotificationIdle: 10_000,
 } as const;

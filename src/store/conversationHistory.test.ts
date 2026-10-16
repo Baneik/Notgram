@@ -12,12 +12,13 @@ const page = (ids: number[], hasMore = true): ChatHistoryPage => ({
   messages: ids.map(message), messageIds: ids.map(String), nextFromMessageId: String(ids.at(-1)), loadedCount: ids.length, hasMore,
 });
 
-const harness = (initial: Message[]) => {
+const harness = (initial: Message[], background?: { yieldForBackground: () => Promise<void>; active?: () => boolean }) => {
   let messages = initial;
   let state: ConversationHistoryState | undefined;
   const request = vi.fn<(chatId: string, topicId: string | undefined, request: HistoryPageRequest) => Promise<ChatHistoryPage>>();
   const diagnostic = vi.fn();
-  const history = new ConversationHistory({ online: () => true, active: () => true, messages: () => messages, state: () => state,
+  const history = new ConversationHistory({ online: () => true, active: background?.active ?? (() => true), messages: () => messages, state: () => state,
+    yieldForBackground: background?.yieldForBackground,
     request, diagnostic, error: vi.fn(),
     publish: (_chat, _topic, next, incoming) => { state = next; messages = upsertMessages(messages, incoming?.messages ?? []); },
   });
@@ -29,6 +30,27 @@ const harness = (initial: Message[]) => {
 
 describe("conversation history ownership", () => {
   afterEach(() => vi.useRealTimers());
+
+  it.each(["continue", "navigate", "clear"])("yields between background pages and rechecks ownership: %s", async action => {
+    let resume!: () => void;
+    let active = true;
+    const yieldForBackground = vi.fn(() => new Promise<void>(resolve => { resume = resolve; }));
+    const h = harness([message(1), message(100)], { yieldForBackground, active: () => active });
+    h.request.mockResolvedValueOnce(page([100, 99])).mockResolvedValueOnce(page([98, 1], false));
+    await h.history.ensure("7");
+    await vi.waitFor(() => expect(yieldForBackground).toHaveBeenCalledTimes(1));
+    expect(h.request).toHaveBeenCalledTimes(1);
+    expect(h.visible().map(m => m.id)).toEqual(["99", "100"]);
+    if (action === "navigate") active = false;
+    if (action === "clear") h.history.clear();
+    resume();
+    await vi.waitFor(() => action === "continue"
+      ? expect(h.state().recovery).toBe("complete")
+      : action === "navigate" ? expect(h.state().recovery).toBe("paused")
+        : expect(h.diagnostic).not.toHaveBeenCalled());
+    expect(h.request).toHaveBeenCalledTimes(action === "continue" ? 2 : 1);
+    h.history.clear();
+  });
 
   it("repairs a persisted overnight gap even when the newest cached message is in the head page", async () => {
     const h = harness([41, 42, 43, 198, 199, 200].map(message));

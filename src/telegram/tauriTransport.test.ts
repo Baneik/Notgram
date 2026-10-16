@@ -1545,11 +1545,11 @@ describe("TauriTelegramTransport startup", () => {
     }]);
   });
 
-  it("uses an observed local context before falling back to the server", async () => {
+  it.each([false, true])("only probes local context when the target was observed: %s", async (targetObserved) => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const requests: TdObject[] = [];
-    internal.emitMessage(rawMessage(41));
+    internal.emitMessage(rawMessage(targetObserved ? 42 : 41));
     internal.request = async (request) => {
       requests.push(request);
       return {
@@ -1567,7 +1567,7 @@ describe("TauriTelegramTransport startup", () => {
       from_message_id: 42,
       offset: -15,
       limit: 31,
-      only_local: true,
+      only_local: targetObserved,
     }]);
   });
 

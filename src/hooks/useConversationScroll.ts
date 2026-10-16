@@ -292,6 +292,9 @@ export const useConversationScroll = ({
   } | undefined>(undefined);
   const historyLoadFrameRef = useRef<number | undefined>(undefined);
   const historyRestoreFrameRef = useRef<number | undefined>(undefined);
+  const indexRestoreRequestRef = useRef<{
+    element: HTMLElement; key?: string; generation: number; messageId: string; offset: number;
+  } | undefined>(undefined);
   const bottomFrameRef = useRef<number | undefined>(undefined);
   const bottomPinRequestRef = useRef<BottomPinRequest | undefined>(undefined);
   const anchorFrameRef = useRef<number | undefined>(undefined);
@@ -1252,6 +1255,13 @@ export const useConversationScroll = ({
     if (correctMountedAnchor()) return;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (itemIndex === undefined) return;
+    const generation = scrollControlRef.current.generation;
+    const key = element.dataset.conversationVirtuosoKey;
+    const pending = indexRestoreRequestRef.current;
+    if (historyRestoreFrameRef.current !== undefined && pending?.element === element &&
+      pending.key === key && pending.generation === generation &&
+      pending.messageId === messageId && pending.offset === expectedOffset) return;
+    indexRestoreRequestRef.current = { element, key, generation, messageId, offset: expectedOffset };
     markControlledCorrection();
     traceConversationIndexScroll(messageListRef.current, virtuosoRef.current, {
       index: itemIndex,
@@ -1264,6 +1274,9 @@ export const useConversationScroll = ({
     }
     historyRestoreFrameRef.current = requestAnimationFrame(() => {
       historyRestoreFrameRef.current = undefined;
+      indexRestoreRequestRef.current = undefined;
+      if (messageListRef.current !== element || element.dataset.conversationVirtuosoKey !== key ||
+        scrollControlRef.current.generation !== generation) return;
       correctMountedAnchor();
     });
   }, []);
@@ -1396,7 +1409,8 @@ export const useConversationScroll = ({
     const owner = contentAnchorOwnerRef.current;
     if (element && owner && owner.key === element.dataset.conversationVirtuosoKey &&
       owner.generation === control.generation) {
-      restoreAnchor(element, owner.messageId, owner.offset, owner.reading);
+      // The active anchor loop already reconciles once per frame. Child text
+      // commits must not each measure and restart the same missing index.
       return;
     }
     if (!request) {
@@ -1416,7 +1430,7 @@ export const useConversationScroll = ({
     // Virtuoso can commit newly measured rows after this frame's pin. Finish
     // that active tracking pass before paint, preserving its existing deadline.
     scheduleBottomPin(undefined, request.mode);
-  }, [restoreAnchor, scheduleBottomPin]);
+  }, [scheduleBottomPin]);
 
   const captureViewportBeforeUpdate = useCallback((structuralChange: boolean) => {
     const element = messageListRef.current;
@@ -2626,7 +2640,7 @@ export const useConversationScroll = ({
   ]);
 
   useLayoutEffect(() => {
-    if (!currentScrollKey) return;
+    if (!currentScrollKey || initialLocation.mode === "pending") return;
     markConversationSwitch(
       matchingMessageRequest?.performanceTraceId ??
         matchingLatestRequest?.performanceTraceId ??
@@ -2639,6 +2653,7 @@ export const useConversationScroll = ({
     completePositioning,
     currentScrollKey,
     historyLoading,
+    initialLocation.mode,
     matchingEntryRequest?.performanceTraceId,
     matchingLatestRequest?.performanceTraceId,
     matchingMessageRequest?.performanceTraceId,
@@ -3345,8 +3360,10 @@ export const useConversationScroll = ({
         (messageCount > 0 && !hasRenderedRows)
       )
     ),
-    hideUnpositionedEntry: Boolean((matchingEntryRequest?.serverMessageId || entryMemory.memory) &&
-      positionedIdentity !== initialLocationIdentity),
+    // Keep an already visible list under its existing jump/scroll owner.
+    // Only entry into a new view waits on the blank loading canvas.
+    hideUnpositionedEntry: positionedIdentity !== initialLocationIdentity &&
+      (Boolean(matchingEntryRequest) || !positionedIdentity?.startsWith(`${currentScrollKey}:`)),
     waitingForEntryTarget: Boolean((pendingEntryRequest?.serverMessageId || entryAnchor) &&
       initialLocation.mode === "pending" && !targetReady),
     captureViewportBeforeUpdate,

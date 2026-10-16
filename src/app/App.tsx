@@ -100,12 +100,6 @@ import {
   useConversationNavigation,
   type ConversationNavigationLocation,
 } from "../hooks/useConversationNavigation";
-import {
-  captureConversationSwitchSnapshot,
-  removeConversationSwitchSnapshot,
-  type ConversationSwitchSnapshot,
-} from "../utils/conversationSwitchSnapshot";
-import { motionLifecycleTiming } from "../utils/motionTokens";
 
 const DEFAULT_SIDEBAR_WIDTH = 344;
 const SIDEBAR_WIDTH_STORAGE_KEY = "notgram.sidebar-width";
@@ -799,103 +793,22 @@ export function App() {
       restoreOffset: offset, behavior: "auto", highlight: false });
     return true;
   }, [issueConversationScrollRequest]);
-  const conversationSnapshotRef = useRef<ConversationSwitchSnapshot | undefined>(undefined);
-  const [conversationSnapshotTarget, setConversationSnapshotTarget] = useState<string>();
-  const conversationSnapshotReleaseCleanupRef = useRef<(() => void) | undefined>(undefined);
-  const conversationSnapshotTargetRef = useRef<string | undefined>(undefined);
-  const conversationSnapshotTimerRef =
-    useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
-  const discardConversationSnapshot = useCallback(() => {
-    conversationSnapshotReleaseCleanupRef.current?.();
-    conversationSnapshotReleaseCleanupRef.current = undefined;
-    if (conversationSnapshotTimerRef.current !== undefined) {
-      globalThis.clearTimeout(conversationSnapshotTimerRef.current);
-      conversationSnapshotTimerRef.current = undefined;
-    }
-    removeConversationSwitchSnapshot(conversationSnapshotRef.current);
-    conversationSnapshotRef.current = undefined;
-    conversationSnapshotTargetRef.current = undefined;
-    setConversationSnapshotTarget(undefined);
-  }, []);
-  const beginConversationSnapshot = useCallback((
-    targetIdentity: string,
-    targetRendersConversation: boolean,
-  ) => {
+  const pendingConversationRefreshRef = useRef<string | undefined>(undefined);
+  const prepareConversationSwitch = useCallback((targetIdentity: string) => {
     const state = telegramStore.getState();
-    const currentIdentity = state.activeChatId
-      ? conversationIdentityFor(state.activeChatId, state.activeTopicId)
-      : undefined;
-    if (currentIdentity === targetIdentity) return;
-
-    if (!targetRendersConversation) {
+    pendingConversationRefreshRef.current = undefined;
+    if (state.activeChatId && conversationIdentityFor(state.activeChatId, state.activeTopicId) !== targetIdentity) {
       captureActiveConversationScrollState();
-      discardConversationSnapshot();
-      return;
     }
-    if (conversationSnapshotRef.current?.element.classList.contains("is-releasing")) {
-      discardConversationSnapshot();
-    }
-    if (!conversationSnapshotRef.current) {
-      const preserveHeader = Boolean(state.activeChatId && state.chats.get(state.activeChatId)?.isForum &&
-        (targetIdentity === state.activeChatId || targetIdentity.startsWith(`${state.activeChatId}:topic:`)));
-      conversationSnapshotRef.current = captureConversationSwitchSnapshot(targetIdentity, !preserveHeader);
-    }
-    captureActiveConversationScrollState();
-    const snapshot = conversationSnapshotRef.current;
-    if (!snapshot) return;
-
-    conversationSnapshotTargetRef.current = targetIdentity;
-    setConversationSnapshotTarget(targetIdentity);
-    snapshot.element.dataset.snapshotTarget = targetIdentity;
-    if (conversationSnapshotTimerRef.current !== undefined) {
-      globalThis.clearTimeout(conversationSnapshotTimerRef.current);
-    }
-    conversationSnapshotTimerRef.current = globalThis.setTimeout(
-      discardConversationSnapshot,
-      motionLifecycleTiming.snapshotMaximum,
-    );
-  }, [discardConversationSnapshot]);
-  const finishConversationSnapshot = useCallback((identity: string) => {
-    if (
-      conversationSnapshotTargetRef.current !== identity ||
-      !conversationSnapshotRef.current
-    ) return;
+  }, []);
+  const handleConversationViewportReady = useCallback((identity: string) => {
     const state = telegramStore.getState();
-    const activeIdentity = state.activeChatId
-      ? conversationIdentityFor(state.activeChatId, state.activeTopicId)
-      : undefined;
-    if (activeIdentity !== identity) return;
-    if (conversationSnapshotRef.current.element.classList.contains("is-releasing")) return;
-
-    if (conversationSnapshotTimerRef.current !== undefined) {
-      globalThis.clearTimeout(conversationSnapshotTimerRef.current);
+    if (pendingConversationRefreshRef.current === identity && state.activeChatId &&
+      conversationIdentityFor(state.activeChatId, state.activeTopicId) === identity) {
+      pendingConversationRefreshRef.current = undefined;
+      void state.refreshActiveHistory();
     }
-    if (document.hidden || document.documentElement.classList.contains("reduce-motion")) {
-      discardConversationSnapshot();
-      return;
-    }
-    const element = conversationSnapshotRef.current.element;
-    const finish = (event: TransitionEvent) => {
-      if (event.target === element && event.propertyName === "opacity") discardConversationSnapshot();
-    };
-    element.addEventListener("transitionend", finish);
-    conversationSnapshotReleaseCleanupRef.current = () => element.removeEventListener("transitionend", finish);
-    element.classList.add("is-releasing");
-    conversationSnapshotTimerRef.current = globalThis.setTimeout(
-      discardConversationSnapshot,
-      motionLifecycleTiming.snapshotRelease,
-    );
-  }, [discardConversationSnapshot]);
-  useEffect(() => {
-    const handleVisibility = () => { if (document.hidden) discardConversationSnapshot(); };
-    document.addEventListener("visibilitychange", handleVisibility);
-    globalThis.addEventListener("resize", discardConversationSnapshot, { passive: true });
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-      globalThis.removeEventListener("resize", discardConversationSnapshot);
-      discardConversationSnapshot();
-    };
-  }, [discardConversationSnapshot]);
+  }, []);
 
   useEffect(() => {
     if (!accountSwitching) return;
@@ -913,10 +826,10 @@ export function App() {
     setConversationScrollRequest(undefined);
     setActiveDiscussionPostId(undefined);
     chatOpenGenerationRef.current += 1;
-    discardConversationSnapshot();
+    pendingConversationRefreshRef.current = undefined;
     audioPlaybackController.close();
     audioPlaybackController.clear();
-  }, [accountSwitching, discardConversationSnapshot]);
+  }, [accountSwitching]);
   const openSettings = useCallback(() => {
     void openSettingsWindow()
       .then((opened) => { if (!opened) setSettingsOpen(true); })
@@ -1050,11 +963,7 @@ export function App() {
         telegramStore.setState({ operationError: unavailableChatError() });
         return;
       }
-      const targetChat = state.chats.get(location.chatId);
-      beginConversationSnapshot(
-        conversationIdentityFor(location.chatId, location.topicId),
-        !targetChat?.isForum || Boolean(location.topicId),
-      );
+      prepareConversationSwitch(conversationIdentityFor(location.chatId, location.topicId));
       flushSync(() => {
         issueConversationScrollRequest({ kind: "entry", chatId: location.chatId! });
         state.selectChat(location.chatId!, {
@@ -1064,7 +973,7 @@ export function App() {
     }
     await (searchRestore ?? Promise.resolve());
     restoreSearchScroll();
-  }, [beginConversationSnapshot, cancelGlobalSearch, clearGlobalSearch, issueConversationScrollRequest, restoreSidebarSearchScope, searchChatMessages, searchGlobal, setChatFilter, setSearchQuery]);
+  }, [prepareConversationSwitch, cancelGlobalSearch, clearGlobalSearch, issueConversationScrollRequest, restoreSidebarSearchScope, searchChatMessages, searchGlobal, setChatFilter, setSearchQuery]);
 
   const navigateBack = useCallback(() => {
     const location = goBackConversationNavigation();
@@ -1164,10 +1073,7 @@ export function App() {
     else syncConversationNavigation(targetLocation);
     if (!preserveSearch) closeSearch(false, true);
     chatOpenGenerationRef.current += 1;
-    beginConversationSnapshot(
-      conversationIdentityFor(chatId, targetTopicId),
-      !state.chats.get(chatId)?.isForum || Boolean(targetTopicId),
-    );
+    prepareConversationSwitch(conversationIdentityFor(chatId, targetTopicId));
     flushSync(() => {
       setMobileChatOpen(true);
       issueConversationScrollRequest({
@@ -1180,7 +1086,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "titleCommitted");
     });
-  }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
+  }, [prepareConversationSwitch, captureConversationLocation, closeSearch, issueConversationScrollRequest, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
   const executeBotStart = useCallback(async (
     request: PendingBotStart,
@@ -1308,10 +1214,7 @@ export function App() {
     if (!options?.preserveSearch) closeSearch(false, true);
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
-    beginConversationSnapshot(
-      conversationIdentityFor(chatId, targetTopicId),
-      true,
-    );
+    prepareConversationSwitch(conversationIdentityFor(chatId, targetTopicId));
     flushSync(() => {
       setMobileChatOpen(true);
       if (preparedRequest?.kind === "message") {
@@ -1332,7 +1235,7 @@ export function App() {
     requestAnimationFrame(() => {
       markConversationSwitch(performanceTraceId, "titleCommitted");
     });
-  }, [beginConversationSnapshot, captureConversationLocation, closeSearch, issueConversationScrollRequest, loadMessage, locationForChat, recordConversationNavigation, syncConversationNavigation]);
+  }, [prepareConversationSwitch, captureConversationLocation, closeSearch, issueConversationScrollRequest, loadMessage, locationForChat, recordConversationNavigation, syncConversationNavigation]);
 
   const openProfileMessage = useCallback((chatId: string, messageId: string) => {
     clearProfile();
@@ -1501,10 +1404,7 @@ export function App() {
     // Consume a restored cross-account route before any asynchronous work so
     // chat-list updates cannot start the same navigation a second time.
     clearPendingNotificationRoute();
-    beginConversationSnapshot(
-      conversationIdentityFor(route.chatId, targetTopicId),
-      !targetChat.isForum || Boolean(targetTopicId),
-    );
+    prepareConversationSwitch(conversationIdentityFor(route.chatId, targetTopicId));
     flushSync(() => {
       exitSidebarSearchScope(false);
       state.clearGlobalSearch();
@@ -1536,7 +1436,7 @@ export function App() {
       : undefined;
     if (!loadedTopicId || loadedTopicId === targetTopicId) return;
 
-    beginConversationSnapshot(conversationIdentityFor(route.chatId, loadedTopicId), true);
+    prepareConversationSwitch(conversationIdentityFor(route.chatId, loadedTopicId));
     flushSync(() => {
       syncConversationNavigation(locationForChat(route.chatId, loadedTopicId));
       issueConversationScrollRequest({
@@ -1546,7 +1446,7 @@ export function App() {
       });
       loadedState.selectChat(route.chatId, { forumTopicId: loadedTopicId });
     });
-  }, [beginConversationSnapshot, exitSidebarSearchScope, issueConversationScrollRequest, locationForChat, syncConversationNavigation]);
+  }, [prepareConversationSwitch, exitSidebarSearchScope, issueConversationScrollRequest, locationForChat, syncConversationNavigation]);
 
   useEffect(() => {
     let disposed = false;
@@ -1641,10 +1541,7 @@ export function App() {
       navigationKind: 2,
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
-    beginConversationSnapshot(
-      conversationIdentityFor(chatId, targetTopicId),
-      !state.chats.get(chatId)?.isForum || Boolean(targetTopicId),
-    );
+    prepareConversationSwitch(conversationIdentityFor(chatId, targetTopicId));
     flushSync(() => {
       issueConversationScrollRequest({
         kind: "latest",
@@ -1687,10 +1584,7 @@ export function App() {
     });
     syncConversationNavigation(locationForChat(chatId, selectedTopicId));
     markConversationSwitch(performanceTraceId, "transitionStarted");
-    beginConversationSnapshot(
-      conversationIdentityFor(chatId, selectedTopicId),
-      true,
-    );
+    prepareConversationSwitch(conversationIdentityFor(chatId, selectedTopicId));
     flushSync(() => {
       issueConversationScrollRequest({
         kind: "entry",
@@ -1779,10 +1673,10 @@ export function App() {
     });
     markConversationSwitch(performanceTraceId, "transitionStarted");
     markConversationSwitch(performanceTraceId, "selectionCommitted");
-    beginConversationSnapshot(
-      conversationIdentityFor(chatId, restoredTopicId),
-      !targetChat?.isForum || Boolean(restoredTopicId),
-    );
+    prepareConversationSwitch(conversationIdentityFor(chatId, restoredTopicId));
+    const deferHistory = targetMessages.length > 0 || Boolean(serverMessageId && !serverMessageLoaded && !restoreLocally);
+    pendingConversationRefreshRef.current = deferHistory
+      ? conversationIdentityFor(chatId, restoredTopicId) : undefined;
     flushSync(() => {
       issueConversationScrollRequest({
         kind: "entry",
@@ -1791,7 +1685,7 @@ export function App() {
         performanceTraceId,
       });
       state.selectChat(chatId, {
-        deferHistory: Boolean(serverMessageId && !serverMessageLoaded && !restoreLocally),
+        deferHistory,
       });
     });
     requestAnimationFrame(() => {
@@ -1811,10 +1705,8 @@ export function App() {
           markConversationSwitch(performanceTraceId, "asyncWaitFinished", { failed: !loaded });
         }
         if (chatOpenGenerationRef.current !== generation) return;
-        // A target-centric request gives us the correct first view.
-        // Start the ordinary first-page sync only after that view is
-        // ready, so both remote history windows do not compete.
-        telegramStore.getState().selectChat(chatId);
+        // Viewport readiness starts background refresh after the first view
+        // has painted, rather than racing it against context positioning.
         if (loaded) return;
         flushSync(() => {
           issueConversationScrollRequest({
@@ -2066,7 +1958,6 @@ export function App() {
             <Conversation
               key={`${activeAccountId}:${activeChatId ?? "empty-conversation"}`}
               chat={activeChat}
-          presentationBlocked={Boolean(activeChatId && conversationSnapshotTarget === conversationIdentityFor(activeChatId, activeTopicId))}
           topic={activeTopic}
           topics={activeTopics}
           onSelectTopic={openForumTopic}
@@ -2135,7 +2026,7 @@ export function App() {
           onLoadOlder={() => activeChatId ? loadMoreHistory(activeChatId) : Promise.resolve()}
           onOpenProfile={() => { if (activeChatId) void loadChatProfile(activeChatId); }}
           onClickSponsoredMessage={clickChatSponsoredMessage}
-          onViewportReady={finishConversationSnapshot}
+          onViewportReady={handleConversationViewportReady}
           mobileViewport={mobileViewport}
           mobileChatOpen={mobileChatOpen}
           onOpenMessage={openConversationMessage}

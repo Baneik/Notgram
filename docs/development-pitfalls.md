@@ -112,7 +112,7 @@
 - 不要观察虚拟内容节点的尺寸来触发贴底；贴底本身会改变虚拟化测量，形成 resize → pin → measure 的反馈环。只观察 viewport，并使用明确的编辑器几何通知与 Virtuoso 总高度回调。
 - 底部协调器等待安静帧并做有界最终贴齐；用户向上意图、主/中键控制、detached 模式或 identity/generation 变化立即取消跟随。
 - 热会话恢复 Virtuoso `StateSnapshot` 前校验首尾消息和虚拟块身份；输入高度测量每动画帧最多一次，草稿订阅收敛到当前会话/单行。
-- 当前切换视觉快照克隆已有消息壳并复制 canvas 像素，放在 closed ShadowRoot 中，`aria-hidden`、`inert`、无 pointer events；目标 viewport ready 后 90ms 释放，最长 1500ms 强制清理，resize/卸载/新事务可中断。它不能读取、修改或决定目标状态。
+- 普通会话切换直接显示目标外壳，未定位消息列表隐藏并暂时 inert；不再复制旧 DOM/canvas 或保留旧会话画面。空白聊天背景是允许的加载状态，延迟显示轻量提示，定位完成后只做透明度入场；侧栏、标题和输入框保持可用。显式会话内消息跳转及阅读补页仍使用各自独立、有界的局部快照。
 
 ### 4.4 防复发规则
 
@@ -271,7 +271,7 @@
 | --- | --- | --- |
 | 顶层订阅整个 `messages`、`drafts` Map | 任意会话更新让 App、侧栏和当前虚拟列表重渲染 | 订阅 active conversation 数组、单行草稿；Store 发布 message delta 给通知和下载索引 |
 | 在 render/effect 中全局扫描所有消息 | 消息规模越大，下载/通知等无关功能成本线性增长 | `MessageChangeEvent` 增量发布；`ManagedDownloadIndex` 按 upsert/replace/remove 更新 |
-| 多个完整 Conversation 常驻 | 副作用、媒体、焦点、订阅和内存成倍增长 | 单一活动视图 + 校验过的 Virtuoso StateSnapshot + 有界只读视觉快照 |
+| 多个完整 Conversation 常驻 | 副作用、媒体、焦点、订阅和内存成倍增长 | 单一活动视图 + 校验过的 Virtuoso StateSnapshot + 目标空态加载 |
 | 同步写 textarea 高度后立即读 `scrollHeight` | 每个按键强制布局，IME 组合被草稿工作干扰 | rAF 合并测量；composition 与 draft sync 隔离；卸载取消帧 |
 | 直接让动画改 height/top/scrollTop | 与 Virtuoso 测量竞争并触发布局风暴 | 静态契约只允许 opacity/transform；滚动交给单写者 |
 | 为保护选区暂停全部测量 | 元数据布局长期不收敛 | 保持 DOM 节点身份，选区只约束交互，不冻结布局系统 |
@@ -326,7 +326,7 @@ Revert 是有效的工程控制，不应被“修复一下再叠补丁”取代�
 - `MotionPresence` 的退出内容 inert 且从无障碍树隐藏；重开必须中断旧退出并创建新 session。
 - `npm run motion:check` 静态拒绝未使用共享 duration 或动画布局属性的 CSS。
 
-当前普通会话切换允许第 4 节定义的受控视觉快照；它是几何空白的视觉桥接，不是平滑滚动或状态动画。显式远距离消息跳转使用独立、有限的静态快照遮住虚拟列表重定位，只在目标就绪后公开一次减速收敛；禁止再让源快照和目标列表各执行一次整列表位移。两者都必须服从 reduced-motion 与最大寿命。
+普通会话切换采用第 4 节定义的空态加载与消息淡入，不再捕获旧会话快照。显式远距离消息跳转使用独立、有限的静态快照遮住虚拟列表重定位，只在目标就绪后公开一次减速收敛；禁止再让源快照和目标列表各执行一次整列表位移。动效服从 reduced-motion，局部快照保留最大寿命。
 
 ## 13. 后续修改前检查清单
 

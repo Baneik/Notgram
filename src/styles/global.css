@@ -1007,7 +1007,22 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   justify-items: center; gap: 8px; color: var(--muted); background: var(--chat-canvas);
   pointer-events: none;
 }
-.message-positioning-placeholder.is-warm > * { display: none; }
+.conversation-entry-loader {
+  display: flex; align-items: center; gap: 5px; height: 24px; color: var(--accent);
+  animation: conversation-entry-reveal var(--motion-duration-standard) var(--motion-ease-enter) both;
+}
+.conversation-entry-loader span {
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.35;
+  animation: conversation-entry-pulse var(--motion-duration-continuous) var(--motion-ease-standard) infinite;
+}
+.conversation-entry-loader span:nth-child(2) { animation-delay: var(--motion-duration-fast); }
+.conversation-entry-loader span:nth-child(3) { animation-delay: var(--motion-duration-slow); }
+.conversation-entry-label { font-size: 12px; color: var(--muted); }
+@keyframes conversation-entry-pulse {
+  0%, 70%, 100% { opacity: 0.35; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-4px); }
+}
+@keyframes conversation-entry-reveal { from { opacity: 0; } to { opacity: 1; } }
 .message-list-shell.has-pinned-message-banner .message-positioning-placeholder { top: 44px; }
 .pinned-messages-loading {
   position: absolute; inset: 0; z-index: 31; display: grid; place-content: center; justify-items: center; gap: 8px;
@@ -1032,6 +1047,13 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-scrolling::-webkit-scrollbar-thumb { background-color: var(--message-scrollbar-thumb); }
 .message-list.is-history-adjusting { scrollbar-color: transparent transparent; }
 .message-list.is-entry-positioning { visibility: hidden; }
+.conversation .message-list.is-entry-ready .message-list-content {
+  animation: conversation-entry-reveal var(--motion-duration-standard) var(--motion-ease-enter) both;
+}
+.reduce-motion .conversation-entry-loader,
+.reduce-motion .conversation-entry-loader span,
+.reduce-motion .conversation .message-list.is-entry-ready .message-list-content { animation: none; }
+.reduce-motion .conversation-entry-loader span { opacity: 0.65; }
 .message-list.is-detached { overflow-anchor: auto; }
 .message-list[data-message-removal-active] { overflow-anchor: none; }
 .message-list.is-history-adjusting::-webkit-scrollbar-thumb { background-color: transparent; }
@@ -1039,11 +1061,6 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-list.is-jump-transitioning .message-list-content { visibility: hidden; }
 .conversation-jump-snapshot { background: var(--chat-canvas); }
 .conversation-jump-snapshot * { animation-play-state: paused !important; }
-.conversation-switch-snapshot {
-  opacity: 1; transition: opacity var(--motion-duration-context-menu) var(--motion-ease-exit);
-}
-.conversation-switch-snapshot.is-releasing { opacity: 0; }
-.reduce-motion .conversation-switch-snapshot { transition: none; }
 .conversation-date-indicator {
   position: absolute; z-index: 19; top: 8px; left: var(--conversation-notice-center, 50%);
   pointer-events: none;

@@ -104,7 +104,7 @@ test("failed and superseded upgrades cannot erase a decoded thumbnail or the fin
   await expect(page.locator(`${rowSelector} img`)).toHaveAttribute("src", /final$/);
 });
 
-test("heavy image snapshots use bounded visible bitmaps and never encode PNG on navigation", async ({ page }) => {
+test("heavy image navigation never copies pixels or encodes PNG", async ({ page }) => {
   await page.goto("/");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
@@ -136,33 +136,28 @@ test("heavy image snapshots use bounded visible bitmaps and never encode PNG on 
   await expect(page.locator('.media-album-grid img[data-image-state="ready"]')).toHaveCount(3);
   await expect(page.locator('.media-album-grid img').first()).toHaveCSS("opacity", "1");
   const result = await page.evaluate(async () => {
-    const snapshots = await import("/src/utils/conversationSwitchSnapshot.ts" as string) as typeof import("../../src/utils/conversationSwitchSnapshot");
     const original = HTMLCanvasElement.prototype.toDataURL;
+    const draw = CanvasRenderingContext2D.prototype.drawImage;
     let encodes = 0;
+    let pixelCopies = 0;
     HTMLCanvasElement.prototype.toDataURL = function (...args) { encodes++; return original.apply(this, args); };
+    CanvasRenderingContext2D.prototype.drawImage = function (...args: unknown[]) { pixelCopies++; return Reflect.apply(draw, this, args); };
     try {
-      const start = performance.now();
-      const snapshot = snapshots.captureConversationSwitchSnapshot("stress")!;
-      const captureMs = performance.now() - start;
-      const bitmaps = [...snapshot.content.querySelectorAll<HTMLCanvasElement>('canvas[data-snapshot-media="image"]')]
-        .map(canvas => ({ width: canvas.width, height: canvas.height,
-          opaque: canvas.getContext("2d")!.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data[3] }));
-      snapshots.removeConversationSwitchSnapshot(snapshot);
       const clickedAt = performance.now();
       document.querySelector<HTMLElement>('.chat-list[data-active=true] [data-chat-id="chat-mia"]')!.click();
-      return { captureMs, clickMs: performance.now() - clickedAt, encodes, bitmaps };
-    } finally { HTMLCanvasElement.prototype.toDataURL = original; }
+      return { clickMs: performance.now() - clickedAt, encodes, pixelCopies };
+    } finally {
+      HTMLCanvasElement.prototype.toDataURL = original;
+      CanvasRenderingContext2D.prototype.drawImage = draw;
+    }
   });
-  console.log("Heavy-media snapshot", result);
   expect(result.encodes).toBe(0);
-  expect(result.bitmaps).toHaveLength(3);
-  expect(result.bitmaps.every(bitmap => bitmap.width < 2560 && bitmap.height < 1440 && bitmap.opaque === 255)).toBe(true);
-  expect(result.captureMs).toBeLessThan(100);
+  expect(result.pixelCopies).toBe(0);
   expect(result.clickMs).toBeLessThan(100);
   await expect(page.locator("[data-conversation-switch-snapshot]")).toHaveCount(0);
 });
 
-test("visual handoff gates pointer and keyboard input and records media readiness separately", async ({ page }) => {
+test("entry hides unpositioned rows while the header stays usable and media readiness is independent", async ({ page }) => {
   await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: `${await response.text()}\n{
@@ -197,18 +192,19 @@ test("visual handoff gates pointer and keyboard input and records media readines
       if (!button) continue;
       const bounds = button.getBoundingClientRect();
       const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-      if (snapshot) button.focus();
+      if (button.closest("[inert]")) button.focus();
       frames.push({ at: performance.now() - start, covered: Boolean(snapshot),
         hitButton: Boolean(hit?.closest(".photo-open")), focused: document.activeElement === button,
         inert: Boolean(button.closest("[inert]")) });
     }
     return frames;
   });
-  const covered = frames.filter(frame => frame.covered);
-  expect(covered.length).toBeGreaterThan(0);
-  expect(covered.every(frame => frame.inert && !frame.hitButton && !frame.focused)).toBe(true);
+  expect(frames.every(frame => !frame.covered)).toBe(true);
+  const hidden = frames.filter(frame => frame.inert);
+  expect(hidden.length).toBeGreaterThan(0);
+  expect(hidden.every(frame => !frame.hitButton && !frame.focused)).toBe(true);
   expect(frames.at(-1)).toMatchObject({ covered: false, hitButton: true, inert: false });
-  const uncoveredAt = frames.find(frame => !frame.covered)!.at;
+  const uncoveredAt = frames.find(frame => !frame.inert)!.at;
   await expect.poll(async () => (await conversationSwitchRecords(page)).at(-1)?.firstScreenMediaDurationMs).toBeGreaterThan(550);
   const record = (await conversationSwitchRecords(page)).at(-1)!;
   console.log("Presentation stages", record.titleUpdateDurationMs, record.messagesVisibleDurationMs, record.firstScreenMediaDurationMs);
@@ -219,51 +215,8 @@ test("visual handoff gates pointer and keyboard input and records media readines
   expect(record.missingStageMask).toBe(0);
 });
 
-test("snapshot freezes a visible video frame and excludes offscreen image pixels", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
-  const video = page.locator(".message-list video").last();
-  await video.evaluate(element => {
-    const video = element as HTMLVideoElement;
-    video.src = "/mock-video.mp4";
-    video.preload = "auto";
-    video.muted = true;
-    video.load();
-  });
-  await expect.poll(() => video.evaluate(video => (video as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
-  const result = await page.evaluate(async () => {
-    const { captureConversationSwitchSnapshot, removeConversationSwitchSnapshot } =
-      await import("/src/utils/conversationSwitchSnapshot.ts" as string) as typeof import("../../src/utils/conversationSwitchSnapshot");
-    const list = document.querySelector<HTMLElement>(".message-list")!;
-    const video = list.querySelector<HTMLVideoElement>("video")!;
-    const source = video.currentSrc;
-    const offscreen = new Image();
-    offscreen.src = "/mock-video-poster.jpg";
-    await offscreen.decode();
-    offscreen.className = "snapshot-test-offscreen";
-    Object.assign(offscreen.style, { position: "absolute", top: "-10000px", width: "100px", height: "100px" });
-    list.querySelector(".message-list-content")!.append(offscreen);
-    const snapshot = captureConversationSwitchSnapshot("video-test")!;
-    try {
-      const frame = snapshot.content.querySelector<HTMLCanvasElement>('canvas[data-snapshot-media="video"]');
-      const skipped = snapshot.content.querySelector<HTMLImageElement>(".snapshot-test-offscreen");
-      return { frame: frame ? { width: frame.width, height: frame.height,
-        alpha: frame.getContext("2d")!.getImageData(frame.width / 2, frame.height / 2, 1, 1).data[3] } : undefined,
-        decoderSources: snapshot.content.querySelectorAll("video[src], video source").length,
-        offscreenSource: skipped?.getAttribute("src"), offscreenVisibility: skipped?.style.visibility,
-        sourceUnchanged: video.currentSrc === source };
-    } finally { removeConversationSwitchSnapshot(snapshot); offscreen.remove(); }
-  });
-  expect(result.frame?.alpha).toBe(255);
-  expect(result.frame!.width).toBeLessThanOrEqual(800);
-  expect(result.decoderSources).toBe(0);
-  expect(result.offscreenSource).toBeNull();
-  expect(result.offscreenVisibility).toBe("hidden");
-  expect(result.sourceUnchanged).toBe(true);
-});
-
 for (const interrupt of ["resize", "background", "reduced-motion"] as const) {
-  test(`handoff releases interaction after ${interrupt}`, async ({ page }) => {
+  test(`entry preserves interaction after ${interrupt}`, async ({ page }) => {
     if (interrupt === "reduced-motion") await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
     await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

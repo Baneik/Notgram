@@ -387,7 +387,6 @@ interface ConversationProps {
   onLoadOlder: () => Promise<void>;
   onOpenProfile: () => void;
   onViewportReady?: (identity: string) => void;
-  presentationBlocked?: boolean;
   onOpenMessage: (
     chatId: string,
     messageId: string,
@@ -483,7 +482,6 @@ export function Conversation({
   onLoadOlder,
   onOpenProfile,
   onViewportReady,
-  presentationBlocked = false,
   onOpenMessage,
   onOpenMessageSearch,
   onOpenChat,
@@ -1227,7 +1225,6 @@ export function Conversation({
     currentScrollKey,
     positioning,
     hideUnpositionedEntry,
-    waitingForEntryTarget,
     captureViewportBeforeUpdate,
     virtuosoKey,
     initialTopMostItemIndex,
@@ -1583,25 +1580,15 @@ export function Conversation({
   const actionAlbumMessageIds = actionMessage
     ? mediaAlbumMessagesFor(renderedMessages, actionMessage).map((message) => message.id)
     : [];
-  const preservePositioningFrame = Boolean(
-    !pinnedViewOpen &&
-    renderedMessages.length > 0 &&
-    messageListRef.current?.dataset.conversationVirtuosoKey === virtuosoKey &&
-    Boolean(messageListRef.current?.querySelector("[data-message-id]")) &&
-    (
-      scrollRequest?.chatId === chat?.id
-    )
-  );
   const positioningFeedbackVisible = useStableVisibility(
-    !pinnedViewOpen && (waitingForEntryTarget ||
-      (positioning && renderedMessages.length === 0 && !preservePositioningFrame)),
+    !pinnedViewOpen && positioning && hideUnpositionedEntry,
     { minimumVisible: 0 },
   );
   // Feedback may be delayed, but it cannot outlive the viewport transaction.
   // A generic presence exit would cover already-positioned destination rows.
-  const showPositioning = positioning && positioningFeedbackVisible;
+  const showPositioning = positioning && hideUnpositionedEntry && positioningFeedbackVisible;
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!conversationIdentity || pinnedViewOpen || positioning) return;
     onViewportReady?.(conversationIdentity);
   }, [conversationIdentity, onViewportReady, pinnedViewOpen, positioning]);
@@ -2442,7 +2429,7 @@ export function Conversation({
         value0: topic ? translate("{{value0}} 话题", { value0: topic.name }) : chat.title,
       })}
     >
-      <header inert={presentationBlocked || Boolean(discussionPost)} className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
+      <header inert={Boolean(discussionPost)} className={`conversation-header ${selectionMode ? "is-selection-header" : ""}`}>
         {selectionMode ? (
           <>
             <button
@@ -2602,7 +2589,7 @@ export function Conversation({
         />
       )}
 
-      <div inert={presentationBlocked || Boolean(discussionPost)} className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
+      <div inert={Boolean(discussionPost)} className={`message-list-shell ${positioning ? "is-positioning" : ""} ${pinnedViewOpen ? "pinned-message-view" : ""} ${pinnedBannerVisible ? "has-pinned-message-banner" : ""}`}>
         {pinnedBannerVisible && (
           <PinnedMessageBanner
             messages={allPinnedMessages}
@@ -2617,10 +2604,11 @@ export function Conversation({
           </div> : null}
         </MotionPresence>
         {showPositioning ? <div
-            className={`message-positioning-placeholder ${renderedMessages.length > 0 ? "is-warm" : ""}`}
+            className="message-positioning-placeholder"
             role="status"
           >
-            <span className="conversation-notice conversation-notice-status"><LoaderCircle className="spin" size={18} />{translate("正在加载消息")}</span>
+            <span className="conversation-entry-loader" aria-hidden="true"><span /><span /><span /></span>
+            <span className="conversation-entry-label">{translate("正在加载消息")}</span>
           </div> : null}
         <MotionPresence present={showHistoryLoading} variant="status">
           {showHistoryLoading ? <div className="history-loading conversation-notice" aria-label={translate("正在加载更早消息")}>
@@ -2656,7 +2644,7 @@ export function Conversation({
         >
         <Virtuoso
           key={virtuosoKey}
-          className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : ""} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (visibleHistoryLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
+          className={`message-list ${awayFromLatest ? "is-detached" : ""} ${hideUnpositionedEntry ? "is-entry-positioning" : "is-entry-ready"} ${messageListScrolling ? "is-scrolling" : ""} ${!pinnedViewOpen && (visibleHistoryLoading || historyScrollbarSettling) ? "is-history-adjusting" : ""}`}
           ref={virtuosoRef}
           scrollerRef={setAlignedMessageListRef}
           isScrolling={setMessageListScrolling}
@@ -2667,6 +2655,7 @@ export function Conversation({
             (pinnedViewOpen && pinnedMessagesLoading) ||
             (!pinnedViewOpen && historyLoading)
           }
+          inert={hideUnpositionedEntry}
           tabIndex={0}
           alignToBottom={initialAlignToBottom}
           firstItemIndex={virtuosoFirstItemIndex}

@@ -54,8 +54,8 @@ Every user-visible route into a conversation follows this order:
 1. Resolve the destination chat/topic and the viewport intent.
 2. In one synchronous React transaction, issue the viewport command and call `selectChat` or
    `selectForumTopic`.
-3. Let the destination shell render immediately. A bounded visual handoff may cover measurement
-   latency, but it must not participate in destination selection or positioning.
+3. Render the destination shell immediately, hiding only its unpositioned message list. The header,
+   composer and sidebar stay usable while the list waits for its entry context and measurements.
 4. Start or continue background history work using the captured destination generation.
 5. Ignore an asynchronous result when its generation or request is no longer current.
 
@@ -63,12 +63,10 @@ Selection methods are synchronous by contract. Read markers, history loading, an
 continue in the background, but callers must never await them before committing the selected
 destination.
 
-An interactive, state-owning, or unbounded conversation switch snapshot is prohibited. The current
-visual handoff is deliberately narrower: it clones only the already rendered shell into a closed
-shadow root, copies canvas pixels, is `aria-hidden`, inert, and ignores pointer input. Destination
-readiness starts its 90 ms release and a 1500 ms bound removes it even when readiness never arrives;
-resize, unmount, and a newer switch cancel it. It cannot choose a destination, write scroll state,
-or delay background work. A separate local snapshot remains valid for an explicit in-conversation
+Ordinary conversation switches do not capture the source DOM or copy media pixels. A blank chat
+canvas is an intentional loading state. Delayed feedback avoids flashing on fast switches, then a
+single opacity entrance reveals the positioned list without changing virtual row geometry. Input
+is disabled only inside the hidden list. A separate local snapshot remains valid for an explicit in-conversation
 message jump because that operation has one owner and one list. For a distant virtual relocation the
 snapshot stays still, and only the final controlled deceleration is revealed; source and destination
 must not run separate whole-list transforms.
@@ -371,8 +369,8 @@ frames after the target first appears.
 
 - A selected chat row, conversation header, and rendered message IDs always name the same destination.
 - One click commits the destination; a second click is never part of the switching protocol.
-- Any source-view visual handoff is non-interactive, cannot own state, and is removed within its
-  bounded lifecycle.
+- Ordinary switches never retain the source view; only the unpositioned destination list is hidden.
+  Local jump/prepend snapshots retain their bounded, non-interactive lifecycle.
 - `positioned` is emitted once per current request and only after its settlement callback.
 - A following conversation remains visually motionless across idle frames.
 - A detached conversation never moves because of a bottom-following notification.
@@ -413,8 +411,23 @@ same account/history and retain separate blocking, positioning and visual releas
 
 Positioning feedback belongs to the viewport transaction. It may appear after a delay, but
 must unmount in the same commit that publishes a positioned view. It has no independent
-minimum lifetime or exit animation over destination messages. The source snapshot continues
-to use its bounded, presentation-only release protocol.
+minimum lifetime or exit animation over destination messages. Three small loading dots use shared
+motion tokens and become static with reduced motion; the positioned list fades in once without a
+translation, per-row cascade, or geometry animation. The data-ready mark waits for a pending entry
+target to become available, rather than reporting an unrelated cached window as ready.
+
+Sidebar entries with cached messages or a missing unread boundary defer ordinary history refresh.
+Their viewport-ready callback consumes one pending refresh intent, then yields a complete paint and
+idle opportunity before starting it. A failed context read falls back to the available window and
+still releases refresh. New navigation/account changes discard the intent; the store rechecks both
+account and navigation generations after yielding. Empty entries still request their first page
+immediately, and connection recovery retains its existing history owner.
+
+Between recovery pages, history yields to painting/input and rechecks scope generation and active
+chat/topic before sending another request. The nine-page recovery budget, independent reader cursor,
+and resumable paused recovery remain intact. Child layout commits leave an active reading-anchor
+loop to reconcile once per frame. A missing index has at most one pending request for the same
+list, generation, message and offset; the mounted follow-up rejects stale generations.
 
 Image resource readiness survives virtual row remounts through bounded URL metadata. A
 previously decoded image that is already loaded in the new element is revealed before paint

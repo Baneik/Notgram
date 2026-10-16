@@ -227,6 +227,7 @@ export interface TelegramState {
   ) => Promise<boolean>;
   markChatFolderRead: (folderId: string) => Promise<boolean>;
   loadMoreHistory: (chatId: string) => Promise<void>;
+  refreshActiveHistory: () => Promise<void>;
   loadNewerHistory: (chatId: string, topicId?: string) => Promise<void>;
   focusHistoryWindow: (chatId: string, messageId?: string, topicId?: string) => boolean;
   loadChatSponsoredMessages: (chatId: string) => Promise<void>;

@@ -256,11 +256,10 @@ export class TauriMessageMediaService {
       limit: boundedLimit,
       only_local: onlyLocal,
     });
-    // TDLib may already have the target in its local database even when the
-    // frontend Store has not hydrated this chat.  Probe local state only when
-    // this transport has observed messages for the chat; a genuinely cold chat
-    // goes straight to the remote request and pays no extra round trip.
-    const knownLocally = (this.context.rawMessages.get(chatId)?.size ?? 0) > 0;
+    // Neighbouring messages do not establish that the requested boundary is
+    // local. Only probe an observed target; otherwise let TDLib resolve it in
+    // one request instead of serializing a likely local miss before that read.
+    const knownLocally = this.context.rawMessages.get(chatId)?.has(messageId) === true;
     const localResult = knownLocally ? await requestContext(true) : undefined;
     const localMessages = localResult ? asTdObjects(localResult.messages) : [];
     const result = localMessages.some((raw) => tdId(raw.id) === messageId)

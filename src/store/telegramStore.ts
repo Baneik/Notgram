@@ -20,6 +20,7 @@ import { bindMessageFile, updateMessageFile } from "../telegram/messageFileState
 import { MediaFileRestorer } from "./mediaFileRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { ConversationHistory } from "./conversationHistory";
+import { yieldToBackground } from "../utils/yieldToBackground";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { isTauri } from "@tauri-apps/api/core";
@@ -1363,6 +1364,7 @@ export const createTelegramStore = (
     };
 
     const history = new ConversationHistory({
+      yieldForBackground: yieldToBackground,
       online: () => get().authorization.kind === "ready" && get().connectionStatus === "online",
       active: (chatId, topicId) => get().activeChatId === chatId && get().activeTopicId === topicId,
       messages: (chatId, topicId) => (get().messages.get(chatId) ?? []).filter(message => !topicId || message.topicId === topicId),
@@ -3298,7 +3300,7 @@ export const createTelegramStore = (
         if (get().authorization.kind !== "ready") return;
         void mediaFileRestorer.restore();
         if (targetChat?.isForum) {
-          if (restoredTopicId) loadActiveForumTopic(chatId, restoredTopicId);
+          if (restoredTopicId && !options?.deferHistory) loadActiveForumTopic(chatId, restoredTopicId);
           else if (!options?.deferHistory) void loadHistory(chatId, "ensure").then(() => markActiveConversationRead(chatId));
           void refreshForumConversation(chatId);
         } else {
@@ -3728,6 +3730,19 @@ export const createTelegramStore = (
             (state.activeChatId === chatId ? state.activeTopicId : state.lastForumTopicIds.get(chatId))
           : undefined;
         return history.focus(chatId, resolvedTopic, messageId);
+      },
+      refreshActiveHistory: async () => {
+        const { activeChatId: chatId, activeTopicId: topicId } = get();
+        const generation = accountGeneration;
+        const navigationGeneration = conversationGeneration;
+        if (!chatId) return;
+        await yieldToBackground();
+        if (generation !== accountGeneration || navigationGeneration !== conversationGeneration ||
+          get().authorization.kind !== "ready") return;
+        if (topicId) await loadForumTopicHistory(chatId, topicId, "ensure");
+        else await loadHistory(chatId, "ensure");
+        if (generation === accountGeneration && navigationGeneration === conversationGeneration &&
+          get().chats.get(chatId)?.isForum) await markActiveConversationRead(chatId);
       },
       loadMoreHistory: (chatId) => {
         const topicId = get().activeChatId === chatId ? get().activeTopicId : undefined;
