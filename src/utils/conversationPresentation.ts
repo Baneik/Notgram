@@ -4,6 +4,7 @@ import { isConversationSwitchActive, markConversationSwitch } from "./performanc
 export const observeConversationPresentation = (list: HTMLElement, traceId: number | undefined) => {
   if (!isConversationSwitchActive(traceId)) return () => undefined;
   const viewport = list.getBoundingClientRect();
+  const content = list.querySelector<HTMLElement>(".message-list-content");
   const media = [...list.querySelectorAll<HTMLElement>(".photo-preview, .rich-media-visual")].filter((element) => {
     const bounds = element.getBoundingClientRect();
     return bounds.bottom > viewport.top && bounds.top < viewport.bottom &&
@@ -33,10 +34,11 @@ export const observeConversationPresentation = (list: HTMLElement, traceId: numb
     if (stopped) return;
     if (!list.isConnected || !isConversationSwitchActive(traceId)) { cleanup(); return; }
     const covered = list.closest("[inert]") || list.classList.contains("is-entry-positioning") ||
-      document.querySelector("[data-conversation-switch-snapshot], [data-conversation-motion-snapshot]");
+      document.querySelector("[data-conversation-switch-snapshot], [data-conversation-motion-snapshot]") ||
+      (content && Number(getComputedStyle(content).opacity) < 0.99);
     uncoveredFrames = covered ? 0 : uncoveredFrames + 1;
-    // A rAF callback runs before paint. Observe a full uncovered frame before
-    // reporting visible messages, rather than marking the selection's next rAF.
+    // Include the list's opacity entrance, then observe a full uncovered frame
+    // before reporting presentation. Reduced motion needs no separate timer.
     if (uncoveredFrames >= 2) {
       if (!revealed) {
         revealed = true;

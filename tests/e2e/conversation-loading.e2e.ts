@@ -1,5 +1,37 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("presentation timing waits for the list opacity entrance to finish", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const timing = await page.evaluate(async () => {
+    const monitor = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+    const presentation = await import("/src/utils/conversationPresentation.ts" as string) as typeof import("../../src/utils/conversationPresentation");
+    const list = document.createElement("div");
+    const content = document.createElement("div");
+    content.className = "message-list-content";
+    list.append(content);
+    document.body.append(list);
+    const traceId = monitor.beginConversationSwitch({ cached: true, messageCount: 0,
+      viewTransition: false, navigationKind: 1, trackPresentation: true });
+    for (const stage of ["transitionStarted", "selectionCommitted", "dataReady", "titleCommitted", "positioned"] as const) {
+      monitor.markConversationSwitch(traceId, stage);
+    }
+    const animation = content.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, fill: "both" });
+    const cleanup = presentation.observeConversationPresentation(list, traceId);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    const finishedEarly = monitor.getPerformanceRecords().some(record => record.event === "ui_conversation_switch" && record.details.traceId === traceId);
+    await animation.finished;
+    for (let i = 0; i < 4; i++) await new Promise(resolve => requestAnimationFrame(resolve));
+    const record = monitor.getPerformanceRecords().find(record => record.event === "ui_conversation_switch" && record.details.traceId === traceId);
+    cleanup();
+    animation.cancel();
+    list.remove();
+    return { finishedEarly, duration: record?.details.presentationDurationMs };
+  });
+  expect(timing.finishedEarly).toBe(false);
+  expect(timing.duration).toBeGreaterThanOrEqual(170);
+});
+
 const installColdUnread = async (page: Page) => {
   await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
     const response = await route.fetch();

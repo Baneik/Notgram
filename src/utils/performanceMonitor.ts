@@ -847,17 +847,26 @@ const finishConversationSwitch = (
   const selectionElapsedMs = elapsed(trace.selectionCommittedAt, trace.startedAt);
   const dataDurationMs = elapsed(trace.dataReadyAt, trace.selectionCommittedAt);
   const virtualListDurationMs = elapsed(trace.virtuosoRangeAt, trace.dataReadyAt);
+  // A cached range can mount while the requested context is still loading.
+  // Its early callback must not count the same data wait again as positioning.
+  const positionStartedAt = trace.dataReadyAt === undefined ? trace.virtuosoRangeAt
+    : Math.max(trace.dataReadyAt, trace.virtuosoRangeAt ?? trace.dataReadyAt);
   const positionDurationMs = elapsed(
     trace.positionedAt,
-    trace.virtuosoRangeAt ?? trace.dataReadyAt,
+    positionStartedAt,
   );
   const transitionDurationMs = elapsed(
     trace.transitionFinishedAt,
     trace.transitionStartedAt,
   );
   const visualResponseDurationMs = transitionDurationMs;
-  const frontendWorkDurationMs =
-    (trace.projectionDurationMs ?? 0) + (trace.reactDurationMs ?? 0);
+  const presentationDurationMs = elapsed(trace.transitionFinishedAt,
+    trace.positionedAt === undefined ? undefined
+      : Math.max(trace.positionedAt, trace.transitionStartedAt ?? trace.positionedAt));
+  // Standard production React omits Profiler callbacks. Missing work is unknown,
+  // rather than a zero-cost React render hidden inside the frontend total.
+  const frontendWorkDurationMs = trace.reactDurationMs === undefined ? undefined
+    : (trace.projectionDurationMs ?? 0) + trace.reactDurationMs;
   const asyncWaitInFlight = trace.asyncWaitStartedAt !== undefined;
   const asyncWaitDurationMs = trace.asyncWaitDurationMs + (
     trace.asyncWaitStartedAt === undefined ? 0 : finishedAt - trace.asyncWaitStartedAt
@@ -887,7 +896,7 @@ const finishConversationSwitch = (
     [4, trace.reactDurationMs],
     [5, virtualListDurationMs],
     [6, positionDurationMs],
-    [7, transitionDurationMs],
+    [7, presentationDurationMs],
     [8, elapsed(trace.mediaReadyAt, trace.transitionFinishedAt)],
   ] as const;
   const bottleneck = candidates.reduce<{ stage: number; duration: number }>(
@@ -910,6 +919,7 @@ const finishConversationSwitch = (
     dataDurationMs,
     projectionDurationMs: trace.projectionDurationMs,
     reactDurationMs: trace.reactDurationMs,
+    reactProfiled: trace.reactDurationMs !== undefined,
     frontendWorkDurationMs,
     visualResponseDurationMs,
     titleUpdateDurationMs: elapsed(trace.titleCommittedAt, trace.startedAt),
@@ -929,6 +939,7 @@ const finishConversationSwitch = (
     virtualListDurationMs,
     positionDurationMs,
     transitionDurationMs,
+    presentationDurationMs,
     bottleneckStage: bottleneck.stage,
     bottleneckDurationMs: bottleneck.duration,
     completedStageMask,

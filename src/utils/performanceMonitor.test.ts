@@ -266,11 +266,36 @@ describe("performance monitor", () => {
           dataDurationMs: 40,
           reactDurationMs: 8,
           transitionDurationMs: 96,
-          bottleneckStage: 7,
-          bottleneckDurationMs: 96,
+          bottleneckStage: 2,
+          bottleneckDurationMs: 40,
         }),
       }),
     ]);
+  });
+
+  it("excludes a range rendered before data readiness from positioning time", () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const traceId = beginConversationSwitch({ cached: true, messageCount: 3,
+      viewTransition: false, navigationKind: 1 });
+    markConversationSwitch(traceId, "transitionStarted");
+    markConversationSwitch(traceId, "selectionCommitted");
+    markConversationSwitch(traceId, "asyncWaitStarted");
+    now = 20;
+    markConversationSwitch(traceId, "virtuosoRange");
+    now = 400;
+    markConversationSwitch(traceId, "asyncWaitFinished");
+    markConversationSwitch(traceId, "dataReady");
+    now = 450;
+    markConversationSwitch(traceId, "positioned");
+    now = 650;
+    markConversationSwitch(traceId, "transitionFinished");
+    expect(getPerformanceRecords()[0]?.details).toMatchObject({
+      dataDurationMs: 400, virtualListDurationMs: 0, positionDurationMs: 50,
+      presentationDurationMs: 200, bottleneckStage: 2, bottleneckDurationMs: 400,
+      causeDomain: 3, reactProfiled: false,
+    });
+    expect(getPerformanceRecords()[0]?.details).not.toHaveProperty("frontendWorkDurationMs");
   });
 
   it("keeps title, message handoff and media readiness on separate timelines", () => {

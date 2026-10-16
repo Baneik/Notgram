@@ -409,6 +409,14 @@ make their timings unsuitable as production acceptance. These Chromium gates
 do not prove native WebView2 or 240Hz acceptance; compare native builds against the
 same account/history and retain separate blocking, positioning and visual release metrics.
 
+Switch diagnostics count positioning only after both data readiness and a virtual range;
+an early cached range cannot count the context wait a second time. `transitionDurationMs`
+retains the full visual-response timeline; `presentationDurationMs` measures only the
+post-positioning reveal and is used for bottleneck comparison. Presentation readiness waits
+for the list opacity entrance and an uncovered painted frame, including reduced-motion behavior.
+Standard production React omits Profiler callbacks: `reactProfiled=false` makes that absence
+explicit and `frontendWorkDurationMs` is omitted instead of presenting projection alone as total work.
+
 Positioning feedback belongs to the viewport transaction. It may appear after a delay, but
 must unmount in the same commit that publishes a positioned view. It has no independent
 minimum lifetime or exit animation over destination messages. Three small loading dots use shared
