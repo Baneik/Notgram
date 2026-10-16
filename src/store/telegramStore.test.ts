@@ -3998,6 +3998,25 @@ describe("chat filtering", () => {
     expect(transport.calls).toBe(1);
   });
 
+  it("refreshes expired administrator labels and retains labels on a failed refresh", async () => {
+    const transport = new MockTelegramTransport();
+    const store = createTelegramStore(transport);
+    await store.getState().initialize();
+    const request = vi.spyOn(transport, "getChatAdministratorLabels");
+    const labels = await store.getState().loadChatAdministratorLabels("chat-product");
+    await store.getState().loadChatAdministratorLabels("chat-product");
+    expect(request).toHaveBeenCalledTimes(1);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60_000 + 1);
+    request.mockRejectedValueOnce(new Error("offline"));
+    await expect(store.getState().loadChatAdministratorLabels("chat-product")).resolves.toEqual(labels);
+    expect(store.getState().chatAdministratorLabels.get("chat-product")).toEqual(labels);
+    request.mockResolvedValueOnce({ self: "new title" });
+    await expect(store.getState().loadChatAdministratorLabels("chat-product")).resolves.toEqual({ self: "new title" });
+    expect(request).toHaveBeenCalledTimes(3);
+    await store.getState().loadChatAdministratorLabels("chat-product", true);
+    expect(request).toHaveBeenCalledTimes(4);
+  });
+
   it("clears stale management state and blocks every management request after a live role downgrade", async () => {
     const transport = new MockTelegramTransport();
     const store = createTelegramStore(transport);

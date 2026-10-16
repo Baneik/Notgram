@@ -14,6 +14,7 @@ type Entry = {
   source: string;
   size: PhotoPreviewSize;
   users: number;
+  visibleUsers: number;
   controller: AbortController;
   promise: Promise<PhotoPreview>;
   resolve: (preview: PhotoPreview) => void;
@@ -122,7 +123,11 @@ const load = async (entry: Entry) => {
 
 const pump = () => {
   while (running < 2 && queue.length) {
-    const entry = queue.shift()!;
+    const visibleIndex = queue.findIndex(entry => entry.visibleUsers > 0);
+    // Overscan may cover several screens. Keep a slot available so its pixel
+    // preparation cannot queue the first visible image behind two long reads.
+    if (visibleIndex < 0 && running >= 1) break;
+    const entry = queue.splice(visibleIndex < 0 ? 0 : visibleIndex, 1)[0];
     if (entry.controller.signal.aborted) continue;
     running++;
     const started = performance.now();
@@ -135,6 +140,7 @@ const pump = () => {
       bytes += entry.bytes;
       logPerformance("ui_photo_preview", {
         durationMs: performance.now() - started, queueDurationMs: started - entry.queuedAt,
+        totalDurationMs: performance.now() - entry.queuedAt,
         sourceWidth: result.sourceWidth, sourceHeight: result.sourceHeight,
         imageWidth: result.width, imageHeight: result.height, byteCount: result.blob.size, cached,
         imageToken: entry.token, phase: 1,
@@ -150,14 +156,14 @@ const pump = () => {
 };
 
 /** Share prepared display pixels across virtual rows; never retain an original bitmap. */
-export const retainPhotoPreview = (source: string, size: PhotoPreviewSize) => {
+export const retainPhotoPreview = (source: string, size: PhotoPreviewSize, visible = true) => {
   const key = keyFor(source, size);
   let entry = entries.get(key);
   if (!entry) {
     let resolve!: Entry["resolve"];
     let reject!: Entry["reject"];
     const promise = new Promise<PhotoPreview>((ok, fail) => { resolve = ok; reject = fail; });
-    entry = { source, size, users: 0, controller: new AbortController(), promise, resolve, reject, bytes: 0, queuedAt: performance.now(), token: ++nextToken };
+    entry = { source, size, users: 0, visibleUsers: 0, controller: new AbortController(), promise, resolve, reject, bytes: 0, queuedAt: performance.now(), token: ++nextToken };
     entries.set(key, entry);
     queue.push(entry);
   } else {
@@ -165,6 +171,7 @@ export const retainPhotoPreview = (source: string, size: PhotoPreviewSize) => {
     entries.set(key, entry);
   }
   entry.users++;
+  if (visible) entry.visibleUsers++;
   if (entry.value) logPerformance("ui_photo_preview", {
     durationMs: 0, cached: true, imageToken: entry.token, phase: 2,
     imageWidth: entry.value.width, imageHeight: entry.value.height,
@@ -174,10 +181,17 @@ export const retainPhotoPreview = (source: string, size: PhotoPreviewSize) => {
   let released = false;
   return {
     promise: entry.promise,
+    setVisible: (next: boolean) => {
+      if (released || visible === next) return;
+      retained.visibleUsers += next ? 1 : -1;
+      visible = next;
+      pump();
+    },
     release: () => {
       if (released) return;
       released = true;
       retained.users--;
+      if (visible) retained.visibleUsers--;
       if (retained.users === 0 && !retained.value && entries.get(key) === retained) discard(key, retained);
       trim();
     },

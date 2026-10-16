@@ -101,6 +101,8 @@ import {
   senderNameForMessage,
   serviceTargetSummary,
   isVisibleConversationMessage,
+  projectSenderChats,
+  type SenderChat,
 } from "./conversationMessages";
 import { channelDiscussionProjection, compareMessages } from "../store/telegramStore.messages";
 import { MessageBubble as RichMessageBubble } from "./MessageBubble";
@@ -713,7 +715,7 @@ export function Conversation({
     if (chat.management?.canOpenManagement) {
       void loadChatManagement(chat.id);
     } else {
-      void loadChatAdministratorLabels(chat.id, true);
+      void loadChatAdministratorLabels(chat.id);
     }
   }, [chat?.id, chat?.kind, chat?.management?.canOpenManagement, loadChatAdministratorLabels, loadChatManagement]);
   const memberLabels = useMemo(() => new Map(
@@ -973,6 +975,11 @@ export function Conversation({
     () => new Map(forwardTargets.map((target) => [target.id, target])),
     [forwardTargets],
   );
+  const forwardTargetsRef = useRef(forwardTargets);
+  useLayoutEffect(() => { forwardTargetsRef.current = forwardTargets; }, [forwardTargets]);
+  const committedSenderChats = useRef<ReadonlyMap<string, SenderChat> | undefined>(undefined);
+  const senderChats = useMemo(() => projectSenderChats(forwardTargets, committedSenderChats.current), [forwardTargets]);
+  useLayoutEffect(() => { committedSenderChats.current = senderChats; }, [senderChats]);
   const sourceMessagesById = useMemo(() => new Map(
     [...displayMessages, ...allPinnedMessages, ...renderedMessages].map((message) => [message.id, message]),
   ), [allPinnedMessages, displayMessages, renderedMessages]);
@@ -2210,7 +2217,7 @@ export function Conversation({
         ? selectedReplyQuoteSnapshotRef.current.quote
         : undefined);
     setActionForwardTargets(quickForwardChatsAt(
-      forwardTargets,
+      forwardTargetsRef.current,
       activeAccountId,
       getConversationActivityRecords(),
     ));
@@ -2222,7 +2229,7 @@ export function Conversation({
       replyQuote: selectedReplyQuote,
       keyboardNavigation,
     });
-  }, [activeAccountId, forwardTargets]);
+  }, [activeAccountId]);
 
   const copyMessage = async (message: Message) => {
     try {
@@ -2914,7 +2921,7 @@ export function Conversation({
                         onOpenReply={openMessageInHistory}
                         onOpenSenderProfile={onOpenSenderProfile}
                         users={users}
-                        senderChats={forwardTargetsById}
+                        senderChats={senderChats}
                         onOpenMention={onOpenMention}
                         onSearchHashtag={onSearchHashtag}
                         onOpenMedia={selectionMode ? undefined : openMediaViewer}
@@ -3054,7 +3061,7 @@ export function Conversation({
                                     reactions={reactions}
                                     canGetAddedReactions={message.interaction?.canGetAddedReactions}
                                     users={users}
-                                    chats={forwardTargetsById}
+                                    chats={senderChats}
                                     onReaction={onSetMessageReaction}
                                     onLoadSenders={onGetMessageReactionSenders}
                                     onOpenSenderProfile={onOpenSenderProfile}

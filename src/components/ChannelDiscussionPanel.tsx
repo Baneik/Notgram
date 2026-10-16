@@ -333,7 +333,7 @@ export function ChannelDiscussionPanel({
 
   useEffect(() => {
     if (discussionChat.kind !== "group" && discussionChat.kind !== "channel") return;
-    void loadChatAdministratorLabels(discussionChatId, true);
+    void loadChatAdministratorLabels(discussionChatId);
   }, [discussionChat.kind, discussionChatId, loadChatAdministratorLabels]);
 
   useEffect(() => {

@@ -163,6 +163,7 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "domInteractiveMs",
     "durationMs",
     "queueDurationMs",
+    "totalDurationMs",
     "sourceWidth",
     "sourceHeight",
     "imageWidth",
@@ -280,6 +281,8 @@ const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
     "traceId",
     "traceWaitDurationMs",
     "transitionDurationMs",
+    "presentationDurationMs",
+    "reactProfiled",
     "unstableFrameCount",
     "uiStall",
     "viewTransition",
@@ -1527,6 +1530,31 @@ mod tests {
                 }),
             ),
             Ok("info")
+        );
+    }
+
+    #[test]
+    fn updated_switch_and_photo_timings_accept_only_numeric_evidence() {
+        assert!(
+            super::validate_performance_record(
+                "ui_conversation_switch",
+                &json!({ "durationMs": 600, "presentationDurationMs": 180, "reactProfiled": false })
+            )
+            .is_ok()
+        );
+        assert!(
+            super::validate_performance_record(
+                "ui_photo_preview",
+                &json!({ "durationMs": 80, "queueDurationMs": 120, "totalDurationMs": 200 })
+            )
+            .is_ok()
+        );
+        assert!(
+            super::validate_performance_record(
+                "ui_conversation_switch",
+                &json!({ "presentationDurationMs": "message content" })
+            )
+            .is_err()
         );
     }
 

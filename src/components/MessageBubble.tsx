@@ -1,4 +1,5 @@
 import { ServiceMessageContent, type ServicePerson } from "./ServiceMessageContent";
+import type { SenderChat } from "./conversationMessages";
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { servicePersonIds } from "../telegram/serviceMessages";
 import { MessageDeliveryStatus } from "./MessageDeliveryStatus";
@@ -31,7 +32,6 @@ import { FILE_PREVIEW_PRIORITY } from "../telegram/fileDownloadQueue";
 import { MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR } from "../utils/mediaPrefetch";
 import type { ExpandQuoteHandler } from "./CollapsibleBlockQuote";
 import type {
-  Chat,
   Message,
   MessageReactionSenderPage,
   MessageReactionType,
@@ -156,7 +156,7 @@ export interface MessageBubbleProps {
   onOpenReply: (chatId: string, messageId: string) => void;
   onOpenSenderProfile: (senderId: string) => void;
   users: ReadonlyMap<string, User>;
-  senderChats: ReadonlyMap<string, Chat>;
+  senderChats: ReadonlyMap<string, SenderChat>;
   onOpenMention: (username?: string, userId?: string) => void;
   onSearchHashtag: (hashtag: string) => void;
   onOpenMedia?: (messageId: string, chatId?: string, windowed?: boolean) => void;
@@ -1255,7 +1255,7 @@ export interface MessageBubblePreviewProps {
   message: Message;
   senderName: string;
   users: ReadonlyMap<string, User>;
-  senderChats?: ReadonlyMap<string, Chat>;
+  senderChats?: ReadonlyMap<string, SenderChat>;
   senderLabel?: string;
   senderLabelConcealed?: boolean;
   senderLayoutName?: string;

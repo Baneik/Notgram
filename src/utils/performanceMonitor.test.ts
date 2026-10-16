@@ -231,6 +231,7 @@ describe("performance monitor", () => {
   });
 
   it("summarizes a conversation switch and identifies its largest stage", () => {
+    vi.stubGlobal("navigator", { onLine: true });
     let now = 0;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     const traceId = beginConversationSwitch({
@@ -238,11 +239,13 @@ describe("performance monitor", () => {
       messageCount: 60,
       viewTransition: true,
       navigationKind: 1,
+      trackPresentation: true,
     });
 
     markConversationSwitch(traceId, "transitionStarted");
     now = 5;
     markConversationSwitch(traceId, "selectionCommitted");
+    markConversationSwitch(traceId, "titleCommitted");
     now = 45;
     markConversationSwitch(traceId, "dataReady", { messageCount: 62, blockCount: 31 });
     now = 47;
@@ -254,6 +257,8 @@ describe("performance monitor", () => {
     markConversationSwitch(traceId, "positioned");
     now = 96;
     markConversationSwitch(traceId, "transitionFinished");
+    markConversationSwitch(traceId, "mediaReady");
+    vi.unstubAllGlobals();
 
     expect(getPerformanceRecords()).toEqual([
       expect.objectContaining({
@@ -268,6 +273,10 @@ describe("performance monitor", () => {
           transitionDurationMs: 96,
           bottleneckStage: 2,
           bottleneckDurationMs: 40,
+          presentationDurationMs: 26,
+          reactProfiled: true,
+          windowId: expect.any(Number),
+          windowKind: 0,
         }),
       }),
     ]);

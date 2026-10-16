@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Chat, Message, User } from "../telegram/types";
+import { projectSenderChats } from "./conversationMessages";
 import {
   channelAuthorFor,
   displaysChannelMetadata,
@@ -28,6 +29,19 @@ const linkedChannelPost = (overrides: Partial<Message> = {}): Message => ({
   },
   content: { kind: "text", text: "Linked channel post" },
   ...overrides,
+});
+
+describe("sender chat projection", () => {
+  it("reuses identities for sidebar updates and refreshes changed names, avatars and membership", () => {
+    const chat = { id: "source", title: "Source", avatar: { label: "S", color: "#123456" } } as Chat;
+    const original = projectSenderChats([chat]);
+    expect(projectSenderChats([{ ...chat, unreadCount: 4 }], original)).toBe(original);
+    expect(projectSenderChats([{ ...chat, title: "Renamed" }], original).get(chat.id)?.title).toBe("Renamed");
+    const avatar = { ...chat.avatar, imagePath: "new-avatar.png" };
+    expect(projectSenderChats([{ ...chat, avatar }], original).get(chat.id)?.avatar).toBe(avatar);
+    expect(projectSenderChats([], original)).toHaveLength(0);
+    expect(projectSenderChats([{ ...chat, id: "other" }], original).has("other")).toBe(true);
+  });
 });
 
 describe("conversation message visibility", () => {

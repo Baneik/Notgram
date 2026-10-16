@@ -1399,8 +1399,10 @@ export const useConversationScroll = ({
     settle();
   }, [restoreAnchor]);
 
-  const onListLayoutCommitted = useCallback(() => {
+  const layoutCommitQueuedRef = useRef(false);
+  const reconcileListLayout = useCallback(() => {
     const element = messageListRef.current;
+    if (!element?.isConnected) return;
     conversationTraceFor(element)?.record(traceKind.commitAfter);
     if (virtualizerPrependRef.current?.key === element?.dataset.conversationVirtuosoKey) return;
     if (removalRef.current) { removalRef.current.refresh(); return; }
@@ -1431,6 +1433,17 @@ export const useConversationScroll = ({
     // that active tracking pass before paint, preserving its existing deadline.
     scheduleBottomPin(undefined, request.mode);
   }, [scheduleBottomPin]);
+
+  const onListLayoutCommitted = useCallback(() => {
+    if (layoutCommitQueuedRef.current) return;
+    layoutCommitQueuedRef.current = true;
+    // Many text rows can commit in the same React batch. Reconcile the final
+    // geometry once before paint instead of forcing layout after each child.
+    queueMicrotask(() => {
+      layoutCommitQueuedRef.current = false;
+      reconcileListLayout();
+    });
+  }, [reconcileListLayout]);
 
   const captureViewportBeforeUpdate = useCallback((structuralChange: boolean) => {
     const element = messageListRef.current;

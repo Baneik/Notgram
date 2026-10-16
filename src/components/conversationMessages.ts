@@ -2,6 +2,18 @@ import { translate } from "../i18n";
 import type { Chat, Message, MessageContent, User } from "../telegram/types";
 import { messageContentText } from "../telegram/messageContent";
 
+export type SenderChat = Pick<Chat, "title" | "avatar">;
+
+export const projectSenderChats = (chats: readonly Chat[], previous?: ReadonlyMap<string, SenderChat>) => {
+  // Sidebar counters and ordering do not change the identities rendered in
+  // messages. Preserve the map so those updates do not redraw every bubble.
+  if (previous?.size === chats.length && chats.every(chat => {
+    const sender = previous.get(chat.id);
+    return sender?.title === chat.title && sender.avatar === chat.avatar;
+  })) return previous;
+  return new Map(chats.map(chat => [chat.id, { title: chat.title, avatar: chat.avatar }]));
+};
+
 export interface ReplyPreview {
   author: string;
   text: string;

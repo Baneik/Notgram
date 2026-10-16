@@ -6,6 +6,11 @@ Conversation photo preparation uses the message scroller as its visibility root.
 Virtual mounting, automatic downloads, and display preview generation share the
 same bounded region (1600 CSS pixels before and 1000 after the viewport). A
 window-root margin cannot extend beyond the nested scroller's clipping edge.
+Prepared photo pixels additionally distinguish the actual viewport from overscan:
+visible leases take priority, while overscan alone may occupy only one of the two
+preparation slots. Visibility changes update the shared lease without restarting
+its load; releasing a virtual row still cancels unused work. `ui_photo_preview`
+phase 1 records queue, service and total preparation duration separately.
 Downloads keep their mounted owner through progress updates; completion,
 policy changes, or virtual unmount release that owner. Preserve download queue
 limits and the bounded preview caches instead of warming an entire history.

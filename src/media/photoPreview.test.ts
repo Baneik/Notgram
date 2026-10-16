@@ -17,6 +17,26 @@ afterEach(async () => {
 });
 
 describe("conversation photo previews", () => {
+  it("reserves a load slot for visible photos and prioritizes them over prefetch", async () => {
+    const pending: Array<(response: Response) => void> = [];
+    const fetch = vi.fn((_url: string) => new Promise<Response>(resolve => pending.push(resolve)));
+    vi.stubGlobal("fetch", fetch);
+    const first = retainPhotoPreview(source("prefetch-first"), size, false);
+    const queued = retainPhotoPreview(source("prefetch-queued"), size, false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const visible = retainPhotoPreview(source("visible"), size);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toContain("visible.png");
+    pending[0](response());
+    await first.promise;
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    queued.setVisible(true);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    pending[1](response()); pending[2](response());
+    await Promise.all([visible.promise, queued.promise]);
+    first.release(); queued.release(); visible.release();
+  });
+
   it("bounds display pixels without changing the crop policy", () => {
     expect(photoPreviewSize(390, 260, false)).toEqual({ width: 390, height: 260, cover: false });
     expect(photoPreviewSize(6000, 4000, true)).toEqual({ width: 1600, height: 1067, cover: true });

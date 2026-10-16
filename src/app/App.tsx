@@ -603,7 +603,7 @@ export function App() {
         activeAccountId,
         fileId,
         fileName,
-        chats,
+        telegramStore.getState().chats,
         current.get(key),
       ));
       return next;
@@ -637,7 +637,7 @@ export function App() {
         return next;
       });
     });
-  }, [activeAccountId, chats, downloadFile, managedDownloadIndex]);
+  }, [activeAccountId, downloadFile, managedDownloadIndex]);
   const cancelManagedDownload = useCallback((fileId: number) => {
     const key = `${activeAccountId}:${fileId}`;
     setManagedDownloadRequests((current) => {

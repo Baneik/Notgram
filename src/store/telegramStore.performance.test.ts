@@ -30,6 +30,46 @@ const message = (id: string, chatId: string): Message => ({
   content: { kind: "text", text: id },
 });
 
+it("publishes a navigation context and its messages in one store update", async () => {
+  const transport = new PerformanceTransport({ connectionStatus: "offline" });
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const chatId = "chat-mia";
+  const target = message("context-target", chatId);
+  vi.spyOn(transport, "getMessageContext").mockResolvedValue([target]);
+  store.getState().focusHistoryWindow(chatId, target.id);
+  const snapshots: Array<{ hasTarget: boolean; selected: boolean }> = [];
+  const unsubscribe = store.subscribe((state, previous) => {
+    if (state.messages === previous.messages && state.histories === previous.histories) return;
+    snapshots.push({
+      hasTarget: Boolean(state.messages.get(chatId)?.some(item => item.id === target.id)),
+      selected: Boolean(state.histories.get(chatId)?.view?.messageIds?.has(target.id)),
+    });
+  });
+  expect(await store.getState().loadMessage(chatId, target.id)).toBe(true);
+  unsubscribe();
+  expect(snapshots).toHaveLength(1);
+  expect(snapshots).toEqual([{ hasTarget: true, selected: true }]);
+});
+
+it("keeps other topic messages cached outside the selected navigation context", async () => {
+  const transport = new PerformanceTransport({ connectionStatus: "offline" });
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const chatId = "chat-forum";
+  const target = { ...message("context-target", chatId), topicId: "12" };
+  const neighbor = { ...message("other-topic", chatId), topicId: "18" };
+  vi.spyOn(transport, "getMessageContext").mockResolvedValue([target, neighbor]);
+  store.getState().focusHistoryWindow(chatId, target.id, target.topicId);
+  expect(await store.getState().loadMessage(chatId, target.id)).toBe(true);
+  expect(store.getState().messages.get(chatId)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: target.id }), expect.objectContaining({ id: neighbor.id }),
+  ]));
+  const view = store.getState().topicHistories.get(`${chatId}:topic:12`)?.view;
+  expect(view?.messageIds?.has(target.id)).toBe(true);
+  expect(view?.messageIds?.has(neighbor.id)).toBe(false);
+});
+
 it("bounds ordinary file indexes across repeated history eviction while preserving archives", async () => {
   const { store, transport } = await fixture();
   const captured = new Set<MessageFileIndex>();

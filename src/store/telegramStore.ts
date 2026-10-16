@@ -306,6 +306,7 @@ export const createTelegramStore = (
     const groupManagementLoads = new Map<string, Promise<ChatManagement | undefined>>();
     let groupManagementLoadRevision = 0;
     const chatAdministratorLabelLoads = new Map<string, Promise<Record<string, string>>>();
+    const chatAdministratorLabelsUpdatedAt = new Map<string, number>();
     let chatAdministratorLabelsGeneration = 0;
     const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const removalTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1131,6 +1132,7 @@ export const createTelegramStore = (
       forumUnreadState.reset();
       topicReadRequests.clear();
       chatAdministratorLabelLoads.clear();
+      chatAdministratorLabelsUpdatedAt.clear();
       chatAdministratorLabelsGeneration += 1;
       forumTopicsRefreshedAt.clear();
       for (const timer of forumRefreshTimers.values()) globalThis.clearTimeout(timer);
@@ -3793,22 +3795,11 @@ export const createTelegramStore = (
           if (!message) message = await transport.getMessage(chatId, messageId);
           if (!isCurrent()) return false;
           if (!message || message.chatId !== chatId || message.id !== messageId) return false;
-          history.context(chatId, get().chats.get(chatId)?.isForum ? message.topicId : undefined, messageId, [...context, message]);
-          const messages = new Map(get().messages);
-          messages.set(
-            chatId,
-            upsertMessages(
-              messages.get(chatId) ?? [],
-              [...context.filter((item) => item.chatId === chatId), message],
-            ),
-          );
-          set({ messages, operationError: undefined });
-          publishMessageChange({
-            type: "upsert",
-            messages: [...context.filter((item) => item.chatId === chatId), message],
-            liveMessages: [],
-          });
-          scheduleCacheWrite();
+          // Publish the window and its rows together. A window-only update
+          // exposes an empty projection and repeats layout before rows arrive.
+          const incoming = [...new Map([...context, message].filter(item => item.chatId === chatId)
+            .map(item => [item.id, item])).values()];
+          history.context(chatId, get().chats.get(chatId)?.isForum ? message.topicId : undefined, messageId, incoming);
           return true;
         } catch {
           return false;
@@ -4132,6 +4123,7 @@ export const createTelegramStore = (
             if (chat) chats.set(chatId, { ...chat, management: value.capabilities });
             const chatAdministratorLabels = new Map(get().chatAdministratorLabels);
             chatAdministratorLabels.set(chatId, value.administratorLabels ?? {});
+            chatAdministratorLabelsUpdatedAt.set(chatId, Date.now());
             set({
               chats,
               chatAdministratorLabels,
@@ -4200,17 +4192,20 @@ export const createTelegramStore = (
           return Promise.resolve({});
         }
         const cached = get().chatAdministratorLabels.get(chatId);
-        if (cached && !force) return Promise.resolve(cached);
+        if (cached && !force && Date.now() - (chatAdministratorLabelsUpdatedAt.get(chatId) ?? 0) < 5 * 60_000) {
+          return Promise.resolve(cached);
+        }
         const existing = chatAdministratorLabelLoads.get(chatId);
         if (existing) return existing;
         const generation = chatAdministratorLabelsGeneration;
-        const request = transport.getChatAdministratorLabels(chatId).catch(() => ({})).then((labels) => {
+        const request = transport.getChatAdministratorLabels(chatId).then((labels) => {
           if (generation !== chatAdministratorLabelsGeneration) return labels;
+          chatAdministratorLabelsUpdatedAt.set(chatId, Date.now());
           const chatAdministratorLabels = new Map(get().chatAdministratorLabels);
           chatAdministratorLabels.set(chatId, labels);
           set({ chatAdministratorLabels });
           return labels;
-        }).finally(() => {
+        }).catch(() => cached ?? {}).finally(() => {
           if (chatAdministratorLabelLoads.get(chatId) === request) {
             chatAdministratorLabelLoads.delete(chatId);
           }

@@ -417,6 +417,16 @@ for the list opacity entrance and an uncovered painted frame, including reduced-
 Standard production React omits Profiler callbacks: `reactProfiled=false` makes that absence
 explicit and `frontendWorkDurationMs` is omitted instead of presenting projection alone as total work.
 
+Context responses publish their history window and message rows atomically through the same
+history-page merge path. Subscribers must never see a new context window without its rows.
+Child text layout commits coalesce one viewport reconciliation in a microtask before paint;
+the existing anchor/bottom owner still decides the correction against the final committed layout.
+Read-only administrator labels remain cached for five minutes across conversation/discussion
+remounts. Explicit refresh still bypasses freshness, and failed refreshes preserve existing labels.
+Bubble sender maps contain only names and avatars and retain their identity across sidebar
+counter/order updates. Download and action-menu handlers read current chat metadata when invoked,
+so those sidebar changes cannot invalidate every visible bubble's callbacks.
+
 Positioning feedback belongs to the viewport transaction. It may appear after a delay, but
 must unmount in the same commit that publishes a positioned view. It has no independent
 minimum lifetime or exit animation over destination messages. Three small loading dots use shared

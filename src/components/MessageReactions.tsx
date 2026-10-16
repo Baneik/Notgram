@@ -1,8 +1,8 @@
 import { translate } from "../i18n";
+import type { SenderChat } from "./conversationMessages";
 import { LoaderCircle } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type {
-  Chat,
   MessageReaction,
   MessageReactionSender,
   MessageReactionSenderPage,
@@ -23,7 +23,7 @@ interface MessageReactionsProps {
   reactions: MessageReaction[];
   canGetAddedReactions?: boolean;
   users: ReadonlyMap<string, User>;
-  chats: ReadonlyMap<string, Chat>;
+  chats: ReadonlyMap<string, SenderChat>;
   onReaction: (messageId: string, emoji: string, chosen: boolean, chatId?: string) => Promise<void>;
   onLoadSenders: (
     messageId: string,
@@ -57,7 +57,7 @@ const reactionLabel = (reaction: MessageReaction) => {
 const senderPresentation = (
   senderId: string,
   users: ReadonlyMap<string, User>,
-  chats: ReadonlyMap<string, Chat>,
+  chats: ReadonlyMap<string, SenderChat>,
 ) => {
   if (senderId.startsWith("chat:")) {
     const chat = chats.get(senderId.slice("chat:".length));

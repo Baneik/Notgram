@@ -52,6 +52,7 @@ test("unrelated chat and history updates reuse the active timeline projection", 
     }
     return rows;
   });
+  await test.info().attach("timeline-projection-reads", { body: JSON.stringify(result), contentType: "application/json" });
   for (const row of result) {
     expect(row.chatUpdateReads, JSON.stringify(result)).toBeLessThanOrEqual(row.controlReads + 100);
     expect(row.historyUpdateReads, JSON.stringify(result)).toBeLessThanOrEqual(row.controlReads + 100);
@@ -230,7 +231,7 @@ test("warm conversation switches reuse messages and reveal content promptly", { 
         }
       }
       if (
-        headerMs !== undefined && messageCount === 0 &&
+        headerMs !== undefined && messageCount === 0 && !list?.classList.contains("is-entry-positioning") &&
         !placeholderVisible && !snapshotVisible
       ) {
         emptyFramesAfterHeader += 1;
@@ -265,7 +266,7 @@ test("warm conversation switches reuse messages and reveal content promptly", { 
   expect(timing.contentMs).toBeDefined();
   expect(timing.contentMs!).toBeLessThan(300);
   expect(timing.placeholderFrames).toBe(0);
-  expect(timing.snapshotFrames).toBeGreaterThan(0);
+  expect(timing.snapshotFrames).toBe(0);
   expect(timing.emptySnapshotFrames).toBe(0);
   expect(timing.emptyFramesAfterHeader).toBe(0);
 

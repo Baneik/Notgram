@@ -99,7 +99,7 @@ interface HistoryHost {
   active: (chatId: string, topicId?: string) => boolean;
   messages: (chatId: string, topicId?: string) => Message[];
   state: (chatId: string, topicId?: string) => ConversationHistoryState | undefined;
-  publish: (chatId: string, topicId: string | undefined, state: ConversationHistoryState, page?: ChatHistoryPage) => void;
+  publish: (chatId: string, topicId: string | undefined, state: ConversationHistoryState, page?: Pick<ChatHistoryPage, "messages">) => void;
   request: (chatId: string, topicId: string | undefined, request: HistoryPageRequest) => Promise<ChatHistoryPage>;
   error: (error: unknown, topicId?: string) => void;
   diagnostic: (chatId: string, details: Record<string, number | boolean>) => void;
@@ -180,7 +180,7 @@ export class ConversationHistory {
     return scope.view;
   }
 
-  private publish(scope: Scope, patch: Partial<ConversationHistoryState> = {}, page?: ChatHistoryPage) {
+  private publish(scope: Scope, patch: Partial<ConversationHistoryState> = {}, page?: Pick<ChatHistoryPage, "messages">) {
     this.host.publish(scope.chatId, scope.topicId, this.stateFor(scope, patch), page);
   }
 
@@ -364,7 +364,8 @@ export class ConversationHistory {
 
   context(chatId: string, topicId: string | undefined, targetId: string, messages: Message[]) {
     const scope = this.scope(chatId, topicId);
-    const scoped = messages.filter(message => message.chatId === chatId && (!topicId || message.topicId === topicId));
+    const incoming = messages.filter(message => message.chatId === chatId);
+    const scoped = incoming.filter(message => !topicId || message.topicId === topicId);
     if (scoped.length === 0) return;
     // Use pre-context cache membership, not the merged Store, to establish overlap.
     const latestIds = new Set(this.host.messages(chatId, topicId)
@@ -377,7 +378,7 @@ export class ConversationHistory {
         scope.excluded = new Set([...scope.excluded].filter(id => !returned.has(id)));
         if (scope.targetId && returned.has(scope.targetId)) scope.selected = scope.latest;
       }
-      this.publish(scope);
+      this.publish(scope, {}, { messages: incoming });
       return;
     }
     const returnedIds = new Set(scoped.map(message => message.id));
@@ -394,7 +395,7 @@ export class ConversationHistory {
     scope.contexts.set(window.id, window);
     scope.excluded = new Set([...scope.excluded, ...window.ids]);
     if ((scope.targetId && window.ids.has(scope.targetId)) || scope.selected.id === window.id) scope.selected = window;
-    this.publish(scope);
+    this.publish(scope, {}, { messages: incoming });
   }
 
   replace(chatId: string, oldId: string, newId: string) {

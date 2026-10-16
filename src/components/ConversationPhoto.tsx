@@ -18,6 +18,8 @@ interface Props {
 export function ConversationPhoto({ source, fallback, alt, cover, onReady, onDimensions, onError }: Props) {
   const elementRef = useRef<HTMLSpanElement | null>(null);
   const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>(MEDIA_PREFETCH_ROOT_MARGIN, MESSAGE_SCROLL_ROOT_SELECTOR);
+  const [viewportRef, inViewport] = useElementVisibility<HTMLSpanElement>("0px", MESSAGE_SCROLL_ROOT_SELECTOR);
+  const previewRef = useRef<ReturnType<typeof retainPhotoPreview> | undefined>(undefined);
   const [size, setSize] = useState<PhotoPreviewSize | undefined>(() => latestPhotoPreview(source, cover)?.size);
   const [loaded, setLoaded] = useState<{ source: string; size: PhotoPreviewSize; url: string } | undefined>(() => {
     const previous = latestPhotoPreview(source, cover);
@@ -29,8 +31,10 @@ export function ConversationPhoto({ source, fallback, alt, cover, onReady, onDim
   useLayoutEffect(() => { callbacks.current = { onDimensions, onError }; });
   const ref = useCallback((element: HTMLSpanElement | null) => {
     elementRef.current = element;
-    return visibilityRef(element);
-  }, [visibilityRef]);
+    const cleanupVisibility = visibilityRef(element);
+    const cleanupViewport = viewportRef(element);
+    return () => { cleanupVisibility?.(); cleanupViewport?.(); };
+  }, [visibilityRef, viewportRef]);
 
   useLayoutEffect(() => {
     const element = elementRef.current;
@@ -55,7 +59,8 @@ export function ConversationPhoto({ source, fallback, alt, cover, onReady, onDim
   useEffect(() => {
     if (!size || (!visible && !cached)) return;
     let active = true;
-    const retained = retainPhotoPreview(source, size);
+    const retained = retainPhotoPreview(source, size, inViewport);
+    previewRef.current = retained;
     void retained.promise.then(value => {
       if (!active) return;
       callbacks.current.onDimensions(value.sourceWidth, value.sourceHeight);
@@ -66,8 +71,9 @@ export function ConversationPhoto({ source, fallback, alt, cover, onReady, onDim
       // unavailable preview generation, rather than making the photo unusable.
       if (active) setFailed(source);
     });
-    return () => { active = false; retained.release(); };
+    return () => { active = false; previewRef.current = undefined; retained.release(); };
   }, [source, size, visible, Boolean(cached)]);
+  useEffect(() => { previewRef.current?.setVisible(inViewport); }, [inViewport]);
 
   const previous = loaded?.source === source ? getPhotoPreview(source, loaded.size)?.url : undefined;
   const prepared = failed === source ? undefined : cached?.url ?? previous;

@@ -76,6 +76,37 @@ const installColdUnread = async (page: Page) => {
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 };
 
+test("revisiting a conversation reuses fresh administrator labels", async ({ page }) => {
+  await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: `${await response.text()}\n{
+      const connect = MockTelegramTransport.prototype.connect;
+      const labels = MockTelegramTransport.prototype.getChatAdministratorLabels;
+      window.administratorRequests = 0;
+      MockTelegramTransport.prototype.connect = async function(listener) {
+        const snapshot = await connect.call(this, listener);
+        return { ...snapshot, chats: snapshot.chats.map(chat => chat.id === "chat-product"
+          ? { ...chat, management: { ...chat.management, canOpenManagement: false } } : chat) };
+      };
+      MockTelegramTransport.prototype.getChatAdministratorLabels = async function(chatId) {
+        if (chatId === "chat-product") window.administratorRequests++;
+        return labels.call(this, chatId);
+      };
+    }` });
+  });
+  await page.goto("/");
+  const calls = () => page.evaluate(() => (window as unknown as { administratorRequests: number }).administratorRequests);
+  await expect.poll(calls).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+    await expect(page.locator(".conversation-title strong")).toHaveText("Mia Chen");
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(page.locator(".conversation-title strong")).toHaveText("产品讨论");
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  }
+  expect(await calls()).toBe(1);
+});
+
 const openColdUnread = async (page: Page) => {
   await page.evaluate(() => document.querySelector<HTMLElement>(
     '.chat-list[data-active=true] [data-chat-id="chat-mia"]',
