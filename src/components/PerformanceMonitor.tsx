@@ -295,7 +295,9 @@ const performanceLabel = (record: PerformanceRecord) => {
 
 const formatRecordMetric = (record: PerformanceRecord) => record.event === "ui_layout_shift"
   ? Number(record.details.shiftScore ?? 0).toFixed(3)
-  : formatDuration(record.durationMs);
+  : record.event === "ui_performance_log_drop"
+    ? translate("{{value0}} 条采样", { value0: Number(record.details.droppedCount ?? 0) })
+    : formatDuration(record.durationMs);
 
 export function PerformanceMonitor() {
   const [records, setRecords] = useState(getPerformanceRecords);
@@ -451,7 +453,9 @@ export function PerformanceMonitor() {
                   <span className="performance-entry-label">{performanceLabel(record)}</span>
                   <span className="performance-entry-duration">{formatRecordMetric(record)}</span>
                   <span className="performance-entry-track" aria-hidden="true">
-                    <span style={{ width: `${Math.max(2, ((record.durationMs ?? 0) / maxDuration) * 100)}%` }} />
+                    {record.durationMs !== undefined && (
+                      <span style={{ width: `${Math.max(2, (record.durationMs / maxDuration) * 100)}%` }} />
+                    )}
                   </span>
                 </button>
                 {expanded && (

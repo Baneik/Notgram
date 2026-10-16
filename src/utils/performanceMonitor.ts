@@ -610,19 +610,15 @@ const performanceAttribution = (
 };
 
 const recordDuration = (event: string, details: Readonly<Record<string, number | boolean>>) => {
-  if (event === "ui_layout_shift") return undefined;
-  if (event === "ui_performance_log_drop" && typeof details.droppedCount === "number") {
-    return details.droppedCount;
-  }
-  if (typeof details.durationMs === "number") return details.durationMs;
-  const durations = Object.entries(details)
-    .filter(([key, value]) =>
-      !["startTimeMs", "observedAtMs", "frameBudgetMs"].includes(key) &&
-      key.endsWith("Ms") &&
-      typeof value === "number"
-    )
-    .map(([, value]) => value as number);
-  return durations.length > 0 ? Math.max(...durations) : undefined;
+  if (event === "ui_layout_shift" || event === "ui_performance_log_drop") return undefined;
+  // A millisecond suffix also describes timestamps, trace positions and backlog ages.
+  // Only declared event durations may set the timeline scale or severity.
+  const durationMs = details.durationMs ?? (event === "ui_history_render"
+    ? details.restoreDurationMs
+    : event === "ui_tdlib_update_batch" ? details.deliveryDurationMs : undefined);
+  return typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs >= 0
+    ? durationMs
+    : undefined;
 };
 
 const flushNativePerformanceRecords = async () => {
@@ -693,19 +689,21 @@ const createRecord = (
     details.timedOut === true && details.causeDomain === 4;
   const traceCancelledWithoutUiStall = event === "ui_conversation_switch" &&
     details.cancelled === true && details.causeDomain === 4;
-  const severity: PerformanceSeverity = event === "ui_layout_shift"
-    ? shiftScore >= 0.1 ? "critical" : shiftScore >= 0.02 ? "warning" : "normal"
-    : event === "ui_frame_drop"
-      ? missedFrames >= 6 ? "critical" : missedFrames >= FRAME_DROP_MIN_MISSED_FRAMES ? "warning" : "normal"
-      : traceTimedOutWithoutUiStall
-        ? "warning"
-        : traceCancelledWithoutUiStall
-          ? "normal"
-          : durationMs !== undefined && durationMs >= metadata.criticalMs
-            ? "critical"
-            : durationMs !== undefined && durationMs >= metadata.warningMs
-              ? "warning"
-              : "normal";
+  const severity: PerformanceSeverity = event === "ui_performance_log_drop"
+    ? Number(details.droppedCount ?? 0) > 0 ? "critical" : "normal"
+    : event === "ui_layout_shift"
+      ? shiftScore >= 0.1 ? "critical" : shiftScore >= 0.02 ? "warning" : "normal"
+      : event === "ui_frame_drop"
+        ? missedFrames >= 6 ? "critical" : missedFrames >= FRAME_DROP_MIN_MISSED_FRAMES ? "warning" : "normal"
+        : traceTimedOutWithoutUiStall
+          ? "warning"
+          : traceCancelledWithoutUiStall
+            ? "normal"
+            : durationMs !== undefined && durationMs >= metadata.criticalMs
+              ? "critical"
+              : durationMs !== undefined && durationMs >= metadata.warningMs
+                ? "warning"
+                : "normal";
   const startTimeMs = typeof details.startTimeMs === "number"
     ? details.startTimeMs
     : performance.now();

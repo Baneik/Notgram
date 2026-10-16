@@ -12,6 +12,42 @@ const enabledIn = (page: Page) => page.evaluate(async () => {
   return monitor.isPerformanceMonitoringEnabled();
 });
 
+test("the timeline separates trace timestamps, dropped-log counts and measured durations", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await openMonitor(page);
+  await page.evaluate(async () => {
+    const monitor = await import("/src/utils/performanceMonitor.ts" as string) as typeof import("../../src/utils/performanceMonitor");
+    monitor.clearPerformanceRecords();
+    monitor.mergePersistedPerformanceRecords([{
+      timestampMs: Date.now(),
+      event: "ui_conversation_trace",
+      details: { traceOriginMs: 1_792_182_305_071, traceTimeMs: 1_967.7, traceElapsedMs: 1_508.8, droppedCount: 91 },
+    }]);
+    monitor.logPerformance("ui_performance_log_drop", { droppedCount: 91 });
+    monitor.logPerformance("ui_message_projection", { durationMs: 0.1 });
+    monitor.logPerformance("ui_history_merge", { durationMs: 120 });
+  });
+
+  const trace = page.locator(".performance-entry").filter({ hasText: "滚动定位" }).first();
+  await expect(trace).toHaveClass(/severity-normal/);
+  await expect(trace.locator(".performance-entry-duration")).toHaveText("--");
+  await expect(trace.locator(".performance-entry-track > span")).toHaveCount(0);
+  const dropped = page.locator(".performance-entry").filter({ hasText: "性能日志丢失" });
+  await expect(dropped).toHaveClass(/severity-critical/);
+  await expect(dropped.locator(".performance-entry-duration")).toHaveText("91 条采样");
+  await expect(dropped.locator(".performance-entry-track > span")).toHaveCount(0);
+  await dropped.locator("button").click();
+  await expect(dropped.locator(".performance-entry-details")).toContainText("丢失记录91");
+  const measured = page.locator(".performance-entry").filter({ hasText: "历史消息合并" });
+  await expect(measured).toHaveClass(/severity-critical/);
+  await expect(measured.locator(".performance-entry-duration")).toHaveText("120 ms");
+  await expect(measured.locator(".performance-entry-track > span")).toHaveAttribute("style", "width: 100%;");
+  const projection = page.locator(".performance-entry").filter({ hasText: "消息投影" });
+  await expect(projection.locator(".performance-entry-duration")).toHaveText("0.1 ms");
+  await expect(projection).toHaveClass(/severity-normal/);
+});
+
 test("monitoring stays disabled after settings remount and application reload, then resumes explicitly", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");

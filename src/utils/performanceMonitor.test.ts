@@ -78,6 +78,66 @@ describe("performance monitor", () => {
     }));
   });
 
+  it.each(["ui_conversation_trace", "ui_conversation_viewport", "ui_conversation_row", "ui_conversation_member"])(
+    "keeps live and persisted %s snapshots out of duration and severity calculations",
+    (event) => {
+      const details = {
+        traceOriginMs: 1_792_182_305_071,
+        traceTimeMs: 1_967.7,
+        traceElapsedMs: 1_508.8,
+        measureTimeMs: 2_000,
+        frameBudgetMs: 4.2,
+        droppedCount: 91,
+      };
+      logPerformance(event, details);
+      const live = getPerformanceRecords()[0]!;
+      mergePersistedPerformanceRecords([{
+        timestampMs: live.timestampMs + 1,
+        event,
+        details,
+      }]);
+
+      expect(getPerformanceRecords()).toHaveLength(2);
+      for (const record of getPerformanceRecords()) {
+        expect(record).toMatchObject({
+          event, severity: "normal", details: { ...details, frameBudgetMs: expect.any(Number) },
+        });
+        expect(record.durationMs).toBeUndefined();
+      }
+    },
+  );
+
+  it("uses the declared delivery duration without counting backlog age as processing time", () => {
+    logPerformance("ui_tdlib_update_batch", {
+      deliveryDurationMs: 8,
+      oldestUpdateAgeMs: 10_000,
+      pendingUpdateCount: 64,
+    });
+    logPerformance("ui_tdlib_update_batch", {
+      durationMs: 20,
+      deliveryDurationMs: 8,
+      oldestUpdateAgeMs: 10_000,
+    });
+
+    expect(getPerformanceRecords().map(record => [record.durationMs, record.severity]))
+      .toEqual([[8, "normal"], [20, "warning"]]);
+  });
+
+  it("reports dropped logs as a count without inventing a duration", () => {
+    logPerformance("ui_performance_log_drop", { droppedCount: 91 });
+    expect(getPerformanceRecords()[0]).toMatchObject({
+      severity: "critical",
+      details: { droppedCount: 91, uiStall: false },
+    });
+    expect(getPerformanceRecords()[0]?.durationMs).toBeUndefined();
+  });
+
+  it.each([NaN, Infinity, -1])("does not chart invalid duration %s", (durationMs) => {
+    logPerformance("ui_history_merge", { durationMs });
+    expect(getPerformanceRecords()[0]).toMatchObject({ severity: "normal" });
+    expect(getPerformanceRecords()[0]?.durationMs).toBeUndefined();
+  });
+
   it("distinguishes every webview entry route", () => {
     expect(performanceWindowKind("?id=preview-1", "/windows/video-window.html")).toBe(2);
     expect(performanceWindowKind("?videoWindow=preview-1", "/")).toBe(2);
