@@ -27,6 +27,7 @@ import {
 import { useComposerPanelLayout } from "../hooks/useComposerPanelLayout";
 import { useComposerAutoResize } from "../hooks/useComposerAutoResize";
 import { useConversationFileDrop } from "../hooks/useConversationFileDrop";
+import { startAttachmentDrag } from "../utils/attachmentDrag";
 import type { ComposerFocus } from "../hooks/useComposerFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 import {
@@ -1205,11 +1206,14 @@ export const ConversationComposer = memo(function ConversationComposer({
     addPendingAttachments(files);
     if (files.length > 0) focusComposer();
   }, [addPendingAttachments, focusComposer]);
+  const handleFileDropError = useCallback(() => setAttachmentNotice(translate("无法读取拖入的附件，请下载后重试")), []);
   const draggedFileCount = useConversationFileDrop(
-    composerRef, `${activeAccountId}:${draftKey}`, !inert && !editingMessage && !sending && !attachmentPending, handleFileDrop,
+    composerRef, activeAccountId, draftKey, !inert && !editingMessage && !sending && !attachmentPending,
+    handleFileDrop, handleFileDropError,
   );
   const draggingFiles = draggedFileCount > 0;
-  const placeholderCount = Math.min(draggedFileCount, TELEGRAM_ALBUM_MAX_ITEMS - pendingAttachments.length);
+  const previewingFiles = draggingFiles && pendingAttachments.length > 0;
+  const placeholderCount = previewingFiles ? Math.min(draggedFileCount, TELEGRAM_ALBUM_MAX_ITEMS - pendingAttachments.length) : 0;
 
   useLayoutEffect(() => {
     const grid = attachmentGridRef.current;
@@ -1260,7 +1264,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   return (
     <div
       inert={inert || undefined}
-      className={`composer-wrap ${pendingAttachments.length > 0 && !editingMessage ? "has-attachments" : ""} ${draggingFiles ? "is-file-dragging" : ""}`}
+      className={`composer-wrap ${pendingAttachments.length > 0 && !editingMessage ? "has-attachments" : ""} ${previewingFiles ? "is-file-dragging" : ""} ${draggingFiles ? "is-file-drop-target" : ""}`}
       onKeyDownCapture={(event) => {
         const native = event.nativeEvent;
         if (inert || editingMessage || sending || attachmentPending || pendingAttachments.length === 0 ||
@@ -1359,7 +1363,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           </button>
         </div>
       )}
-      {(pendingAttachments.length > 0 || draggingFiles) && !editingMessage && (
+      {pendingAttachments.length > 0 && !editingMessage && (
         <section className="composer-attachment-preview" aria-label={translate("待发送附件")}>
           <div ref={attachmentGridRef} className="composer-attachment-grid" data-count={pendingAttachments.length + placeholderCount}>
             {pendingAttachments.map((pending) => {
@@ -1368,7 +1372,8 @@ export const ConversationComposer = memo(function ConversationComposer({
                 attachmentSpoiler &&
                 canPreviewOutgoingAttachment(attachment.kind);
               return (
-                <article className="composer-attachment-item" key={pending.id}>
+                <article className="composer-attachment-item" key={pending.id}
+                  onDragStart={event => startAttachmentDrag(event.dataTransfer, draftKey, async () => attachment.file)}>
                   <div className="composer-attachment-open">
                     {pending.previewUrl ? (
                       <MediaSpoiler
@@ -1394,7 +1399,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                     )}
                     <span className="composer-attachment-kind">{ATTACHMENT_KIND_LABELS[attachment.kind]}</span>
                   </div>
-                  <span className="composer-attachment-copy">
+                  <span className="composer-attachment-copy" draggable>
                     <strong>{attachment.file.name}</strong>
                     <small>{attachmentSizeLabel(attachment.file.size)}</small>
                   </span>
@@ -1472,6 +1477,9 @@ export const ConversationComposer = memo(function ConversationComposer({
             </span>
           )}
         </section>
+      )}
+      {pendingAttachments.length === 0 && attachmentNotice && !editingMessage && (
+        <span className="composer-attachment-notice" role="alert">{attachmentNotice}</span>
       )}
       <MotionPresence present={showMentionPanel} variant="popover" placement="above">
         {showMentionPanel ? (

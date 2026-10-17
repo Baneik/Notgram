@@ -78,6 +78,7 @@ import { MessageReactions } from "./MessageReactions";
 import { writeClipboardText } from "../utils/clipboard";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { visibleMessageReactions } from "../utils/localBlockedReactions";
+import { readMessageAttachment, startAttachmentDrag } from "../utils/attachmentDrag";
 
 export interface ReplyPreview {
   author: string;
@@ -758,7 +759,12 @@ function MessageBubbleComponent({
         className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
         onDragStart={event => {
-          if (!messageCanBeSaved(message) || locallyConcealed || selectionMode) event.preventDefault();
+          if (!messageCanBeSaved(message) || locallyConcealed || selectionMode) { event.preventDefault(); return; }
+          const target = event.target instanceof Element ? event.target : null;
+          const scope = event.currentTarget.closest<HTMLElement>("[data-composer-scope]")?.dataset.composerScope;
+          if (scope && target?.closest(".photo-preview, .file-primary-action, .audio-message")) {
+            startAttachmentDrag(event.dataTransfer, scope, signal => readMessageAttachment(message, signal));
+          }
         }}
         tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
         onPointerDown={(event) => {
@@ -895,6 +901,7 @@ function MessageBubbleComponent({
               {content.showCaptionAboveMedia && visualCaption}
               <div
                 className={`photo-preview ${mediaLayout?.aspectRatio ? "has-media-ratio" : ""} ${content.mediaType === "photo" && usablePreviewSource && !usableFullMediaSource ? "is-preview-only" : ""}`}
+                draggable
                 style={mediaLayout?.aspectRatio
                   ? { aspectRatio: mediaLayout.aspectRatio }
                   : undefined}
@@ -1097,7 +1104,7 @@ function MessageBubbleComponent({
             />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
             <div className="attachment-message audio-attachment-message">
-              <div className="audio-message">
+              <div className="audio-message" draggable>
                 <AudioPlayer
                   source={fullMediaSource}
                   playbackId={`${message.chatId}:${message.id}`}
@@ -1146,6 +1153,7 @@ function MessageBubbleComponent({
               <div className="file-message">
                 <button
                   className="file-primary-action"
+                  draggable
                   type="button"
                   disabled={!canOpenFile && !canDownload}
                   aria-label={canOpenFile

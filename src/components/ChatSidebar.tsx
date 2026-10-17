@@ -24,6 +24,7 @@ import { usePreferencesStore } from "../store/preferencesStore";
 import { useLocalUserBlocks, useLocalHiddenUserIds } from "../store/localUserBlocks";
 import { useFolderListWarmup } from "../hooks/useFolderListWarmup";
 import { ChatFolderList } from "./ChatFolderList";
+import { useAttachmentDragSwitch } from "../hooks/useAttachmentDragSwitch";
 
 interface ChatSidebarProps {
   allChats: Map<string, Chat>;
@@ -129,6 +130,7 @@ export function ChatSidebar({
       .map((user) => user.userId),
   ), [accountId, localBlockedUsers]);
   const sidebarRef = useRef<HTMLElement>(null);
+  useAttachmentDragSwitch(sidebarRef, accountId, folderId, activeChatId, onSelect);
   const chatListScrollTopByFolderRef = useRef(new Map<string, number>());
   const resizeStartRef = useRef<{ x: number; width: number } | undefined>(undefined);
   const resizeFrameRef = useRef<number | undefined>(undefined);

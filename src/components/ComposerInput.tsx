@@ -13,6 +13,7 @@ import type { ContextMenuPoint } from "./ContextMenuSurface";
 import { readClipboardContent, waitForClipboardFocus } from "../utils/clipboard";
 import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
 import { composerDroppedImage, readComposerDroppedImage } from "../utils/composerDrop";
+import { isInternalAttachmentDrag } from "../utils/attachmentDrag";
 
 export interface ComposerInputElement extends HTMLDivElement {
   readonly value: string;
@@ -130,7 +131,7 @@ export function ComposerInput(props: Props) {
             const data = event.dataTransfer;
             if (!data) return false;
             // File drops belong to the attachment surface, including their URL fallback.
-            if (data.types.includes("Files")) { event.preventDefault(); return true; }
+            if (data.types.includes("Files") || isInternalAttachmentDrag(data)) { event.preventDefault(); return true; }
             const imageSource = composerDroppedImage(data);
             if (imageSource) {
               event.preventDefault();

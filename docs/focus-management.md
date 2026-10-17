@@ -112,7 +112,10 @@ retain ProseMirror's formatting and move/copy behavior. Files are handled once b
 the attachment surface and never insert their URL fallback. Displayed application
 images can enter staging through existing account-authorized asset, Blob or raster
 data URLs; external image URLs require a saved file and do not widen network or
-filesystem access. Protected message content cannot begin a native drag.
+filesystem access. Message media and staged attachments carry their account and
+source draft scope through a drag, even when switching unmounts their source.
+Releasing them in their original scope is rejected, including editor URL/HTML
+fallbacks. Protected message content cannot begin a native drag.
 
 Clipboard menu actions wait for the main document to regain focus after the native
 menu closes. WebView2 clipboard reads are permitted only for the main application's
@@ -158,9 +161,10 @@ clears the durable attachment draft and restores composer focus. Caption text an
 reply context remain available. Sending/restoration and active modals retain key ownership.
 
 File drags use the entire nearest `data-composer-scope`, including its timeline,
-header and editor. Dragging expands staging with card-sized placeholders at the
-append positions without covering or replacing the editor's text and selection.
-Preview and dropped cards use the same constrained staging/editor layout.
+header and editor. An empty tray stays closed until release; hovering only outlines
+the composer and preserves the timeline/editor geometry, text and selection.
+An existing tray adds card-sized placeholders at the append positions. Preview
+and dropped cards use the same constrained staging/editor layout.
 Protected drag data supplies only file counts; file reads and durable attachment
 writes begin on drop. Existing attachment limits also bound the placeholder count,
 and a constrained grid scrolls to reveal the pending slots. Drop replaces the slots
@@ -173,6 +177,16 @@ the preview. Escape during a file drag cancels that preview and preserves staged
 files; outside a drag, staging retains its usual discard shortcut. Nested discussion
 scopes, inert backgrounds, editing, sending/restoration, menus and active dialogs
 cannot redirect file drops to another composer. Text drags retain editor ownership.
+
+Hovering an internal attachment or external file drag over a visible, active
+sidebar chat row for 500 ms selects that chat through ordinary navigation. Brief
+passes, leaving the row, release, Escape, drag end, window blur, account/folder
+changes and modal ownership cancel pending selection. Releasing on the sidebar
+does not stage or send files; the user continues into the destination conversation
+and releases there. File reads, downloads and durable staging start only on release.
+Late reads cannot populate a replacement account/topic/editor. Native drag data
+is inspected only inside its event; delayed switching checks the retained drag
+identity instead of accessing the browser's expired event data store.
 
 Draft synchronization compares text entities by their content, independent of object
 field order and entity order from the editor or native mapper. Matching server echoes

@@ -50,14 +50,11 @@ test("browser-delivered file drags keep protected data unread until drop", async
     const data = { items: [], files: paths, dragOperationsMask: 1 };
     await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...position, data });
     await session.send("Input.dispatchDragEvent", { type: "dragOver", ...position, data });
-    await expect(placeholders(page)).toHaveCount(2);
+    await expect(tray(page)).toHaveCount(0);
     expect(await draftKeys(page)).toEqual([]);
-    const reserved = await placeholders(page).first().boundingBox();
     await session.send("Input.dispatchDragEvent", { type: "drop", ...position, data });
     await expect(tray(page).locator("article")).toHaveCount(2);
     await expect(tray(page).getByText("browser-first.txt", { exact: true })).toBeVisible();
-    const dropped = await tray(page).locator("article").first().boundingBox();
-    for (const dimension of ["x", "y", "width", "height"] as const) expect(dropped![dimension]).toBeCloseTo(reserved![dimension], 0);
     expect(await page.evaluate(() => (window as unknown as { dragSamples: { type: string; files: number; items: number }[] }).dragSamples))
       .toEqual(expect.arrayContaining([
         { type: "dragenter", files: 0, items: 2 },
@@ -79,6 +76,8 @@ for (const width of [1366, 390]) {
       await page.setViewportSize({ width, height: 768 });
       await page.goto("/");
       if (width === 390) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+      await page.locator('input[type="file"]').setInputFiles({ name: "existing.txt", mimeType: "text/plain", buffer: Buffer.from("existing") });
+      await expect(tray(page).locator("article")).toHaveCount(1);
       await input(page).fill("retain this caption");
       await expect(input(page)).toBeFocused();
       const session = await page.context().newCDPSession(page);
@@ -92,7 +91,7 @@ for (const width of [1366, 390]) {
       const position = { x: slot!.x + slot!.width / 2, y: slot!.y + slot!.height / 2 };
       await session.send("Input.dispatchDragEvent", { type: "dragOver", ...position, data });
       await expect(placeholders(page)).toHaveCount(1);
-      expect(await draftKeys(page)).toEqual([]);
+      expect(await draftKeys(page)).toEqual(["chat-product"]);
       await session.send("Input.dispatchDragEvent", { type: "drop", ...position, data });
       await expect(tray(page)).toBeVisible();
       await expect(placeholders(page)).toHaveCount(0);
@@ -121,7 +120,7 @@ for (const layout of [
   { width: 390, height: 660, scale: 100, theme: "notgram-dark" },
   { width: 1024, height: 768, scale: 125, theme: "notgram-light" },
 ] as const) {
-  test(`conversation file drops reserve the final card position at ${layout.width}px/${layout.scale}%`, async ({ page }) => {
+  test(`first file drags preserve the composer layout until release at ${layout.width}px/${layout.scale}%`, async ({ page }) => {
     await page.setViewportSize(layout);
     await page.goto("/");
     if (layout.width === 390) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
@@ -137,6 +136,7 @@ for (const layout of [
       }
       await Promise.allSettled(animations.map(animation => animation.finished));
     });
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
     await input(page).fill("keep this caption");
     await input(page).evaluate(element => {
       (element as import("../../src/components/ComposerInput").ComposerInputElement).setSelectionRange(5, 5);
@@ -145,9 +145,8 @@ for (const layout of [
     const surface = page.locator(".message-list-shell");
     await expect(surface).not.toHaveAttribute("inert");
     expect((await dispatchFiles(surface, "dragenter", 1, true)).prevented).toBe(true);
-    await expect(placeholders(page)).toHaveCount(1);
-    await expect(placeholders(page).getByText("松开鼠标以添加附件")).toBeVisible();
-    await expect(tray(page).locator("article")).toHaveCount(0);
+    await expect(tray(page)).toHaveCount(0);
+    await expect(page.locator(".composer-wrap")).toHaveClass(/is-file-drop-target/);
     expect(await draftKeys(page)).toEqual([]);
     await expect(input(page)).toBeFocused();
     await expect(input(page)).toHaveJSProperty("value", "keep this caption");
@@ -155,15 +154,12 @@ for (const layout of [
     const hoveredInput = await input(page).boundingBox();
     expect(hoveredInput!.y).toBeCloseTo(original!.y, 0);
     expect(hoveredInput!.height).toBeCloseTo(original!.height, 0);
-    const reserved = await placeholders(page).boundingBox();
-    await page.screenshot({ path: `artifacts/conversation-drop-preview-${layout.width}-${layout.scale}.png` });
+    const hoveredSurface = await surface.boundingBox();
+    await page.screenshot({ path: test.info().outputPath("first-file-hover.png") });
     await dispatchFiles(surface, "drop");
     await expect(placeholders(page)).toHaveCount(0);
     await expect(tray(page).getByText("dropped-0.txt", { exact: true })).toBeVisible();
-    const dropped = await tray(page).locator("article").boundingBox();
-    for (const dimension of ["x", "y", "width", "height"] as const) {
-      expect(dropped![dimension]).toBeCloseTo(reserved![dimension], 0);
-    }
+    expect((await surface.boundingBox())!.height).toBeLessThan(hoveredSurface!.height);
     await expect.poll(() => draftKeys(page)).toEqual(["chat-product"]);
     await expect(input(page)).toHaveJSProperty("value", "keep this caption");
     await expect(input(page)).toBeFocused();
@@ -210,20 +206,17 @@ test("existing attachments append multiple reserved slots and cancellation keeps
   await expect(tray(page).locator("article")).toHaveCount(3);
 });
 
-test("a multiline caption uses the same staging constraints before and after drop", async ({ page }) => {
+test("a multiline caption retains its layout until the first file is dropped", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".message-list-shell")).not.toHaveAttribute("inert");
   const caption = Array.from({ length: 20 }, (_, index) => `caption line ${index}`).join("\n");
   await input(page).fill(caption);
   await dispatchFiles(page.locator(".message-list-shell"), "dragenter", 1, true);
-  await expect(placeholders(page)).toHaveCount(1);
-  const reserved = await placeholders(page).boundingBox();
+  await expect(tray(page)).toHaveCount(0);
   const editor = await input(page).boundingBox();
-  await dispatchFiles(placeholders(page).locator("small"), "drop");
+  await dispatchFiles(page.locator(".message-list-shell"), "drop");
   await expect(tray(page).locator("article")).toHaveCount(1);
-  const dropped = await tray(page).locator("article").boundingBox();
-  for (const dimension of ["x", "y", "width", "height"] as const) expect(dropped![dimension]).toBeCloseTo(reserved![dimension], 0);
-  expect((await input(page).boundingBox())!.height).toBeCloseTo(editor!.height, 0);
+  expect((await input(page).boundingBox())!.height).toBeLessThanOrEqual(editor!.height);
   await expect(input(page)).toHaveJSProperty("value", caption);
 });
 
@@ -255,6 +248,10 @@ test("text drags and file drops while editing or behind a modal never add attach
     return element.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: data }));
   })).toBe(true);
   await expect(tray(page)).toHaveCount(0);
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await input(page).fill("editable attachment regression");
+  await input(page).press("Enter");
+  await expect(page.locator(".message-row.is-outgoing").filter({ hasText: "editable attachment regression" })).toBeVisible();
   await input(page).press("Control+r");
   await expect(page.getByRole("button", { name: "取消编辑" })).toBeVisible();
   expect(await dispatchFiles(surface, "dragenter")).toEqual({ prevented: true, effect: "none" });
@@ -299,13 +296,13 @@ test("forum topics and nested channel discussions receive drops in their own dra
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
   await expect(input(page)).toBeVisible();
   await dispatchFiles(page.locator(".message-list-shell"), "dragenter", 1, true);
-  await expect(placeholders(page)).toHaveCount(1);
+  await expect(tray(page)).toHaveCount(0);
   await page.locator('.forum-topic-strip [data-topic-id="12"]').click();
   await expect(placeholders(page)).toHaveCount(0);
   await expect(page.locator(".message-list-shell")).not.toHaveAttribute("inert");
   await dispatchFiles(page.locator(".message-list-shell"), "dragenter", 1, true);
-  await expect(placeholders(page)).toHaveCount(1);
-  await dispatchFiles(placeholders(page).locator("small"), "drop");
+  await expect(tray(page)).toHaveCount(0);
+  await dispatchFiles(page.locator(".message-list-shell"), "drop");
   await expect.poll(() => draftKeys(page)).toEqual(["chat-forum:topic:12"]);
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
   await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
@@ -313,9 +310,9 @@ test("forum topics and nested channel discussions receive drops in their own dra
   await expect(panel).toBeVisible();
   const scope = await panel.getAttribute("data-composer-scope");
   await dispatchFiles(panel.locator(".channel-discussion-messages"), "dragenter", 1, true);
-  await expect(panel.locator(".composer-attachment-placeholder")).toHaveCount(1);
+  await expect(panel.getByRole("region", { name: "待发送附件" })).toHaveCount(0);
   await expect(page.locator(".conversation > .composer-wrap .composer-attachment-placeholder")).toHaveCount(0);
-  await dispatchFiles(panel.locator(".composer-attachment-placeholder .composer-attachment-open"), "drop");
+  await dispatchFiles(panel.locator(".channel-discussion-messages"), "drop");
   await expect(panel.getByText("dropped-0.txt", { exact: true })).toBeVisible();
   await expect.poll(() => draftKeys(page)).toEqual(["chat-forum:topic:12", scope]);
 });

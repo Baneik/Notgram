@@ -2302,6 +2302,8 @@ html.reduce-motion .audio-disc { animation: none; }
 .composer-wrap > .composer, .composer-wrap > .composer-context, .composer-wrap > .composer-outbox-status { flex-shrink: 0; }
 /* Reserve conversation space while the attachment grid absorbs height constraints. */
 .composer-wrap.has-attachments, .composer-wrap.is-file-dragging { max-height: calc(var(--composer-available-height, 80vh) * .8); }
+.composer-wrap.is-file-drop-target { outline: 1px solid var(--accent); outline-offset: -1px; }
+.chat-row[data-attachment-hover="true"] { outline: 1px solid var(--accent); outline-offset: -1px; }
 .composer-wrap.has-attachments .composer-input, .composer-wrap.is-file-dragging .composer-input { max-height: min(290px, calc(var(--composer-available-height, 80vh) * .22)); }
 .bot-suggestion-panel, .mention-suggestion-panel, .inline-query-panel { position: absolute; z-index: 8; right: 6px; bottom: calc(var(--composer-input-height, 50px) + 6px); width: min(460px, calc(100% - 12px)); max-height: min(300px, var(--composer-panel-height, 48vh)); overflow-y: auto; overscroll-behavior: contain; display: grid; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px var(--color-shadow); }
 .bot-suggestion-panel { left: 6px; right: auto; width: max-content; min-width: min(300px, calc(100% - 12px)); max-width: min(520px, calc(100% - 12px)); max-height: min(360px, var(--composer-panel-height, 48vh)); border-radius: 6px; scrollbar-width: none; text-align: left; }
