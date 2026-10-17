@@ -1515,9 +1515,16 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) > p {
   display: inline;
 }
+/* Only the trailing paragraph shares a line with metadata; preceding rich
+   blocks retain their own formatting contexts and full reading width. */
+.message-text-flow > .rich-message-content:has(> p:last-child):has(+ .message-meta),
+.message-text-flow > .rich-message-content:has(+ .message-meta) > p:last-child {
+  display: inline;
+}
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="entities"] + .message-meta,
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="loading"] + .message-meta,
-.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta {
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta,
+.message-text-flow > .rich-message-content:has(> p:last-child) + .message-meta {
   margin: 1px 0 0 8px; display: flex; float: right;
 }
 .message-text-flow:not(.is-large-emoji):not(.is-meta-wrapped) > .message-rich-text + .message-meta {

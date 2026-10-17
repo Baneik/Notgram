@@ -709,6 +709,26 @@ function MessageBubbleComponent({
     </MessageTextFlow>
   ) : null;
 
+  const richContent = content.kind === "rich" ? (
+    <RichMessageContent
+      blocks={content.blocks}
+      isRtl={content.isRtl}
+      isFull={content.isFull}
+      onCollapseQuote={collapseQuote}
+      onExpandQuote={onExpandQuote}
+      messageId={message.id}
+      highlightQuery={searchQuery}
+      onDownload={onDownload}
+      onCancelDownload={onCancelDownload}
+      onRecoverFile={onRecoverFile}
+      onStream={onStream}
+      onSuspendStream={onSuspendStream}
+      onSearchHashtag={onSearchHashtag}
+    />
+  ) : null;
+  const usesRichTextFlow = content.kind === "rich" && !channelPost && !content.isRtl &&
+    content.isFull && content.blocks.at(-1)?.kind === "paragraph";
+
   return (
     <article
       ref={setMessageRowRef}
@@ -854,21 +874,15 @@ function MessageBubbleComponent({
               {!showReactionFooter && messageMeta}
             </MessageTextFlow>
           ) : content.kind === "rich" ? (
-            <RichMessageContent
-              blocks={content.blocks}
-              isRtl={content.isRtl}
-              isFull={content.isFull}
-              onCollapseQuote={collapseQuote}
-              onExpandQuote={onExpandQuote}
-              messageId={message.id}
-              highlightQuery={searchQuery}
-              onDownload={onDownload}
-              onCancelDownload={onCancelDownload}
-              onRecoverFile={onRecoverFile}
-              onStream={onStream}
-              onSuspendStream={onSuspendStream}
-              onSearchHashtag={onSearchHashtag}
-            />
+            usesRichTextFlow ? (
+              <MessageTextFlow
+                layoutSource={content}
+                layoutVersion={textLayoutVersion}
+              >
+                {richContent}
+                {!showReactionFooter && messageMeta}
+              </MessageTextFlow>
+            ) : richContent
           ) : content.kind === "service" || content.kind === "unsupported" ? (
             <ServiceMessageContent message={message} people={serviceMembers ?? servicePersonIds(content).map(id => ({
               id, name: blockedReactionSenderIds?.has(id) ? translate("Telegram 用户")
@@ -1185,7 +1199,7 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {content.kind !== "text" && !(isVisual && hasCaption) && !showReactionFooter && messageMeta}
+          {content.kind !== "text" && !usesRichTextFlow && !(isVisual && hasCaption) && !showReactionFooter && messageMeta}
           {showReactionFooter && (
             <div className="message-reaction-footer">
               <MessageReactions

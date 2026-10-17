@@ -194,6 +194,13 @@ This rule applies to text, photo captions, album captions, and discussion messag
 including readers detached just above the bottom. Never compensate for a probing
 mutation by adding another scroll writer.
 
+Completed left-to-right structured rich messages ending in a paragraph also use
+the shared text flow. Only the final paragraph joins metadata's inline formatting
+context; preceding code, media and other blocks retain their full reading width.
+The shared measurement decides whether metadata fits and rechecks after width or
+delivery changes. Channel posts, reaction footers, streaming content, right-to-left
+messages and non-paragraph endings retain their dedicated metadata placement.
+
 Text metadata measurements share a phased queue: collect live geometry, insert all
 necessary probes, read all line rectangles, remove all probes, then publish results.
 The virtual list flushes that queue once after its children commit; resize notifications
