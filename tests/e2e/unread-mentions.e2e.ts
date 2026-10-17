@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const fixture = async (page: Page, mode: "delayed" | "retry" | "ready" | "delayed-read" | "visible" | "visible-pair" = "delayed") => {
+const fixture = async (page: Page, mode: "delayed" | "retry" | "ready" | "delayed-read" | "visible" | "visible-pair" = "delayed", animation = false) => {
   await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: `${await response.text()}\n{
@@ -19,7 +19,11 @@ const fixture = async (page: Page, mode: "delayed" | "retry" | "ready" | "delaye
           replyTo:i===80 ? {kind:"message",messageId:"999",outgoing:true,text:"My earlier message"} : undefined,
           containsUnreadMention:${JSON.stringify(mode)}==="visible" ? i===179
             : ${JSON.stringify(mode)}==="visible-pair" ? i===20 || i===179 : i===20 || i===80, containsUnreadReaction:false,
-          content:{kind:"text",text:"Synthetic mention history " + i + "\\nSecond line of the message"}
+          content:${animation} && i===179
+            ? {kind:"media",mediaType:"animation",fileName:"mention.mp4",sizeLabel:"278 KB",
+              mimeType:"video/mp4",width:320,height:240,previewDataUrl:"/mock-video-poster.jpg",
+              url:"/mock-video.mp4",isDownloaded:true,canDownload:false,caption:"Visible media mention"}
+            : {kind:"text",text:"Synthetic mention history " + i + "\\nSecond line of the message"}
         }));
         this.snapshot.messages = [...this.snapshot.messages.filter(m=>m.chatId!=="chat-product"),...source];
         this.snapshot.chats = this.snapshot.chats.map(c=>c.id==="chat-product"
@@ -50,6 +54,9 @@ const fixture = async (page: Page, mode: "delayed" | "retry" | "ready" | "delaye
     }` });
   });
   await page.goto("/");
+  if ((page.viewportSize()?.width ?? 1280) <= 720) {
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  }
   await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator('[data-message-id="1179"]')).toBeVisible();
 };
@@ -58,6 +65,65 @@ const button = (page: Page) => page.locator(".jump-to-attention");
 const badge = (page: Page) => page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"] .unread-count');
 const reads = (page: Page) => page.evaluate(() => (globalThis as unknown as { __mentionReads: string[][] }).__mentionReads);
 const release = (page: Page) => page.evaluate(() => (globalThis as unknown as { __releaseMentions: () => void }).__releaseMentions());
+
+test("a focused conversation acknowledges its visible mention after entry positioning", async ({ page }) => {
+  await fixture(page, "visible-pair");
+  await expect(page.locator(".message-list")).toHaveClass(/is-entry-ready/);
+  await expect(page.locator('[data-message-id="1179"]')).toBeInViewport();
+  expect(await page.evaluate(() => document.hasFocus())).toBe(true);
+  await expect(button(page)).toHaveAccessibleName("跳到提及或引用，1 条待查看");
+  await expect(badge(page)).toHaveText("1");
+  expect(await reads(page)).toEqual([["1179"]]);
+});
+
+for (const width of [1366, 390]) {
+  for (const animation of [false, true]) {
+    test(`returning focus during history positioning acknowledges ${animation ? "media" : "text"} mentions at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 768 });
+      await page.addInitScript(() => { document.hasFocus = () => false; });
+      await fixture(page, "visible-pair", animation);
+      if (width <= 720) await page.getByRole("button", { name: "返回会话列表", exact: true }).click();
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-mia"]').click();
+      await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+      if (width <= 720) await page.getByRole("button", { name: "返回会话列表", exact: true }).click();
+      await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+      const retainedFocus = width <= 720
+        ? page.getByRole("button", { name: "返回会话列表", exact: true })
+        : page.getByRole("searchbox", { name: "搜索会话和消息" });
+      await retainedFocus.focus();
+      await expect(page.locator(".message-list")).toHaveClass(/is-entry-positioning/);
+      expect(await reads(page)).toEqual([]);
+      await page.evaluate(() => {
+        document.hasFocus = () => true;
+        window.dispatchEvent(new Event("focus"));
+      });
+      await expect(page.locator(".message-list")).toHaveClass(/is-entry-ready/);
+      await expect(page.locator('[data-message-id="1179"]')).toBeInViewport();
+      await expect(button(page)).toHaveAccessibleName("跳到提及或引用，1 条待查看");
+      expect(await reads(page)).toEqual([["1179"]]);
+      await expect(retainedFocus).toBeFocused();
+      if (width <= 720) await retainedFocus.click();
+      await expect(badge(page)).toHaveText("1");
+    });
+  }
+}
+
+test("a mobile conversation retains mentions behind the sidebar and acknowledges them on reopening", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 768 });
+  await page.addInitScript(() => { document.hasFocus = () => false; });
+  await fixture(page, "visible-pair");
+  await page.getByRole("button", { name: "返回会话列表", exact: true }).click();
+  await page.evaluate(() => {
+    document.hasFocus = () => true;
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(badge(page)).toHaveText("2");
+  expect(await reads(page)).toEqual([]);
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  await expect(page.locator('[data-message-id="1179"]')).toBeInViewport();
+  await expect(button(page)).toHaveAccessibleName("跳到提及或引用，1 条待查看");
+  expect(await reads(page)).toEqual([["1179"]]);
+});
 
 test("server mentions outside history remain reachable and clear with the sidebar after viewing", async ({ page }) => {
   await fixture(page);

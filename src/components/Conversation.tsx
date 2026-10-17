@@ -1507,8 +1507,10 @@ export function Conversation({
 
   useEffect(() => {
     const conversation = conversationRef.current;
+    // Revealing an inert/hidden list can leave intersection geometry unchanged.
+    // Start a fresh observation after entry positioning or mobile navigation reveals it.
     if (
-      pinnedViewOpen || !chat || !messageListElement ||
+      pinnedViewOpen || hideUnpositionedEntry || mobileViewHidden || !chat || !messageListElement ||
       !conversation || attentionMessageIdsToObserve.length === 0
     ) return;
     const attentionIds = new Set(attentionMessageIdsToObserve);
@@ -1563,7 +1565,9 @@ export function Conversation({
     attentionMessageIdsToObserve,
     chat,
     dismissMessageAttention,
+    hideUnpositionedEntry,
     messageListElement,
+    mobileViewHidden,
     pinnedViewOpen,
   ]);
   const actionMessage = actionMenu

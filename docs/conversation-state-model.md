@@ -725,6 +725,9 @@ viewport owner and discards a delayed jump after another navigation or account c
 Only visible message rows in the active, visible window submit mention reads. Retained sidebar or
 search focus and message selections do not block these reads or transfer focus to the composer.
 Hidden or inert history surfaces, including those behind modal dialogs, keep their unread state.
+Start mention visibility observation only after entry positioning reveals the list and while the
+mobile conversation is open. Recreate it when either state becomes available: removing `inert` or
+`visibility: hidden` need not change intersection geometry or produce another focus event.
 A successful view request does not itself clear a server-backed mention: retain the entry until
 TDLib reports the read, including when its reaction is acknowledged first. A zero chat mention
 count clears known mention flags and entries
