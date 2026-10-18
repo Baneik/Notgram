@@ -135,8 +135,14 @@ same shortcut or Escape cancels and restores the previous draft. Enter submits
 the edit (Shift+Enter retains newline insertion), comparing the current text and
 formatting entities with the original only at submission. Unchanged content,
 including edits reverted to the original, exits without an edit/send request.
-Composer Ctrl+Shift+M/X/U/B/Q/K/F shortcuts are local to this editor. Both format
-menus show the same inline shortcut letters in square brackets. File converts the
+Composer M/X/U/B/Q/K/F shortcuts are local to this editor and share a configurable
+message formatting modifier (Ctrl+Shift by default). Record only modifier keys and
+release to save; clearing disables the shortcuts while menu actions remain usable.
+Before saving or resetting, expand every letter and check application bindings and
+native global hotkey availability; any conflict or unavailable check preserves the
+previous setting. Other configurable actions also reserve the active format bindings.
+Both format menus show the same inline shortcut letters in square brackets and
+expose the current full combination to accessibility tools. File converts the
 saved selection to a UTF-8 text attachment through normal staging, then removes
 only that range as an isolated undo step. A full tray retains the text; message
 editing and pending attachment restoration disable conversion. IME preedit never

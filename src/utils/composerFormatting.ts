@@ -12,10 +12,27 @@ export type ComposerFormat = "spoiler" | "strikethrough" | "underline" | "bold" 
 export const composerFormatKeys: Record<ComposerFormat, string> = {
   spoiler: "m", strikethrough: "x", underline: "u", bold: "b", blockquote: "q", link: "k", file: "f",
 };
+export const defaultComposerFormatModifier = "Ctrl+Shift";
+const modifierOrder = ["Ctrl", "Alt", "Shift", "Meta"];
+type ModifierEvent = Pick<KeyboardEvent, "ctrlKey" | "shiftKey" | "altKey" | "metaKey">;
+export const composerFormatModifierFromEvent = (event: ModifierEvent) =>
+  [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Meta"].filter(Boolean).join("+");
+export const isComposerFormatModifier = (binding: string) => {
+  const parts = binding.split("+");
+  return parts.every(part => modifierOrder.includes(part)) && new Set(parts).size === parts.length &&
+    modifierOrder.filter(part => parts.includes(part)).join("+") === binding;
+};
+export const composerFormatBindings = (modifier: string | null) => modifier
+  ? Object.values(composerFormatKeys).map(letter => `${modifier}+Key${letter.toUpperCase()}`) : [];
+export const composerFormatAriaShortcut = (letter: string, modifier: string | null) => modifier
+  ? `${modifier.replace("Ctrl", "Control")}+${letter.toUpperCase()}` : undefined;
 
 export const composerFormatShortcut = (event: Pick<KeyboardEvent,
-  "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey"> & { code?: string }) => {
-  if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return undefined;
+  "key" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey"> & Partial<Pick<KeyboardEvent,
+    "code" | "isComposing" | "keyCode" | "getModifierState">>, modifier: string | null = defaultComposerFormatModifier) => {
+  // Windows IMEs can retain keyCode 229 after commit; only active composition owns the format keys.
+  if (!modifier || composerFormatModifierFromEvent(event) !== modifier || event.isComposing ||
+    event.getModifierState?.("AltGraph")) return undefined;
   // IMEs and keyboard layouts may change `key` while the physical letter is stable.
   const letter = event.code?.match(/^Key([A-Z])$/)?.[1] ?? event.key;
   return (Object.keys(composerFormatKeys) as ComposerFormat[])

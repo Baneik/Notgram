@@ -42,6 +42,7 @@ export interface NativeContextMenuItem {
   label: string;
   title?: string;
   shortcut?: string;
+  ariaKeyShortcuts?: string;
   icon: NativeContextMenuIcon;
   danger?: boolean;
   disabled?: boolean;

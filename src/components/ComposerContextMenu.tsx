@@ -2,7 +2,8 @@ import { Bold, ChevronRight, ClipboardPaste, Copy, EyeOff, FileText, Link, Quote
 import { useRef, useState } from "react";
 import { translate } from "../i18n";
 import { useNativeContextMenu, type NativeContextMenuIcon } from "../contextMenu/nativeContextMenuBridge";
-import { composerFormatKeys, type ComposerFormat } from "../utils/composerFormatting";
+import { composerFormatAriaShortcut, composerFormatKeys, type ComposerFormat } from "../utils/composerFormatting";
+import { usePreferencesStore } from "../store/preferencesStore";
 import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { handleMenuKeyboard } from "../utils/menuKeyboard";
 
@@ -18,6 +19,7 @@ export function ComposerContextMenu({ point, selected, canAttachFiles, colorThem
   restoreFocus: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const modifier = usePreferencesStore(state => state.shortcuts.messageFormatModifier);
   const submenuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const clipboard = [
@@ -41,7 +43,9 @@ export function ComposerContextMenu({ point, selected, canAttachFiles, colorThem
         disabled: item.id !== "paste" && !selected })),
       { id: "format", label: translate("格式"), icon: "format", disabled: !selected, maxVisibleChildren: formats.length,
         children: formats.map(item => ({ id: item.id, label: item.label, icon: item.id as NativeContextMenuIcon,
-          shortcut: composerFormatKeys[item.id], disabled: item.id === "file" && !canAttachFiles })) },
+          shortcut: modifier ? composerFormatKeys[item.id] : undefined,
+          ariaKeyShortcuts: composerFormatAriaShortcut(composerFormatKeys[item.id], modifier),
+          disabled: item.id === "file" && !canAttachFiles })) },
     ],
   }, point, action => onAction(action as ComposerMenuAction), onClose);
   if (nativeMenu) return null;
@@ -69,9 +73,9 @@ export function ComposerContextMenu({ point, selected, canAttachFiles, colorThem
       event.preventDefault(); event.stopPropagation(); setExpanded(false); triggerRef.current?.focus();
     }}><ContextMenuPanel submenu className="composer-format-menu" role="menu" aria-label={translate("格式")}>
       {formats.map(({ id, label, Icon }) => <button key={id} type="button" role="menuitem"
-        disabled={id === "file" && !canAttachFiles} aria-keyshortcuts={`Control+Shift+${composerFormatKeys[id].toUpperCase()}`}
+        disabled={id === "file" && !canAttachFiles} aria-keyshortcuts={composerFormatAriaShortcut(composerFormatKeys[id], modifier)}
         onClick={() => onAction(id)}>
-        <Icon size={17} /><span>{label}<small className="context-menu-shortcut" aria-hidden="true">[{composerFormatKeys[id]}]</small></span>
+        <Icon size={17} /><span>{label}{modifier && <small className="context-menu-shortcut" aria-hidden="true">[{composerFormatKeys[id]}]</small>}</span>
       </button>)}
     </ContextMenuPanel></div>}
   </ContextMenuSurface>;

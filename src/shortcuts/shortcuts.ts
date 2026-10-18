@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { composerFormatBindings, defaultComposerFormatModifier, isComposerFormatModifier } from "../utils/composerFormatting";
 
 export const shortcutActions = [
   { id: "previousChat", label: () => translate("上一个会话"), defaultBinding: "Ctrl+ArrowUp" },
@@ -7,6 +8,7 @@ export const shortcutActions = [
   { id: "nextFolder", label: () => translate("下一个文件夹"), defaultBinding: "Ctrl+PageDown" },
   { id: "editLastMessage", label: () => translate("重新编辑上一条消息"), defaultBinding: "Ctrl+KeyR" },
   { id: "toggleMediaSendMode", label: () => translate("切换媒体发送模式"), defaultBinding: "Tab" },
+  { id: "messageFormatModifier", label: () => translate("消息格式修饰"), defaultBinding: defaultComposerFormatModifier },
 ] as const;
 
 export type ShortcutAction = typeof shortcutActions[number]["id"];
@@ -39,8 +41,29 @@ export const parseShortcut = (binding: string) => {
   return { code, ctrl: parts.includes("Ctrl"), alt: parts.includes("Alt"), shift: parts.includes("Shift"), meta: parts.includes("Meta") };
 };
 
-// Preserve text editing, composer formatting and the application's existing commands.
+// Expand a modifier setting before checking conflicts with individual actions.
+export const shortcutBindingsForAction = (action: ShortcutAction, binding: string | null) =>
+  action === "messageFormatModifier" ? composerFormatBindings(binding) : binding ? [binding] : [];
+
+export const shortcutBindingConflict = (action: ShortcutAction, binding: string, bindings: ShortcutBindings) => {
+  const candidates = new Set(shortcutBindingsForAction(action, binding));
+  return shortcutActions.find(other => other.id !== action &&
+    shortcutBindingsForAction(other.id, bindings[other.id]).some(value => candidates.has(value)));
+};
+
+// Preserve text editing and the application's existing commands.
 export const shortcutValidationError = (binding: string, action?: ShortcutAction): string | undefined => {
+  if (action === "messageFormatModifier") {
+    if (!isComposerFormatModifier(binding) || !binding.split("+").some(part => part === "Ctrl" || part === "Alt")) {
+      return translate("请使用包含 Ctrl 或 Alt 的修饰键组合");
+    }
+    if (binding.includes("Meta")) return translate("此快捷键由系统保留");
+    for (const candidate of composerFormatBindings(binding)) {
+      const error = shortcutValidationError(candidate);
+      if (error) return `${error} (${formatShortcut(candidate)})`;
+    }
+    return undefined;
+  }
   const parsed = parseShortcut(binding);
   if (!parsed) return translate("请选择组合键或功能键");
   if (parsed.code === "Tab") {
@@ -52,8 +75,8 @@ export const shortcutValidationError = (binding: string, action?: ShortcutAction
     (parsed.ctrl && parsed.alt && parsed.code === "Delete")) return translate("此快捷键由系统保留");
   if (!parsed.ctrl && !parsed.alt && !/^F\d+$/.test(parsed.code)) return translate("请选择组合键或功能键");
   if ((parsed.ctrl && !parsed.alt && (
-    ["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY", "KeyF", "KeyJ", "KeyK", "KeyP", "KeyS", "KeyU", "KeyW", "KeyI", "KeyB"].includes(parsed.code) ||
-    (parsed.shift && ["KeyM", "KeyQ", "KeyR"].includes(parsed.code))
+    (!parsed.shift && ["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY", "KeyF", "KeyJ", "KeyK", "KeyP", "KeyS", "KeyU", "KeyW", "KeyI", "KeyB"].includes(parsed.code)) ||
+    (parsed.shift && ["KeyA", "KeyC", "KeyV", "KeyZ", "KeyY", "KeyJ", "KeyP", "KeyS", "KeyW", "KeyI", "KeyR"].includes(parsed.code))
   )) || parsed.code === "F5" || (parsed.shift && parsed.code === "F10") ||
     (parsed.alt && ["ArrowLeft", "ArrowRight", "Home"].includes(parsed.code))) return translate("此快捷键已被应用占用");
   return undefined;
@@ -67,8 +90,9 @@ export const normalizeShortcutBindings = (value: unknown): ShortcutBindings => {
     const binding = source[action.id];
     const candidate = binding === null ? null : typeof binding === "string" && !shortcutValidationError(binding, action.id)
       ? binding : action.defaultBinding;
-    result[action.id] = candidate && used.has(candidate) ? null : candidate;
-    if (result[action.id]) used.add(result[action.id]!);
+    const expanded = shortcutBindingsForAction(action.id, candidate);
+    result[action.id] = expanded.some(binding => used.has(binding)) ? null : candidate;
+    if (result[action.id]) expanded.forEach(binding => used.add(binding));
   }
   return result;
 };

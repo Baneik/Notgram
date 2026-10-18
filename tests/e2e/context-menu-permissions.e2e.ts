@@ -96,6 +96,7 @@ test("native composer format menu preserves the selected range and returns typin
   await expect(surface.getByRole("menuitem", { name: "链接", exact: true })).toBeVisible();
   for (const [label, letter] of [["遮罩", "m"], ["删除线", "x"], ["下划线", "u"], ["粗体", "b"], ["引用", "q"], ["链接", "k"], ["文件", "f"]]) {
     await expect(surface.getByRole("menuitem", { name: label, exact: true }).locator("span > small")).toHaveText(`[${letter}]`);
+    await expect(surface.getByRole("menuitem", { name: label, exact: true })).toHaveAttribute("aria-keyshortcuts", `Control+Shift+${letter.toUpperCase()}`);
     expect(await surface.getByRole("menuitem", { name: label, exact: true }).locator("span").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
   expect((await surface.locator(".native-context-menu-children").boundingBox())!.width).toBeLessThanOrEqual(150);
@@ -115,6 +116,42 @@ test("native composer format menu preserves the selected range and returns typin
   await expect(input).toHaveJSProperty("value", "before  after");
   await expect(page.getByRole("region", { name: "待发送附件" })).toContainText("text.txt");
   await expect(input).toBeFocused();
+  await surface.close();
+});
+
+test("native format menu receives the current modifier combination and hides disabled shortcut hints", async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(async () => {
+    const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+    const state = preferencesStore.getState();
+    state.setPreference("shortcuts", { ...state.shortcuts, messageFormatModifier: "Alt+Shift" });
+  });
+  const input = page.locator(".composer-input");
+  await input.fill("native modifiers");
+  const surface = await nativeMenu(page);
+  const open = async () => {
+    await input.focus();
+    await input.evaluate(element => (element as HTMLElement & { setSelectionRange: (start: number, end: number) => void }).setSelectionRange(0, 16));
+    await input.dispatchEvent("contextmenu", { clientX: 700, clientY: 650, button: 2 });
+    await surface.getByRole("menuitem", { name: "格式", exact: true }).hover();
+  };
+  await open();
+  await expect(surface.getByRole("menuitem", { name: "粗体", exact: true })).toHaveAttribute("aria-keyshortcuts", "Alt+Shift+B");
+  await surface.getByRole("menuitem", { name: "粗体", exact: true }).click();
+  await page.bringToFront(); await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(input.locator("strong")).toHaveText("native modifiers");
+  await page.evaluate(async () => {
+    const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
+    const state = preferencesStore.getState();
+    state.setPreference("shortcuts", { ...state.shortcuts, messageFormatModifier: null });
+  });
+  await open();
+  const bold = surface.getByRole("menuitem", { name: "粗体", exact: true });
+  await expect(bold.locator(".context-menu-shortcut")).toHaveCount(0);
+  await expect(bold).not.toHaveAttribute("aria-keyshortcuts");
+  await bold.click();
+  await page.bringToFront(); await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(input.locator("strong")).toHaveCount(0);
   await surface.close();
 });
 

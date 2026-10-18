@@ -360,7 +360,7 @@ export function ContextMenuWindow() {
                 type="button"
                 role={child.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={child.checked}
-                aria-keyshortcuts={child.shortcut ? `Control+Shift+${child.shortcut.toUpperCase()}` : undefined}
+                aria-keyshortcuts={child.ariaKeyShortcuts}
                 disabled={child.disabled}
                 key={child.id}
                 onClick={() => select(child)}

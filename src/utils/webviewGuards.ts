@@ -18,7 +18,7 @@ export const isBlockedWebviewShortcut = (event: ShortcutEvent, inComposer = fals
   if (event.shiftKey && key === "escape") return true;
   if (event.altKey && ["arrowleft", "arrowright", "home"].includes(key)) return true;
   if (!controlKey) return false;
-  if (inComposer && composerFormatShortcut(event)) return false;
+  if (inComposer && composerFormatShortcut(event, preferencesStore.getState().shortcuts.messageFormatModifier)) return false;
   if (blockedControlKeys.has(key)) return true;
   return event.shiftKey && blockedDeveloperToolKeys.has(key);
 };

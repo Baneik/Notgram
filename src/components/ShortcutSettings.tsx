@@ -3,7 +3,8 @@ import { Keyboard, RotateCcw, X } from "lucide-react";
 import { translate } from "../i18n";
 import { preferencesStore, usePreferencesStore } from "../store/preferencesStore";
 import { checkShortcutAvailability } from "../shortcuts/shortcutAvailability";
-import { formatShortcut, shortcutActions, shortcutFromEvent, shortcutValidationError, type ShortcutAction } from "../shortcuts/shortcuts";
+import { formatShortcut, shortcutActions, shortcutBindingConflict, shortcutBindingsForAction, shortcutFromEvent, shortcutValidationError, type ShortcutAction } from "../shortcuts/shortcuts";
+import { composerFormatModifierFromEvent } from "../utils/composerFormatting";
 
 export function ShortcutSettings() {
   const bindings = usePreferencesStore(state => state.shortcuts);
@@ -12,8 +13,10 @@ export function ShortcutSettings() {
   const [error, setError] = useState<{ action: ShortcutAction; text: string }>();
   const request = useRef(0);
   const recorder = useRef<HTMLButtonElement>(null);
+  const modifierDraft = useRef<string | undefined>(undefined);
   const cancel = () => {
     request.current += 1;
+    modifierDraft.current = undefined;
     setRecording(undefined);
     setPending(undefined);
   };
@@ -23,8 +26,7 @@ export function ShortcutSettings() {
     const id = ++request.current;
     setPending(undefined);
     const localError = shortcutValidationError(binding, action);
-    const duplicate = () => shortcutActions.find(candidate => candidate.id !== action &&
-      preferencesStore.getState().shortcuts[candidate.id] === binding);
+    const duplicate = () => shortcutBindingConflict(action, binding, preferencesStore.getState().shortcuts);
     const conflict = duplicate();
     setError(undefined);
     if (localError || conflict) {
@@ -33,12 +35,15 @@ export function ShortcutSettings() {
     }
     setPending(action);
     try {
-      const availability = await checkShortcutAvailability(binding);
-      if (id !== request.current) return;
-      if (availability !== "available") {
-        setError({ action, text: availability === "conflict"
-          ? translate("此快捷键已被系统或其他应用占用") : translate("当前环境无法检查系统快捷键") });
-        return;
+      for (const candidate of shortcutBindingsForAction(action, binding)) {
+        const availability = await checkShortcutAvailability(candidate);
+        if (id !== request.current) return;
+        if (availability !== "available") {
+          const text = availability === "conflict"
+            ? translate("此快捷键已被系统或其他应用占用") : translate("当前环境无法检查系统快捷键");
+          setError({ action, text: action === "messageFormatModifier" ? `${text} (${formatShortcut(candidate)})` : text });
+          return;
+        }
       }
       const latestConflict = duplicate();
       if (latestConflict) {
@@ -62,17 +67,40 @@ export function ShortcutSettings() {
       event.stopImmediatePropagation();
       if (event.isComposing || event.keyCode === 229 || event.repeat) return;
       if (event.key === "Escape") { cancel(); return; }
+      if (recording === "messageFormatModifier") {
+        // A new chord supersedes a pending probe before its keys are released.
+        request.current += 1;
+        setPending(undefined);
+        if (["Control", "Alt", "Shift", "Meta"].includes(event.key) && !event.getModifierState("AltGraph")) {
+          modifierDraft.current = composerFormatModifierFromEvent(event);
+        } else {
+          modifierDraft.current = undefined;
+          setError({ action: recording, text: translate("请按修饰键组合后松开") });
+        }
+        return;
+      }
       if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
       const binding = shortcutFromEvent(event);
       if (binding) void save(recording, binding);
       else setError({ action: recording, text: translate("请选择组合键或功能键") });
     };
+    const release = (event: KeyboardEvent) => {
+      if (recording !== "messageFormatModifier") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.isComposing || event.keyCode === 229 || !["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
+      const binding = modifierDraft.current;
+      modifierDraft.current = undefined;
+      if (binding) void save(recording, binding);
+    };
     const blur = () => cancel();
     window.addEventListener("keydown", capture, true);
+    window.addEventListener("keyup", release, true);
     window.addEventListener("blur", blur);
     recorder.current?.focus({ preventScroll: true });
     return () => {
       window.removeEventListener("keydown", capture, true);
+      window.removeEventListener("keyup", release, true);
       window.removeEventListener("blur", blur);
     };
   }, [recording]);
@@ -84,7 +112,7 @@ export function ShortcutSettings() {
           <Keyboard size={18} strokeWidth={1.8} />
           <div>
             <h4 id="shortcuts-heading">{translate("快捷键")}</h4>
-            <span>{translate("自定义会话、文件夹切换、消息编辑与媒体发送模式按键")}</span>
+            <span>{translate("自定义会话、文件夹切换、消息编辑、格式修饰与媒体发送模式按键")}</span>
           </div>
         </div>
         <div className="preference-list">
@@ -100,7 +128,9 @@ export function ShortcutSettings() {
                     aria-describedby={error?.action === action.id ? `shortcut-error-${action.id}` : undefined}
                     onClick={() => { cancel(); setError(undefined); setRecording(action.id); }}
                     onBlur={() => { if (recording === action.id) cancel(); }}>
-                    {pending === action.id ? translate("检查中…") : recording === action.id ? translate("请按快捷键") : formatShortcut(bindings[action.id])}
+                    {pending === action.id ? translate("检查中…") : recording === action.id
+                      ? action.id === "messageFormatModifier" ? translate("请按修饰键组合后松开") : translate("请按快捷键")
+                      : formatShortcut(bindings[action.id])}
                   </button>
                   <button type="button" className="icon-button" aria-label={translate("清除{{value0}}快捷键", { value0: action.label() })}
                     title={translate("清除")} disabled={bindings[action.id] === null}

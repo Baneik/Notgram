@@ -14,6 +14,7 @@ import { readClipboardContent, waitForClipboardFocus } from "../utils/clipboard"
 import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
 import { composerDroppedImage, readComposerDroppedImage } from "../utils/composerDrop";
 import { isInternalAttachmentDrag } from "../utils/attachmentDrag";
+import { preferencesStore } from "../store/preferencesStore";
 
 export interface ComposerInputElement extends HTMLDivElement {
   readonly value: string;
@@ -190,7 +191,7 @@ export function ComposerInput(props: Props) {
         },
         handleKeyDown: (view, event) => {
           if (event.isComposing || view.composing) return false;
-          const format = composerFormatShortcut(event);
+          const format = composerFormatShortcut(event, preferencesStore.getState().shortcuts.messageFormatModifier);
           if (format) {
             // selectionchange can still be queued, including after IME commit.
             // Read the visible selection through ProseMirror's public DOM mapping.

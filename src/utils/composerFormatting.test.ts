@@ -19,6 +19,17 @@ describe("composer formatting", () => {
     expect(composerFormatShortcut({ ...shortcut, code: "KeyR" })).toBeUndefined();
     expect(composerFormatShortcut({ ...modifiers, key: "Process" })).toBeUndefined();
   });
+  it("uses custom modifiers exactly, supports clearing and preserves IME ownership", () => {
+    const event = { ...modifiers, shiftKey: false, altKey: true, key: "Process", code: "KeyU" };
+    expect(composerFormatShortcut(event, "Ctrl+Alt")).toBe("underline");
+    expect(composerFormatShortcut(event)).toBeUndefined();
+    expect(composerFormatShortcut(event, null)).toBeUndefined();
+    expect(composerFormatShortcut({ ...event, shiftKey: true }, "Ctrl+Alt")).toBeUndefined();
+    expect(composerFormatShortcut({ ...event, isComposing: true }, "Ctrl+Alt")).toBeUndefined();
+    expect(composerFormatShortcut({ ...event, keyCode: 229 }, "Ctrl+Alt")).toBe("underline");
+    expect(composerFormatShortcut({ ...event, getModifierState: name => name === "AltGraph" }, "Ctrl+Alt")).toBeUndefined();
+    expect(composerFormatShortcut({ ...event, ctrlKey: false, shiftKey: true }, "Alt+Shift")).toBe("underline");
+  });
   it("round trips overlapping formatting and UTF-16 offsets across emoji and newlines", () => {
     const text = "🙂 bold\n@Ada";
     const entities: MessageTextEntity[] = [
