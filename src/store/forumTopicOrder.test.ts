@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forumTopicOrderStore, reconcileForumTopicOrder, removeAccountForumTopicOrder } from "./forumTopicOrder";
+import { forumTopicOrderStore, reconcileForumTopicOrder, removeAccountForumTopicOrder, visibleForumTopicIds } from "./forumTopicOrder";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -31,6 +31,12 @@ describe("local forum topic order", () => {
     expect(reconcileForumTopicOrder(["12", "1"], topics, true)).toEqual(["__all__", "12", "1"]);
     expect(reconcileForumTopicOrder(["12", "__all__", "1"], [{ id: "1" }, { id: "18" }], true))
       .toEqual(["12", "__all__", "1", "18"]);
+  });
+  it("keeps All in its local position while omitting hidden and missing topics from navigation", () => {
+    const topics = [{ id: "1", isHidden: true }, { id: "12", isHidden: false }, { id: "18", isHidden: false }];
+    expect(visibleForumTopicIds(reconcileForumTopicOrder(["18", "__all__", "1", "missing", "12"], topics, true), topics))
+      .toEqual(["18", "__all__", "12"]);
+    expect(visibleForumTopicIds(reconcileForumTopicOrder(["missing"], [], true), [])).toEqual(["__all__"]);
   });
   it("keeps partial pages from destroying remembered positions and isolates account and chat orders", () => {
     expect(reconcileForumTopicOrder(["18", "12", "1"], [{ id: "1" }])).toEqual(["18", "12", "1"]);

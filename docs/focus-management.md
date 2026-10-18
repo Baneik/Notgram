@@ -52,6 +52,13 @@ Actual chat changes share the sidebar conversation entry path. The folder order
 matches the rail; chat order uses the sidebar sorter, with no wrap at either
 boundary. The shortcut cursor is transient and resets across account switches.
 
+Previous/next topic shortcuts default to Ctrl+Left/Right and run only in forum
+groups. They cycle through the visible topic strip in its local account/chat order,
+including All and excluding hidden or missing topics. Both ends wrap. Topic changes
+share the strip's conversation entry path, preserving per-topic drafts, reading
+positions and focus ownership. Outside forums these shortcuts retain native editing.
+Existing customized actions take precedence over newly added topic defaults.
+
 ## Conversation editors
 
 `useComposerFocus` gives each editor an owner tied to its account and conversation

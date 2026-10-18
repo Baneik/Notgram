@@ -31,6 +31,151 @@ const mockProbe = async (page: Page) => {
   }));
 };
 
+const topicTab = (page: Page, id: string) => page.locator(`.forum-topic-strip [data-topic-id="${id}"]`);
+const openShortcutForum = async (page: Page) => {
+  await page.goto("/");
+  await rows(page).and(page.locator('[data-chat-id="chat-forum"]')).click();
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    return telegramStore.getState().forumTopicsLoading.has("chat-forum");
+  })).toBe(false);
+};
+
+for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
+  test(`topic shortcuts cycle in both directions and preserve topic drafts at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await openShortcutForum(page);
+    const before = await state(page);
+    const ids = await page.locator(".forum-topic-strip [data-topic-id]").evaluateAll(elements =>
+      elements.map(element => element.getAttribute("data-topic-id")!));
+    expect(ids).toEqual(["__all__", "1", "12", "18"]);
+    await topicTab(page, ids[0]).click();
+    for (const id of [...ids.slice(1), ids[0]]) {
+      await page.keyboard.press("Control+ArrowRight");
+      await expect(topicTab(page, id)).toHaveAttribute("aria-selected", "true");
+    }
+    for (const id of [...ids.slice(1).reverse(), ids[0]]) {
+      await page.keyboard.press("Control+ArrowLeft");
+      await expect(topicTab(page, id)).toHaveAttribute("aria-selected", "true");
+    }
+    await page.keyboard.press("Control+ArrowRight");
+    const input = page.getByRole("textbox", { name: "消息内容" });
+    await input.fill("general topic draft");
+    await page.keyboard.press("Control+ArrowRight");
+    await expect(topicTab(page, "12")).toHaveAttribute("aria-selected", "true");
+    await expect(input).toBeFocused();
+    await input.fill("release topic draft");
+    await page.keyboard.press("Control+ArrowLeft");
+    await expect(input).toHaveJSProperty("value", "general topic draft");
+    await expect(input).toBeFocused();
+    await page.keyboard.press("Control+ArrowRight");
+    await expect(input).toHaveJSProperty("value", "release topic draft");
+    expect(await state(page)).toEqual(before);
+  });
+}
+
+test("topic shortcuts follow local order, skip hidden and missing topics and handle an All-only strip", async ({ page }) => {
+  await openShortcutForum(page);
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const { forumTopicOrderStore } = await (0, eval)('import("/src/store/forumTopicOrder.ts")') as typeof import("../../src/store/forumTopicOrder");
+    const current = telegramStore.getState();
+    forumTopicOrderStore.getState().setOrder("another-account", "chat-forum", ["12", "18", "__all__", "1"]);
+    forumTopicOrderStore.getState().setOrder(current.activeAccountId, "another-chat", ["12", "18", "__all__", "1"]);
+    forumTopicOrderStore.getState().setOrder(current.activeAccountId, "chat-forum", ["18", "__all__", "1", "missing", "12"]);
+    const forumTopics = new Map(current.forumTopics);
+    forumTopics.set("chat-forum", forumTopics.get("chat-forum")!.map(topic => ({ ...topic, isHidden: topic.id === "1" })));
+    telegramStore.setState({ forumTopics });
+  });
+  await expect.poll(() => page.locator(".forum-topic-strip [data-topic-id]").evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-topic-id")))).toEqual(["18", "__all__", "12"]);
+  await topicTab(page, "18").click();
+  await page.keyboard.press("Control+ArrowLeft");
+  await expect(topicTab(page, "12")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "18")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "__all__")).toHaveAttribute("aria-selected", "true");
+  await page.evaluate(async () => {
+    const { telegramStore } = await (0, eval)('import("/src/store/telegramStore.ts")') as typeof import("../../src/store/telegramStore");
+    const forumTopics = new Map(telegramStore.getState().forumTopics);
+    forumTopics.set("chat-forum", []);
+    telegramStore.setState({ forumTopics });
+  });
+  await expect(page.locator(".forum-topic-strip [data-topic-id]")).toHaveCount(1);
+  await page.keyboard.press("Control+ArrowLeft");
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "__all__")).toHaveAttribute("aria-selected", "true");
+});
+
+test("topic shortcuts retain native editing outside forums and yield to IME, menus and dialogs", async ({ page }) => {
+  await ready(page);
+  const before = await state(page);
+  expect(await page.getByRole("textbox", { name: "消息内容" }).evaluate(element => {
+    const event = new KeyboardEvent("keydown", { key: "ArrowLeft", code: "ArrowLeft", ctrlKey: true, bubbles: true, cancelable: true });
+    element.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(false);
+  expect(await state(page)).toEqual(before);
+  await rows(page).and(page.locator('[data-chat-id="chat-forum"]')).click();
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  const input = page.getByRole("textbox", { name: "消息内容" });
+  await input.dispatchEvent("compositionstart", { data: "中" });
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await input.dispatchEvent("compositionend", { data: "中" });
+  await input.dispatchEvent("keydown", { key: "Process", code: "ArrowRight", ctrlKey: true, keyCode: 229 });
+  await page.keyboard.press("Control+Shift+ArrowRight");
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await input.click({ button: "right" });
+  await expect(page.getByRole("menu").first()).toBeVisible();
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Escape");
+  await settings(page);
+  await page.keyboard.press("Control+ArrowLeft");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "12")).toHaveAttribute("aria-selected", "true");
+});
+
+test("topic shortcut settings support search, conflicts, persistence, clear and reset", async ({ page }) => {
+  await mockProbe(page);
+  await openShortcutForum(page);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("searchbox", { name: "搜索设置" }).fill("下一个话题");
+  await page.getByRole("button", { name: "快捷键", exact: true }).click();
+  const previous = recorder(page, "上一个话题");
+  const next = recorder(page, "下一个话题");
+  await expect(previous).toHaveText("Ctrl + ←");
+  await expect(next).toHaveText("Ctrl + →");
+  await previous.click(); await page.keyboard.press("Control+ArrowDown");
+  await expect(page.getByRole("alert")).toHaveText('已用于“下一个会话”');
+  await page.keyboard.press("Control+Alt+g");
+  await expect(previous).toHaveText("Ctrl + Alt + G");
+  await next.click(); await page.keyboard.press("Control+Shift+g");
+  await expect(next).toHaveText("Ctrl + Shift + G");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Control+Shift+g");
+  await expect(topicTab(page, "12")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Control+Alt+g");
+  await expect(topicTab(page, "1")).toHaveAttribute("aria-selected", "true");
+  await page.reload();
+  await settings(page);
+  await expect(previous).toHaveText("Ctrl + Alt + G");
+  await expect(next).toHaveText("Ctrl + Shift + G");
+  await page.getByRole("button", { name: "清除下一个话题快捷键", exact: true }).click();
+  await expect(next).toHaveText("未设置");
+  await page.getByRole("button", { name: "重置下一个话题快捷键", exact: true }).click();
+  await expect(next).toHaveText("Ctrl + →");
+  await page.getByRole("button", { name: "重置上一个话题快捷键", exact: true }).click();
+  await expect(previous).toHaveText("Ctrl + ←");
+});
+
 test("chat shortcuts follow displayed order, preserve drafts and stop at list boundaries", async ({ page }) => {
   await ready(page);
   const ids = await rowIds(page);

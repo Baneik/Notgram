@@ -9,6 +9,9 @@ export const shortcutActions = [
   { id: "editLastMessage", label: () => translate("重新编辑上一条消息"), defaultBinding: "Ctrl+KeyR" },
   { id: "toggleMediaSendMode", label: () => translate("切换媒体发送模式"), defaultBinding: "Tab" },
   { id: "messageFormatModifier", label: () => translate("消息格式修饰"), defaultBinding: defaultComposerFormatModifier },
+  // Append defaults so existing customized bindings retain precedence on migration.
+  { id: "previousTopic", label: () => translate("上一个话题"), defaultBinding: "Ctrl+ArrowLeft" },
+  { id: "nextTopic", label: () => translate("下一个话题"), defaultBinding: "Ctrl+ArrowRight" },
 ] as const;
 
 export type ShortcutAction = typeof shortcutActions[number]["id"];

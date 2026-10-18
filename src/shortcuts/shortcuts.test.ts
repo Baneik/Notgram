@@ -8,6 +8,9 @@ describe("application shortcut bindings", () => {
   it("matches exactly and preserves the defaults", () => {
     expect(shortcutActionForEvent(key("ArrowUp"), defaultShortcutBindings)).toBe("previousChat");
     expect(shortcutActionForEvent(key("PageDown"), defaultShortcutBindings)).toBe("nextFolder");
+    expect(shortcutActionForEvent(key("ArrowLeft"), defaultShortcutBindings)).toBe("previousTopic");
+    expect(shortcutActionForEvent(key("ArrowRight"), defaultShortcutBindings)).toBe("nextTopic");
+    expect(shortcutActionForEvent(key("ArrowRight", { shiftKey: true }), defaultShortcutBindings)).toBeUndefined();
     expect(shortcutActionForEvent(key("KeyR"), defaultShortcutBindings)).toBe("editLastMessage");
     expect(shortcutActionForEvent(key("Tab", { ctrlKey: false }), defaultShortcutBindings)).toBe("toggleMediaSendMode");
     expect(shortcutActionForEvent(key("ArrowUp", { shiftKey: true }), defaultShortcutBindings)).toBeUndefined();
@@ -44,6 +47,15 @@ describe("application shortcut bindings", () => {
     expect(shortcutBindingConflict("previousChat", "Ctrl+Shift+KeyM", bindings)).toBeUndefined();
     expect(shortcutBindingConflict("previousChat", "Ctrl+Shift+KeyM", defaultShortcutBindings)?.id).toBe("messageFormatModifier");
     expect(shortcutBindingsForAction("messageFormatModifier", null)).toEqual([]);
+  });
+  it("migrates topic defaults without replacing existing custom actions and retains topic overrides", () => {
+    expect(normalizeShortcutBindings({ editLastMessage: "Ctrl+ArrowLeft", toggleMediaSendMode: "Ctrl+ArrowRight" }))
+      .toMatchObject({ editLastMessage: "Ctrl+ArrowLeft", toggleMediaSendMode: "Ctrl+ArrowRight", previousTopic: null, nextTopic: null });
+    expect(normalizeShortcutBindings({ previousTopic: "Ctrl+Shift+KeyG", nextTopic: null }))
+      .toMatchObject({ previousTopic: "Ctrl+Shift+KeyG", nextTopic: null });
+    expect(shortcutBindingConflict("previousChat", "Ctrl+ArrowRight", defaultShortcutBindings)?.id).toBe("nextTopic");
+    expect(shortcutValidationError("Ctrl+ArrowLeft", "previousTopic")).toBeUndefined();
+    expect(shortcutValidationError("Ctrl+ArrowRight", "nextTopic")).toBeUndefined();
   });
   it.each(["Ctrl+Shift", "Ctrl+Alt", "Alt+Shift", "Ctrl+Alt+Shift", "Alt"])("accepts formatting modifiers %s", binding => {
     expect(shortcutValidationError(binding, "messageFormatModifier")).toBeUndefined();

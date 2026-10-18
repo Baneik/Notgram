@@ -1719,7 +1719,7 @@ export function App() {
     }
   };
   const changeFolder = useFolderNavigation(closeSearch);
-  const resumeChatNavigation = useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder);
+  const resumeChatNavigation = useAppShortcuts((chatId) => { closeSearch(false, true); selectSidebarChat(chatId); }, changeFolder, openForumTopic);
 
   const activeChatKind = chats.get(activeChatId ?? "")?.kind;
   const activeMessages = useMemo(

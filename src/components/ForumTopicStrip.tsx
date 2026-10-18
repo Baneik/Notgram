@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { ForumTopic } from "../telegram/types";
 import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
 import { useTelegramStore } from "../store/telegramStore";
-import { forumTopicOrderStore, useForumTopicIds } from "../store/forumTopicOrder";
+import { forumTopicOrderStore, useForumTopicIds, visibleForumTopicIds } from "../store/forumTopicOrder";
 import { useFolderReorder } from "../hooks/useFolderReorder";
 import { formatUnreadCount } from "../utils/formatters";
 
@@ -53,7 +53,7 @@ export function ForumTopicStrip({
   const accountId = useTelegramStore(state => state.activeAccountId);
   const topicIds = useForumTopicIds(accountId, chatId, topics, true);
   const byId = new Map(topics.filter(topic => !topic.isHidden).map(topic => [topic.id, topic]));
-  const orderedIds = topicIds.filter(id => id === FORUM_ALL_TOPIC_ID || byId.has(id));
+  const orderedIds = visibleForumTopicIds(topicIds, topics);
   const saveOrder = (ids: string[]) => forumTopicOrderStore.getState().setOrder(accountId, chatId, ids);
   const drag = useFolderReorder({ containerRef: tabsRef, folderIds: orderedIds,
     disabled: false, accountId: `${accountId}:${chatId}`, axis: "horizontal", onReorder: saveOrder });

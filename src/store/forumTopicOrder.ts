@@ -33,6 +33,11 @@ export const reconcileForumTopicOrder = (order: readonly string[], topics: reado
     ...order, ...topics.map(topic => topic.id),
   ])].slice(0, MAX_TOPICS);
 
+export const visibleForumTopicIds = (ids: readonly string[], topics: readonly Pick<ForumTopic, "id" | "isHidden">[]) => {
+  const visible = new Set(topics.filter(topic => !topic.isHidden).map(topic => topic.id));
+  return ids.filter(id => id === FORUM_ALL_TOPIC_ID || visible.has(id));
+};
+
 export const forumTopicOrderStore = createStore<{
   records: TopicOrderRecord[];
   setOrder: (accountId: string, chatId: string, topicIds: string[]) => void;
