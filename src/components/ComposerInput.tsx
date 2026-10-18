@@ -62,6 +62,7 @@ interface Props {
   entities: readonly MessageTextEntity[];
   placeholder: string;
   busy: boolean;
+  canAttachFiles: boolean;
   colorTheme: "light" | "dark";
   focus: ComposerFocus;
   onChange: (text: string, entities: MessageTextEntity[]) => void;
@@ -90,7 +91,16 @@ export function ComposerInput(props: Props) {
     if (!editor || editor.isDestroyed || editor.state.selection.empty || editor.view.composing) return;
     const from = Math.max(1, editor.state.selection.from);
     const to = Math.min(editor.state.doc.content.size - 1, editor.state.selection.to);
-    if (format === "link") {
+    if (format === "file") {
+      if (!propsRef.current.canAttachFiles) return;
+      const selected = editor.state.doc.textBetween(from, to, "", "\n");
+      const file = new File([selected], "text.txt", { type: "text/plain;charset=utf-8" });
+      // Keep the text if staging rejects the file (for example, a full tray).
+      if (propsRef.current.onPasteFiles([file])) {
+        editor.view.dispatch(closeHistory(editor.state.tr).delete(from, to));
+        editor.view.dispatch(closeHistory(editor.state.tr));
+      }
+    } else if (format === "link") {
       const selected = editor.state.doc.textBetween(from, to, "", "\n");
       // Insert delimiters around the existing text to retain any overlapping marks.
       editor.view.dispatch(editor.state.tr.insertText("]()", to).insertText("[", from));
@@ -331,7 +341,7 @@ export function ComposerInput(props: Props) {
     <div ref={containerRef} />
     {clipboardError && <span className="composer-clipboard-error" role="alert">{translate("无法访问剪贴板，请使用键盘快捷键")}</span>}
     {imageDropError && <span className="composer-clipboard-error" role="alert">{translate("无法读取拖入的图片，请将图片保存为文件后拖入")}</span>}
-    {menu && <ComposerContextMenu point={menu.point} selected={menu.from !== menu.to} colorTheme={props.colorTheme}
+    {menu && <ComposerContextMenu point={menu.point} selected={menu.from !== menu.to} canAttachFiles={props.canAttachFiles} colorTheme={props.colorTheme}
       onAction={action => void runMenuAction(action)} onClose={closeMenu} restoreFocus={restoreFocus} />}
   </div>;
 }

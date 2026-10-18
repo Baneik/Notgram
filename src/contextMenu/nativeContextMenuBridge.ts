@@ -11,7 +11,7 @@ import {
 } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
-  | "cut" | "paste" | "format" | "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link"
+  | "cut" | "paste" | "format" | "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link" | "file"
   | "alert"
   | "loading"
   | "archive"
@@ -41,6 +41,7 @@ export interface NativeContextMenuItem {
   id: string;
   label: string;
   title?: string;
+  shortcut?: string;
   icon: NativeContextMenuIcon;
   danger?: boolean;
   disabled?: boolean;

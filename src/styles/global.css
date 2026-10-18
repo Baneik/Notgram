@@ -849,6 +849,9 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
   text-align: left; cursor: pointer;
 }
 .context-menu-panel button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-format-menu { width: max-content; min-width: 120px; }
+.context-menu-panel button:has(.context-menu-shortcut) { grid-template-columns: 22px minmax(0, 1fr); }
+.context-menu-shortcut { margin-inline-start: 4px; font-size: 0.85em; color: var(--subtle); white-space: nowrap; }
 .context-menu-panel button:hover:not(:disabled), .context-menu-panel button:focus-visible { background: var(--surface-hover); }
 .context-menu-panel button:disabled { opacity: 0.45; cursor: default; }
 .context-menu-panel button.is-danger { color: var(--color-status-danger); }

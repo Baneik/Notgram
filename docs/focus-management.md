@@ -135,7 +135,12 @@ same shortcut or Escape cancels and restores the previous draft. Enter submits
 the edit (Shift+Enter retains newline insertion), comparing the current text and
 formatting entities with the original only at submission. Unchanged content,
 including edits reverted to the original, exits without an edit/send request.
-Composer Ctrl+Shift+M/X/U/B/Q/K shortcuts are local to this editor.
+Composer Ctrl+Shift+M/X/U/B/Q/K/F shortcuts are local to this editor. Both format
+menus show the same inline shortcut letters in square brackets. File converts the
+saved selection to a UTF-8 text attachment through normal staging, then removes
+only that range as an isolated undo step. A full tray retains the text; message
+editing and pending attachment restoration disable conversion. IME preedit never
+triggers it.
 Formatting runs in ProseMirror's key handler and maps the visible DOM selection
 before applying a mark; `selectionchange` may still be queued. React capture must
 not consume these shortcuts against a stale selection. The editor and WebView

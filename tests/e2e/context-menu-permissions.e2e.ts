@@ -94,6 +94,12 @@ test("native composer format menu preserves the selected range and returns typin
   await expect(surface.getByRole("menuitem", { name: "格式", exact: true })).toBeVisible();
   await surface.getByRole("menuitem", { name: "格式", exact: true }).hover();
   await expect(surface.getByRole("menuitem", { name: "链接", exact: true })).toBeVisible();
+  for (const [label, letter] of [["遮罩", "m"], ["删除线", "x"], ["下划线", "u"], ["粗体", "b"], ["引用", "q"], ["链接", "k"], ["文件", "f"]]) {
+    await expect(surface.getByRole("menuitem", { name: label, exact: true }).locator("span > small")).toHaveText(`[${letter}]`);
+    expect(await surface.getByRole("menuitem", { name: label, exact: true }).locator("span").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  expect((await surface.locator(".native-context-menu-children").boundingBox())!.width).toBeLessThanOrEqual(150);
+  await surface.screenshot({ path: test.info().outputPath("native-composer-format-menu.png") });
   await surface.getByRole("menuitem", { name: "粗体", exact: true }).click();
   await page.bringToFront();
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -101,6 +107,14 @@ test("native composer format menu preserves the selected range and returns typin
   await expect(input).toBeFocused();
   await expect(input).toHaveJSProperty("selectionStart", 7);
   await expect(input).toHaveJSProperty("selectionEnd", 15);
+  await input.dispatchEvent("contextmenu", { clientX: 700, clientY: 650, button: 2 });
+  await surface.getByRole("menuitem", { name: "格式", exact: true }).hover();
+  await surface.getByRole("menuitem", { name: "文件", exact: true }).click();
+  await page.bringToFront();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(input).toHaveJSProperty("value", "before  after");
+  await expect(page.getByRole("region", { name: "待发送附件" })).toContainText("text.txt");
+  await expect(input).toBeFocused();
   await surface.close();
 });
 

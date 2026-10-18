@@ -87,6 +87,7 @@ export const calculateNativeContextMenuPosition = (
 interface NativeContextMenuLayoutItem {
   id: string;
   label: string;
+  shortcut?: string;
   children?: NativeContextMenuLayoutItem[];
   maxVisibleChildren?: number;
 }
@@ -102,9 +103,9 @@ const panelWidthFor = (
 ) => {
   const desiredWidth = items.reduce((maximum, item) => Math.max(
     maximum,
-    measureLabel(item.label) +
+    measureLabel(item.label) + (item.shortcut ? measureLabel(`[${item.shortcut}]`) * 0.85 + 4 : 0) +
       NATIVE_CONTEXT_MENU_ITEM_CHROME_WIDTH +
-      NATIVE_CONTEXT_MENU_EXTRA_WIDTH,
+      (item.shortcut ? 8 : NATIVE_CONTEXT_MENU_EXTRA_WIDTH),
   ), 0);
   return Math.ceil(Math.min(
     NATIVE_CONTEXT_MENU_MAX_PANEL_WIDTH,

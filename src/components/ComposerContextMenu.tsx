@@ -1,16 +1,17 @@
-import { Bold, ChevronRight, ClipboardPaste, Copy, EyeOff, Link, Quote, Scissors, Strikethrough, Type, Underline } from "lucide-react";
+import { Bold, ChevronRight, ClipboardPaste, Copy, EyeOff, FileText, Link, Quote, Scissors, Strikethrough, Type, Underline } from "lucide-react";
 import { useRef, useState } from "react";
 import { translate } from "../i18n";
 import { useNativeContextMenu, type NativeContextMenuIcon } from "../contextMenu/nativeContextMenuBridge";
-import type { ComposerFormat } from "../utils/composerFormatting";
+import { composerFormatKeys, type ComposerFormat } from "../utils/composerFormatting";
 import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { handleMenuKeyboard } from "../utils/menuKeyboard";
 
 export type ComposerMenuAction = ComposerFormat | "cut" | "copy" | "paste";
 
-export function ComposerContextMenu({ point, selected, colorTheme, onAction, onClose, restoreFocus }: {
+export function ComposerContextMenu({ point, selected, canAttachFiles, colorTheme, onAction, onClose, restoreFocus }: {
   point: ContextMenuPoint;
   selected: boolean;
+  canAttachFiles: boolean;
   colorTheme: "light" | "dark";
   onAction: (action: ComposerMenuAction) => void;
   onClose: () => void;
@@ -31,6 +32,7 @@ export function ComposerContextMenu({ point, selected, colorTheme, onAction, onC
     { id: "bold" as const, label: translate("粗体"), Icon: Bold },
     { id: "blockquote" as const, label: translate("引用"), Icon: Quote },
     { id: "link" as const, label: translate("链接"), Icon: Link },
+    { id: "file" as const, label: translate("文件"), Icon: FileText },
   ];
   const nativeMenu = useNativeContextMenu({
     label: translate("输入框操作"), colorTheme,
@@ -38,7 +40,8 @@ export function ComposerContextMenu({ point, selected, colorTheme, onAction, onC
       ...clipboard.map(item => ({ id: item.id, label: item.label, icon: item.id as NativeContextMenuIcon,
         disabled: item.id !== "paste" && !selected })),
       { id: "format", label: translate("格式"), icon: "format", disabled: !selected, maxVisibleChildren: formats.length,
-        children: formats.map(item => ({ id: item.id, label: item.label, icon: item.id as NativeContextMenuIcon })) },
+        children: formats.map(item => ({ id: item.id, label: item.label, icon: item.id as NativeContextMenuIcon,
+          shortcut: composerFormatKeys[item.id], disabled: item.id === "file" && !canAttachFiles })) },
     ],
   }, point, action => onAction(action as ComposerMenuAction), onClose);
   if (nativeMenu) return null;
@@ -64,9 +67,11 @@ export function ComposerContextMenu({ point, selected, colorTheme, onAction, onC
         handleMenuKeyboard(event, onClose); event.stopPropagation(); return;
       }
       event.preventDefault(); event.stopPropagation(); setExpanded(false); triggerRef.current?.focus();
-    }}><ContextMenuPanel submenu role="menu" aria-label={translate("格式")}>
-      {formats.map(({ id, label, Icon }) => <button key={id} type="button" role="menuitem" onClick={() => onAction(id)}>
-        <Icon size={17} /><span>{label}</span>
+    }}><ContextMenuPanel submenu className="composer-format-menu" role="menu" aria-label={translate("格式")}>
+      {formats.map(({ id, label, Icon }) => <button key={id} type="button" role="menuitem"
+        disabled={id === "file" && !canAttachFiles} aria-keyshortcuts={`Control+Shift+${composerFormatKeys[id].toUpperCase()}`}
+        onClick={() => onAction(id)}>
+        <Icon size={17} /><span>{label}<small className="context-menu-shortcut" aria-hidden="true">[{composerFormatKeys[id]}]</small></span>
       </button>)}
     </ContextMenuPanel></div>}
   </ContextMenuSurface>;

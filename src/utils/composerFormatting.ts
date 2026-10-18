@@ -8,9 +8,9 @@ export const composerEntityKinds: MessageTextEntityKind[] = [
   "email", "phone", "customEmoji", "dateTime",
 ];
 
-export type ComposerFormat = "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link";
-const composerFormatShortcuts: Partial<Record<string, ComposerFormat>> = {
-  m: "spoiler", x: "strikethrough", u: "underline", b: "bold", q: "blockquote", k: "link",
+export type ComposerFormat = "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link" | "file";
+export const composerFormatKeys: Record<ComposerFormat, string> = {
+  spoiler: "m", strikethrough: "x", underline: "u", bold: "b", blockquote: "q", link: "k", file: "f",
 };
 
 export const composerFormatShortcut = (event: Pick<KeyboardEvent,
@@ -18,7 +18,8 @@ export const composerFormatShortcut = (event: Pick<KeyboardEvent,
   if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return undefined;
   // IMEs and keyboard layouts may change `key` while the physical letter is stable.
   const letter = event.code?.match(/^Key([A-Z])$/)?.[1] ?? event.key;
-  return composerFormatShortcuts[letter.toLowerCase()];
+  return (Object.keys(composerFormatKeys) as ComposerFormat[])
+    .find(format => composerFormatKeys[format] === letter.toLowerCase());
 };
 
 // A single preformatted text block keeps Telegram's UTF-16 offsets identical to

@@ -5,7 +5,7 @@ import type { MessageTextEntity } from "../telegram/types";
 describe("composer formatting", () => {
   const modifiers = { ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
   it.each([
-    ["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"], ["K", "link"],
+    ["M", "spoiler"], ["X", "strikethrough"], ["U", "underline"], ["B", "bold"], ["Q", "blockquote"], ["K", "link"], ["F", "file"],
   ])("recognizes the physical %s shortcut across keyboard layouts", (letter, format) => {
     expect(composerFormatShortcut({ ...modifiers, key: "Process", code: `Key${letter}` })).toBe(format);
     expect(composerFormatShortcut({ ...modifiers, key: "不", code: `Key${letter}` })).toBe(format);

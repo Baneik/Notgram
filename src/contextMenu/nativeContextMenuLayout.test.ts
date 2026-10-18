@@ -19,11 +19,16 @@ const item = (id: string, label: string, children?: TestMenuItem[]): TestMenuIte
 const measureLabel = (label: string) => Array.from(label).length * 14;
 
 describe("native context menu layout", () => {
-  it("reserves all six composer formats when the submenu opens", () => {
+  it("reserves all seven composer formats when the submenu opens", () => {
     const items = [item("cut", "Cut"), item("copy", "Copy"), item("paste", "Paste"),
-      { ...item("format", "Format", Array.from({ length: 6 }, (_, i) => item(String(i), "Format"))), maxVisibleChildren: 6 }];
-    expect(calculateNativeContextMenuGeometry(items).maximumExpandedHeight).toBe(404);
-    expect(calculateNativeContextMenuGeometry(items, "format").height).toBe(404);
+      { ...item("format", "Format", Array.from({ length: 7 }, (_, i) => item(String(i), "Format"))), maxVisibleChildren: 7 }];
+    expect(calculateNativeContextMenuGeometry(items).maximumExpandedHeight).toBe(446);
+    expect(calculateNativeContextMenuGeometry(items, "format").height).toBe(446);
+  });
+  it("includes shortcut hints when measuring submenu labels", () => {
+    const child = { ...item("strikethrough", "删除线"), shortcut: "x" };
+    const geometry = calculateNativeContextMenuGeometry([item("format", "格式", [child])], "format", measureLabel);
+    expect(geometry.submenuPanelWidth).toBe(146);
   });
   it("sizes a flush five-row panel without blank space or scrolling", () => {
     const geometry = calculateNativeContextMenuGeometry(

@@ -944,7 +944,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [draftKey, updateLocalAttachmentDraftOptions]);
 
   const addPendingAttachments = useCallback((files: File[]) => {
-    if (files.length === 0) return;
+    if (files.length === 0) return false;
     const current = pendingAttachmentsRef.current;
     const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
     const accepted = files.slice(0, available).map((file) => pendingAttachmentFrom({
@@ -976,6 +976,7 @@ export const ConversationComposer = memo(function ConversationComposer({
         setPendingAttachments(inspected);
       });
     }
+    return accepted.length > 0;
   }, [persistPendingAttachments, updateAttachmentOptions]);
 
   const removePendingAttachment = useCallback((id: string) => {
@@ -1591,6 +1592,7 @@ export const ConversationComposer = memo(function ConversationComposer({
           value={draft}
           entities={mentionEntitiesRef.current}
           colorTheme={colorTheme}
+          canAttachFiles={!editingMessage && !attachmentPending}
           focus={focus}
           onChange={(value, entities) => {
             closeEmojiPicker();
@@ -1602,9 +1604,8 @@ export const ConversationComposer = memo(function ConversationComposer({
             commitInputSideEffects(value);
           }}
           onPasteFiles={(files) => {
-            if (editingMessage) return false;
-            addPendingAttachments(files);
-            return true;
+            if (editingMessage || attachmentPending) return false;
+            return addPendingAttachments(files);
           }}
           onCompositionStart={() => {
             composingRef.current = true;

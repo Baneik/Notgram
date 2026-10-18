@@ -35,6 +35,136 @@ const watchSubmissions = async (page: Page) => page.evaluate(async () => {
   });
 });
 
+const stagedTextFile = (page: Page, draftKey = "chat-product") => page.evaluate(async draftKey => {
+  const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };
+  const attachments = await telegramStore.getState().loadLocalAttachmentDraft(draftKey);
+  const file = attachments.at(-1)?.file;
+  return file ? { name: file.name, type: file.type, bytes: Array.from(new Uint8Array(await file.arrayBuffer())) } : null;
+}, draftKey);
+
+for (const width of [1366, 390]) {
+  test(`file format stages the selected UTF-8 text and keeps surrounding marks at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    if (width < 768) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+    const composer = input(page);
+    await composer.focus();
+    const selected = "中文🙂\n\n  second line\t";
+    const text = `before ${selected} after`;
+    await composer.fill(text);
+    await select(composer, 0, text.length);
+    await composer.press("Control+Shift+B");
+    await select(composer, 7, 7 + selected.length);
+    await composer.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "格式", exact: true }).hover();
+    for (const [label, letter] of [["遮罩", "m"], ["删除线", "x"], ["下划线", "u"], ["粗体", "b"], ["引用", "q"], ["链接", "k"], ["文件", "f"]]) {
+      const item = page.getByRole("menuitem", { name: label, exact: true });
+      await expect(item.locator("span > small")).toHaveText(`[${letter}]`);
+      await expect(item).toHaveAttribute("aria-keyshortcuts", `Control+Shift+${letter.toUpperCase()}`);
+      expect(await item.locator("span").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await item.evaluate(element => parseFloat(getComputedStyle(element.querySelector("small")!).fontSize) <
+        parseFloat(getComputedStyle(element.querySelector("span")!).fontSize))).toBe(true);
+    }
+    expect((await page.locator(".composer-format-menu").boundingBox())!.width).toBeLessThanOrEqual(150);
+    await page.screenshot({ path: test.info().outputPath(`file-format-menu-${width}.png`) });
+    await page.getByRole("menuitem", { name: "文件", exact: true }).click();
+    const tray = page.getByRole("region", { name: "待发送附件" });
+    await expect(tray.locator(".composer-attachment-item")).toHaveCount(1);
+    await expect(tray).toContainText("text.txt");
+    await expect(composer).toHaveJSProperty("value", "before  after");
+    await expect(composer.locator("strong")).toHaveText("before  after");
+    await expect(composer).toBeFocused();
+    await expect.poll(() => stagedTextFile(page)).toEqual({ name: "text.txt", type: "text/plain;charset=utf-8",
+      bytes: Array.from(new TextEncoder().encode(selected)) });
+    await composer.press("Control+Z");
+    await expect(composer).toHaveJSProperty("value", text);
+    await expect(tray.locator(".composer-attachment-item")).toHaveCount(1);
+    await composer.press("Control+Y");
+    await expect(composer).toHaveJSProperty("value", "before  after");
+    await expect.poll(() => page.evaluate(() => {
+      const snapshot = JSON.parse(localStorage.getItem("notgram:ui-cache:v1") ?? "null");
+      return snapshot?.drafts.find((draft: { chatId: string }) => draft.chatId === "chat-product")?.text;
+    }), { timeout: 15_000 }).toBe("before  after");
+    await page.reload();
+    if (width < 768) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+    await expect(tray).toContainText("text.txt");
+    await expect(composer).toHaveJSProperty("value", "before  after");
+    await expect.poll(() => stagedTextFile(page)).toMatchObject({ bytes: Array.from(new TextEncoder().encode(selected)) });
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(tray).toHaveCount(0);
+    await expect(page.locator(".message-row.is-outgoing").last()).toContainText("text.txt");
+  });
+}
+
+test("file shortcut uses the visible selection and ignores empty selections and IME preedit", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("before 中文🙂 after");
+  await composer.press("Control+Shift+F");
+  await expect(page.getByRole("region", { name: "待发送附件" })).toHaveCount(0);
+  await select(composer, 7, 11);
+  await composer.dispatchEvent("keydown", { key: "F", code: "KeyF", ctrlKey: true, shiftKey: true, isComposing: true });
+  await expect(composer).toHaveJSProperty("value", "before 中文🙂 after");
+  await expect(page.getByRole("region", { name: "待发送附件" })).toHaveCount(0);
+  await composer.evaluate(element => {
+    const text = element.querySelector("p")!.firstChild!;
+    const range = document.createRange(); range.setStart(text, 7); range.setEnd(text, 11);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Process", code: "KeyF", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  });
+  await expect(composer).toHaveJSProperty("value", "before  after");
+  await expect.poll(() => stagedTextFile(page)).toMatchObject({ bytes: Array.from(new TextEncoder().encode("中文🙂")) });
+});
+
+test("file conversion retains the text when the attachment tray is full", async ({ page }) => {
+  await ready(page);
+  await page.locator('input[type="file"]').setInputFiles(Array.from({ length: 10 }, (_, index) => ({
+    name: `existing-${index}.txt`, mimeType: "text/plain", buffer: Buffer.from("existing"),
+  })));
+  const tray = page.getByRole("region", { name: "待发送附件" });
+  await expect(tray.locator(".composer-attachment-item")).toHaveCount(10);
+  const composer = input(page);
+  await composer.fill("must keep 中文🙂");
+  await composer.press("Control+A");
+  await composer.press("Control+Shift+F");
+  await expect(composer).toHaveJSProperty("value", "must keep 中文🙂");
+  await expect(tray.locator(".composer-attachment-item")).toHaveCount(10);
+  await expect(page.getByText("一次最多发送 10 个附件", { exact: true })).toBeVisible();
+});
+
+test("file format is disabled while editing a message and its shortcut retains the edit", async ({ page }) => {
+  await ready(page);
+  const composer = input(page);
+  await composer.fill("original text"); await composer.press("Enter");
+  await expect(composer).toHaveJSProperty("value", "");
+  await composer.press("Control+r");
+  await expect(page.locator(".composer-context.is-editing")).toBeVisible();
+  await composer.press("Control+A");
+  await composer.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "格式", exact: true }).hover();
+  await expect(page.getByRole("menuitem", { name: "文件", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await composer.press("Control+Shift+F");
+  await expect(composer).toHaveJSProperty("value", "original text");
+  await expect(page.getByRole("region", { name: "待发送附件" })).toHaveCount(0);
+});
+
+test("discussion editor stages file conversions in its own attachment draft", async ({ page }) => {
+  await ready(page);
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+  await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+  const panel = page.locator(".channel-discussion-panel");
+  const composer = panel.getByRole("textbox", { name: "消息内容" });
+  await composer.fill("讨论附件🙂"); await composer.press("Control+A"); await composer.press("Control+Shift+F");
+  await expect(composer).toHaveJSProperty("value", "");
+  await expect(panel.getByRole("region", { name: "待发送附件" })).toContainText("text.txt");
+  await expect.poll(() => page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as { telegramStore: typeof Store };
+    return [...telegramStore.getState().localAttachmentDrafts.keys()];
+  })).toEqual([expect.stringContaining("discussion")]);
+});
+
 for (const exitKey of ["Control+r", "Escape"]) {
   test(`editing exits with ${exitKey} and restores the previous draft without submitting`, async ({ page }) => {
     await ready(page);

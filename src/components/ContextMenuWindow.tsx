@@ -2,7 +2,7 @@ import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
-  Bold, ClipboardPaste, EyeOff, Link, Quote, Scissors, Strikethrough, Type, Underline,
+  Bold, ClipboardPaste, EyeOff, FileText, Link, Quote, Scissors, Strikethrough, Type, Underline,
   Ban,
   Bell,
   BellOff,
@@ -59,7 +59,7 @@ import { StableImage } from "./StableImage";
 
 const icons: Record<NativeContextMenuIcon, typeof Pin> = {
   cut: Scissors, paste: ClipboardPaste, format: Type, spoiler: EyeOff,
-  strikethrough: Strikethrough, underline: Underline, bold: Bold, blockquote: Quote, link: Link,
+  strikethrough: Strikethrough, underline: Underline, bold: Bold, blockquote: Quote, link: Link, file: FileText,
   alert: AlertCircle,
   loading: LoaderCircle,
   archive: Archive,
@@ -360,6 +360,7 @@ export function ContextMenuWindow() {
                 type="button"
                 role={child.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={child.checked}
+                aria-keyshortcuts={child.shortcut ? `Control+Shift+${child.shortcut.toUpperCase()}` : undefined}
                 disabled={child.disabled}
                 key={child.id}
                 onClick={() => select(child)}
@@ -374,7 +375,7 @@ export function ContextMenuWindow() {
                     {childAvatarSource && <StableImage src={childAvatarSource} alt="" />}
                   </span>
                 ) : child.checked ? <Check size={17} strokeWidth={2.1} /> : <ChildIcon size={17} strokeWidth={1.9} />}
-                <span>{child.label}</span>
+                <span>{child.label}{child.shortcut && <small className="context-menu-shortcut" aria-hidden="true">[{child.shortcut}]</small>}</span>
               </button>
             );
           })}
