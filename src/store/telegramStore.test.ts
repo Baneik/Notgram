@@ -1076,13 +1076,13 @@ describe("telegram store", () => {
     const store = createTelegramStore(transport);
     await store.getState().initialize();
 
-    expect(transport.requests).toBe(3);
+    expect(transport.requests).toBe(1);
     expect(store.getState().messages.get("chat-product")?.map((message) => message.id))
       .toEqual(cachedMessages.map((message) => message.id));
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(true);
   });
 
-  it("publishes the first history page before sparse cache confirmation finishes", async () => {
+  it("publishes the first history page and waits for input before sparse cache confirmation", async () => {
     const allMessages = mockSnapshot.messages
       .filter((message) => message.chatId === "chat-product")
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
@@ -1130,17 +1130,20 @@ describe("telegram store", () => {
 
     const transport = new DeferredConfirmationTransport({ cachedSnapshot });
     const store = createTelegramStore(transport);
-    const initialized = store.getState().initialize();
-    await continuationReady;
-    await initialized;
+    await store.getState().initialize();
 
     expect(store.getState().histories.get("chat-product")).toMatchObject({
       loading: false,
       initialized: true,
+      recovery: "paused",
     });
+    expect(transport.requests).toBe(1);
+    const continuation = store.getState().loadMoreHistory("chat-product");
+    await continuationReady;
     expect(transport.requests).toBe(2);
 
     releaseContinuation();
+    await continuation;
     await vi.waitFor(() => expect(store.getState().messages.get("chat-product")).toHaveLength(allMessages.length));
   });
 
@@ -3388,7 +3391,7 @@ describe("chat filtering", () => {
     expect(store.getState().histories.get("chat-product")?.hasMore).toBe(false);
   });
 
-  it("hydrates every server page needed to bridge sparse cached history", async () => {
+  it("hydrates sparse cached history through explicit one-page reader requests", async () => {
     const allMessages = mockSnapshot.messages
       .filter((message) => message.chatId === "chat-product")
       .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt));
@@ -3424,6 +3427,13 @@ describe("chat filtering", () => {
     const store = createTelegramStore(transport);
     await store.getState().initialize();
 
+    expect(transport.historyRequests).toBe(1);
+    expect(store.getState().histories.get("chat-product")?.recovery).toBe("paused");
+    for (let turn = 0; turn < allMessages.length && store.getState().histories.get("chat-product")?.recovery !== "complete"; turn++) {
+      const before = transport.historyRequests;
+      await store.getState().loadMoreHistory("chat-product");
+      expect(transport.historyRequests).toBe(before + 1);
+    }
     expect(transport.historyRequests).toBeGreaterThan(2);
     expect(store.getState().messages.get("chat-product")).toHaveLength(allMessages.length);
     expect(store.getState().histories.get("chat-product")?.initialized).toBe(true);

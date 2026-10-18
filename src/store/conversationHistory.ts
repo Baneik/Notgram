@@ -2,7 +2,9 @@ import type { CachedHistoryContext, ChatHistoryPage, HistoryPageRequest, Message
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { compareMessages, reachedCachedHistoryBoundary } from "./telegramStore.messages";
 
-export const HISTORY_REFRESH_PAGE_BUDGET = 9;
+// Entry and reconnect refresh the head; older repair requires reader input.
+export const HISTORY_REFRESH_PAGE_BUDGET = 1;
+export const HISTORY_READER_PAGE_BUDGET = 9;
 const HISTORY_RETRY_BUDGET = 3;
 type HistoryBoundary = Pick<Message, "id" | "sentAt">;
 
@@ -103,7 +105,6 @@ interface HistoryHost {
   request: (chatId: string, topicId: string | undefined, request: HistoryPageRequest) => Promise<ChatHistoryPage>;
   error: (error: unknown, topicId?: string) => void;
   diagnostic: (chatId: string, details: Record<string, number | boolean>) => void;
-  yieldForBackground?: () => Promise<void>;
 }
 
 /** Owns refresh and reader cursors independently. A context read is never a
@@ -447,7 +448,7 @@ export class ConversationHistory {
       this.retries.complete(`${historyScopeKey(chatId, topicId)}:refresh`);
       scope.refresh.pages = 0;
       // A reader gesture owns one page, including any retry after a failure.
-      // It must not restart the initial background recovery's whole budget.
+      // Taking ownership also cancels any queued background retry.
       scope.refresh.pageBudget = 1;
       scope.refresh.failures = 0;
       return this.refresh(scope);
@@ -594,10 +595,6 @@ export class ConversationHistory {
             }
             break;
           }
-          if (!this.host.active(scope.chatId, scope.topicId)) { stopReason = 3; break; }
-          await this.host.yieldForBackground?.();
-          if (!this.current(scope, generation)) return;
-          if (!this.host.active(scope.chatId, scope.topicId)) { stopReason = 3; break; }
         }
         if (scope.needsRefresh) {
           this.publish(scope, { loading: false, background: false, recovery: "paused" });
@@ -630,7 +627,7 @@ export class ConversationHistory {
         const boundary = window.oldest;
         let pageCount = 0;
         let stalled = false;
-        while (pageCount < HISTORY_REFRESH_PAGE_BUDGET) {
+        while (pageCount < HISTORY_READER_PAGE_BUDGET) {
           const cursor = window.cursor;
           const latestIds = window !== scope.latest ? new Set(this.host.messages(scope.chatId, scope.topicId)
             .filter(message => !scope.excluded.has(message.id) && serverMessage(message)).map(message => message.id)) : undefined;
@@ -645,7 +642,7 @@ export class ConversationHistory {
           // A warm snapshot can extend below several server pages. Keep walking
           // those duplicate pages so a single upward gesture reaches older content.
           const advanced = !boundary || Boolean(window.oldest && compareMessages(window.oldest, boundary) < 0);
-          const done = advanced || !page.hasMore || stalled || pageCount === HISTORY_REFRESH_PAGE_BUDGET ||
+          const done = advanced || !page.hasMore || stalled || pageCount === HISTORY_READER_PAGE_BUDGET ||
             !this.host.active(scope.chatId, scope.topicId) || scope.selected !== window;
           window.loading = !done;
           this.publish(scope, { loading: !done, background: scope.selected !== window, initialized: true }, page);

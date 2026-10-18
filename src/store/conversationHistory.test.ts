@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConversationHistory, HISTORY_REFRESH_PAGE_BUDGET, projectHistoryWindow, type ConversationHistoryState } from "./conversationHistory";
+import { ConversationHistory, HISTORY_REFRESH_PAGE_BUDGET, HISTORY_READER_PAGE_BUDGET, projectHistoryWindow, type ConversationHistoryState } from "./conversationHistory";
 import type { ChatHistoryPage, HistoryPageRequest, Message } from "../telegram/types";
 import { upsertMessages } from "./telegramStore.messages";
 import { MockTelegramTransport } from "../telegram/mockTransport";
@@ -12,13 +12,12 @@ const page = (ids: number[], hasMore = true): ChatHistoryPage => ({
   messages: ids.map(message), messageIds: ids.map(String), nextFromMessageId: String(ids.at(-1)), loadedCount: ids.length, hasMore,
 });
 
-const harness = (initial: Message[], background?: { yieldForBackground: () => Promise<void>; active?: () => boolean }) => {
+const harness = (initial: Message[], active = () => true) => {
   let messages = initial;
   let state: ConversationHistoryState | undefined;
   const request = vi.fn<(chatId: string, topicId: string | undefined, request: HistoryPageRequest) => Promise<ChatHistoryPage>>();
   const diagnostic = vi.fn();
-  const history = new ConversationHistory({ online: () => true, active: background?.active ?? (() => true), messages: () => messages, state: () => state,
-    yieldForBackground: background?.yieldForBackground,
+  const history = new ConversationHistory({ online: () => true, active, messages: () => messages, state: () => state,
     request, diagnostic, error: vi.fn(),
     publish: (_chat, _topic, next, incoming) => { state = next; messages = upsertMessages(messages, incoming?.messages ?? []); },
   });
@@ -31,24 +30,82 @@ const harness = (initial: Message[], background?: { yieldForBackground: () => Pr
 describe("conversation history ownership", () => {
   afterEach(() => vi.useRealTimers());
 
-  it.each(["continue", "navigate", "clear"])("yields between background pages and rechecks ownership: %s", async action => {
-    let resume!: () => void;
-    let active = true;
-    const yieldForBackground = vi.fn(() => new Promise<void>(resolve => { resume = resolve; }));
-    const h = harness([message(1), message(100)], { yieldForBackground, active: () => active });
-    h.request.mockResolvedValueOnce(page([100, 99])).mockResolvedValueOnce(page([98, 1], false));
-    await h.history.ensure("7");
-    await vi.waitFor(() => expect(yieldForBackground).toHaveBeenCalledTimes(1));
+  it.each([undefined, "2"])("pauses passive entry after one page until reader input (topic: %s)", async topicId => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 1000;
+      return page(Array.from({ length: 30 }, (_, i) => from - i));
+    });
+    await h.history.ensure("7", topicId);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(h.request).toHaveBeenCalledTimes(1);
-    expect(h.visible().map(m => m.id)).toEqual(["99", "100"]);
+    expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 30 }, (_, i) => i + 971));
+    expect(h.state()).toMatchObject({ recovery: "paused", initialized: true, loading: false, hasMore: true });
+    // Reentering or a queued readiness callback cannot restart a paused scan.
+    await h.history.ensure("7", topicId);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(1);
+    await h.history.older("7", topicId);
+    expect(h.request).toHaveBeenLastCalledWith("7", topicId, { purpose: "refresh", fromMessageId: "971" });
+    expect(h.visible()).toHaveLength(60);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(2);
+    h.history.clear();
+  });
+
+  it("refreshes one head page on reconnect without restarting a paused history scan", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    h.request.mockImplementation(async (_chat, _topic, request) => {
+      const from = request.fromMessageId ? Number(request.fromMessageId) - 1 : 1000;
+      return page(Array.from({ length: 30 }, (_, i) => from - i));
+    });
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    h.history.invalidate();
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(2);
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "refresh", fromMessageId: undefined });
+    expect(h.visible()).toHaveLength(30);
+    await h.history.older("7");
+    expect(h.request).toHaveBeenLastCalledWith("7", undefined, { purpose: "refresh", fromMessageId: "971" });
+    expect(h.visible()).toHaveLength(60);
+    h.history.clear();
+  });
+
+  it.each(["continue", "navigate", "clear"])("settles a pending entry without continuing passive pages: %s", async action => {
+    let respond!: (page: ChatHistoryPage) => void;
+    let active = true;
+    const h = harness([message(1), message(100)], () => active);
+    h.request.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+    await h.history.ensure("7");
+    expect(h.request).toHaveBeenCalledTimes(1);
     if (action === "navigate") active = false;
     if (action === "clear") h.history.clear();
-    resume();
-    await vi.waitFor(() => action === "continue"
-      ? expect(h.state().recovery).toBe("complete")
-      : action === "navigate" ? expect(h.state().recovery).toBe("paused")
-        : expect(h.diagnostic).not.toHaveBeenCalled());
-    expect(h.request).toHaveBeenCalledTimes(action === "continue" ? 2 : 1);
+    respond(page([100, 99]));
+    await new Promise<void>(resolve => queueMicrotask(resolve));
+    await vi.waitFor(() => action === "clear"
+      ? expect(h.state().loading).toBe(true)
+      : expect(h.state().recovery).toBe("paused"));
+    expect(h.visible().map(m => m.id)).toEqual(action === "clear" ? ["1", "100"] : ["99", "100"]);
+    expect(h.request).toHaveBeenCalledTimes(1);
+    h.history.clear();
+  });
+
+  it("retries a failed head request but stops after its first accepted page", async () => {
+    vi.useFakeTimers();
+    const h = harness([message(1), message(1000)]);
+    h.request.mockRejectedValueOnce(new Error("head timeout"))
+      .mockResolvedValueOnce(page(Array.from({ length: 30 }, (_, i) => 1000 - i)));
+    await h.history.ensure("7");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.state().recovery).toBe("failed");
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(h.request).toHaveBeenCalledTimes(2);
+    expect(h.state()).toMatchObject({ recovery: "paused", initialized: true, loading: false });
+    expect(h.visible()).toHaveLength(30);
     h.history.clear();
   });
 
@@ -59,7 +116,9 @@ describe("conversation history ownership", () => {
       return page(Array.from({ length: Math.min(30, from) }, (_, i) => from - i), from > 30);
     });
     await h.history.ensure("7");
-    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await vi.waitFor(() => expect(h.state().recovery).toBe("paused"));
+    for (let i = 0; i < 5; i++) await h.history.older("7");
+    expect(h.state().recovery).toBe("complete");
     expect(h.messages().map(m => Number(m.id))).toEqual(Array.from({ length: 180 }, (_, i) => i + 21));
     expect(h.request).toHaveBeenCalledTimes(6);
     h.history.clear();
@@ -75,13 +134,13 @@ describe("conversation history ownership", () => {
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
     expect(h.state().recovery).toBe("paused");
-    expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 270 }, (_, i) => i + 731));
+    expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 30 }, (_, i) => i + 971));
     expect(h.messages().some(m => m.id === "1")).toBe(true);
     h.history.invalidate();
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
     expect(h.state().recovery).toBe("paused");
-    for (let i = 0; i < 30 && h.state().recovery !== "complete"; i++) await h.history.older("7");
+    for (let i = 0; i < 34 && h.state().recovery !== "complete"; i++) await h.history.older("7");
     expect(h.state().recovery).toBe("complete");
     expect(h.visible().map(m => Number(m.id))).toEqual(Array.from({ length: 1000 }, (_, i) => i + 1));
     h.history.clear();
@@ -93,6 +152,7 @@ describe("conversation history ownership", () => {
     h.request.mockResolvedValueOnce(page([100, 99])).mockRejectedValueOnce(new Error("timeout"));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
+    await h.history.older("7");
     expect(h.state().recovery).toBe("failed");
     expect(h.visible().map(m => m.id)).toEqual(["99", "100"]);
     h.request.mockResolvedValueOnce(page([98, 97, 1]));
@@ -117,6 +177,7 @@ describe("conversation history ownership", () => {
     h.request.mockResolvedValueOnce(page([100, 99])).mockRejectedValueOnce(new Error("offline"));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
+    await h.history.older("7");
     expect(h.state()).toMatchObject({ recovery: "failed", hasMore: true });
     h.request.mockResolvedValueOnce(page([98, 1], false));
     await h.history.older("7");
@@ -133,7 +194,9 @@ describe("conversation history ownership", () => {
     h.history.invalidate();
     h.request.mockResolvedValueOnce(page([150, 149])).mockResolvedValueOnce(page([148, 100]));
     await h.history.ensure("7");
-    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await vi.waitFor(() => expect(h.state().recovery).toBe("paused"));
+    await h.history.older("7");
+    expect(h.state().recovery).toBe("complete");
     expect(h.visible().map(m => m.id)).toEqual(["40", "60", "100", "148", "149", "150"]);
     h.request.mockResolvedValueOnce(page([39, 38]));
     await h.history.older("7");
@@ -184,7 +247,9 @@ describe("conversation history ownership", () => {
       return page(Array.from({ length: 10 }, (_, i) => from - i));
     });
     await h.history.ensure("7");
-    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await vi.waitFor(() => expect(h.state().recovery).toBe("paused"));
+    for (let i = 0; i < 5; i++) await h.history.older("7");
+    expect(h.state().recovery).toBe("complete");
     await h.history.older("7");
     expect(h.visible()[0].id).toBe("31");
     expect(h.request).toHaveBeenCalledTimes(7);
@@ -256,12 +321,12 @@ describe("conversation history ownership", () => {
     await vi.advanceTimersByTimeAsync(1);
     h.merge(Array.from({ length: 100 }, (_, i) => message(i + 1)));
     await h.history.older("7");
-    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_REFRESH_PAGE_BUDGET);
+    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_READER_PAGE_BUDGET);
     expect(h.state()).toMatchObject({ loading: false, hasMore: true });
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_REFRESH_PAGE_BUDGET);
+    expect(h.request).toHaveBeenCalledTimes(1 + HISTORY_READER_PAGE_BUDGET);
     await h.history.older("7");
-    expect(h.request.mock.calls[1 + HISTORY_REFRESH_PAGE_BUDGET][2].fromMessageId).toBe("91");
+    expect(h.request.mock.calls[1 + HISTORY_READER_PAGE_BUDGET][2].fromMessageId).toBe("91");
   });
 
   it("keeps a partial duplicate walk retryable after a timeout", async () => {
@@ -457,9 +522,9 @@ describe("conversation history ownership", () => {
     expect(h.state()).toMatchObject({ recovery: "paused", hasMore: true, loading: false });
     expect(h.messages().some(m => m.id === "1")).toBe(true);
     await h.history.older("7");
-    expect(h.request.mock.calls[HISTORY_REFRESH_PAGE_BUDGET]?.[2]).toEqual({ purpose: "refresh", fromMessageId: "731" });
+    expect(h.request.mock.calls[HISTORY_REFRESH_PAGE_BUDGET]?.[2]).toEqual({ purpose: "refresh", fromMessageId: "971" });
     expect(h.request).toHaveBeenCalledTimes(HISTORY_REFRESH_PAGE_BUDGET + 1);
-    expect(h.visible()).toHaveLength(300);
+    expect(h.visible()).toHaveLength(60);
     for (let turn = 0; turn < 3; turn++) {
       const before = h.visible().length;
       await h.history.older("7");
@@ -472,13 +537,14 @@ describe("conversation history ownership", () => {
     h.history.clear();
   });
 
-  it("keeps a failed manual recovery retry within one page and cancels the old background retry", async () => {
+  it("keeps a failed manual recovery retry within one page and cancels the prior queued retry", async () => {
     vi.useFakeTimers();
     const h = harness([message(1), message(1000)]);
     h.request.mockResolvedValueOnce(page(Array.from({ length: 30 }, (_, index) => 1000 - index)))
       .mockRejectedValueOnce(new Error("background timeout"));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
+    await h.history.older("7");
     expect(h.state().recovery).toBe("failed");
     h.request.mockRejectedValueOnce(new Error("manual timeout"));
     await h.history.older("7");
@@ -493,7 +559,7 @@ describe("conversation history ownership", () => {
     h.history.clear();
   });
 
-  it("leaves a stalled manual page paused and restores the background budget on reconnect", async () => {
+  it("leaves a stalled manual page paused and keeps reconnect to one head page", async () => {
     vi.useFakeTimers();
     const h = harness([message(1), message(1000)]);
     const read = async (_chat: string, _topic: string | undefined, request: HistoryPageRequest) => {
@@ -504,17 +570,17 @@ describe("conversation history ownership", () => {
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
     h.request.mockResolvedValueOnce({ messages: [], messageIds: [], loadedCount: 0,
-      nextFromMessageId: "731", hasMore: true, stalled: true });
+      nextFromMessageId: "971", hasMore: true, stalled: true });
     await h.history.older("7");
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(h.request).toHaveBeenCalledTimes(10);
-    expect(h.visible()).toHaveLength(270);
+    expect(h.request).toHaveBeenCalledTimes(2);
+    expect(h.visible()).toHaveLength(30);
     await h.history.older("7");
-    expect(h.visible()).toHaveLength(300);
+    expect(h.visible()).toHaveLength(60);
     h.history.invalidate();
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);
-    expect(h.request).toHaveBeenCalledTimes(11 + HISTORY_REFRESH_PAGE_BUDGET);
+    expect(h.request).toHaveBeenCalledTimes(3 + HISTORY_REFRESH_PAGE_BUDGET);
     expect(h.state()).toMatchObject({ recovery: "paused", hasMore: true });
     h.history.clear();
   });
@@ -569,7 +635,9 @@ describe("conversation history ownership", () => {
     h.merge([message(105)]);
     h.request.mockResolvedValueOnce(page([106, 105, 104])).mockResolvedValueOnce(page([103, 102, 101, 100]));
     await h.history.ensure("7");
-    await vi.waitFor(() => expect(h.state().recovery).toBe("complete"));
+    await vi.waitFor(() => expect(h.state().recovery).toBe("paused"));
+    await h.history.older("7");
+    expect(h.state().recovery).toBe("complete");
     expect(h.request).toHaveBeenCalledTimes(2);
     expect(h.messages().map(m => m.id)).toContain("102");
   });
@@ -582,17 +650,17 @@ describe("conversation history ownership", () => {
     expect(updated[1]).toBe(current[1]);
   });
 
-  it("limits stalled refresh retries and clears their ownership on an account reset", async () => {
+  it("pauses a stalled refresh without retrying passive pages across an account reset", async () => {
     vi.useFakeTimers();
     const h = harness([message(100)]);
     h.request.mockResolvedValue({ messageIds: [], messages: [], loadedCount: 0, hasMore: true, stalled: true });
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(h.request).toHaveBeenCalledTimes(3);
+    expect(h.request).toHaveBeenCalledTimes(1);
     expect(h.state().recovery).toBe("paused");
     h.history.clear();
     await vi.advanceTimersByTimeAsync(300_000);
-    expect(h.request).toHaveBeenCalledTimes(3);
+    expect(h.request).toHaveBeenCalledTimes(1);
     h.request.mockResolvedValue(page([101, 100]));
     await h.history.ensure("7");
     await vi.advanceTimersByTimeAsync(1);

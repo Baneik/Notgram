@@ -330,7 +330,6 @@ export const useConversationScroll = ({
   const trustedMiddleAutoScrollRef = useRef(false);
   const middleFocusRestoreRef = useRef<HTMLElement | null>(null);
   const middleFocusRestoreFrameRef = useRef<number | undefined>(undefined);
-  const autoFillAttemptRef = useRef<string | undefined>(undefined);
   const olderLoadArmedRef = useRef(false);
   const handledEntryRequestRef = useRef(0);
   const handledLatestRequestRef = useRef(0);
@@ -2902,32 +2901,6 @@ export const useConversationScroll = ({
     };
   }, [currentScrollKey, reconcileBottomViewport, searchActive, virtuosoKey]);
 
-  useEffect(() => {
-    const element = messageListRef.current;
-    if (
-      !element ||
-      !currentScrollKey ||
-      positionedIdentity !== initialLocationIdentity ||
-      searchActive ||
-      historyLoading ||
-      !hasOlderMessages ||
-      element.scrollHeight > element.clientHeight + 1
-    ) return;
-    const attemptKey = `${currentScrollKey}:${messageCount}`;
-    if (autoFillAttemptRef.current === attemptKey) return;
-    autoFillAttemptRef.current = attemptKey;
-    loadOlder();
-  }, [
-    currentScrollKey,
-    hasOlderMessages,
-    historyLoading,
-    initialLocationIdentity,
-    loadOlder,
-    messageCount,
-    positionedIdentity,
-    searchActive,
-  ]);
-
   useEffect(() => () => {
     if (historyLoadFrameRef.current !== undefined) cancelAnimationFrame(historyLoadFrameRef.current);
     if (userScrollMemoryFrameRef.current !== undefined) cancelAnimationFrame(userScrollMemoryFrameRef.current);
@@ -3086,6 +3059,9 @@ export const useConversationScroll = ({
           : false;
         adoptUserScrollMode(followLatest ? "following" : "detached");
       }
+      // Short histories cannot emit a scroll event at the top. Input must
+      // still request a page, without treating entry/measurement as input.
+      if (event.deltaY < 0 && element.scrollHeight <= element.clientHeight + 1) scheduleOlderLoad();
     }
   };
 
@@ -3245,6 +3221,7 @@ export const useConversationScroll = ({
       ) olderLoadArmedRef.current = true;
       userIntentUntilRef.current = performance.now() + 320;
       stopFollowingLatest();
+      if (event.currentTarget.scrollHeight <= event.currentTarget.clientHeight + 1) scheduleOlderLoad();
     } else if (["ArrowDown", "PageDown", " "].includes(event.key)) {
       if (hasNewerMessages && onLoadNewer && !historyLoading &&
         distanceFromBottom(event.currentTarget) <= historyTriggerDistance(event.currentTarget)) void onLoadNewer();

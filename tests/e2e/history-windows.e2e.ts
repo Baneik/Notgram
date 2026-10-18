@@ -82,10 +82,10 @@ test("a distant cached context and repeated reconnects never remount visible bot
     };
   });
   expect(result.loaded).toBe(true);
-  // Cold-cache validation rounds the 164 restored rows up to six server pages.
-  expect(result.count).toBe(180 + 31);
+  // Passive refresh retains the cache without rounding it up through older pages.
+  expect(result.count).toBe(164 + 31);
   expect(result.calls).toBe(4);
-  expect(result.recovery).toBe("complete");
+  expect(result.recovery).toBe("paused");
   expect(result.sampleCount).toBeGreaterThan(100);
   expect(result.missing, JSON.stringify(result)).toBe(0);
   expect(result.remounted, JSON.stringify(result)).toBe(0);

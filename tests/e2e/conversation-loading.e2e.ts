@@ -149,7 +149,7 @@ for (const width of [1366, 390]) {
     await expect(page.locator('[data-message-id="cold-119"]')).toBeInViewport();
     await expect(page.locator(".message-positioning-placeholder")).toHaveCount(0);
     await expect(page.locator(".composer-input")).toHaveText("draft while history is loading");
-    await expect.poll(() => requests(page).then(r => r.length)).toBeGreaterThanOrEqual(3);
+    await expect.poll(() => requests(page).then(r => r.length)).toBe(1);
     expect((await requests(page)).every(r => !r.hidden)).toBe(true);
     await expect(page.locator('[data-message-id="cold-119"]')).toBeInViewport();
     await expect(page.locator(".message-list-content")).toHaveCSS("opacity", "1");
@@ -190,7 +190,7 @@ test("reduced motion uses a static loading indicator and immediate message revea
   await expect(page.locator(".message-list-content")).toHaveCSS("opacity", "1");
 });
 
-test("message entrance fades without moving the unread anchor during background paging", async ({ page }) => {
+test("message entrance fades without moving the unread anchor during the head refresh", async ({ page }) => {
   await installColdUnread(page);
   await openColdUnread(page);
   const frames = await page.evaluate(async () => {
@@ -216,5 +216,5 @@ test("message entrance fades without moving the unread anchor during background 
   expect(exposed.length).toBeGreaterThan(5);
   expect(frames.at(-1)?.covered).toBe(false);
   expect(Math.max(...exposed.map(frame => frame.top)) - Math.min(...exposed.map(frame => frame.top)), JSON.stringify(frames)).toBeLessThanOrEqual(1);
-  expect((await requests(page)).length).toBeGreaterThanOrEqual(3);
+  expect((await requests(page)).length).toBe(1);
 });

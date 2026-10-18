@@ -1366,7 +1366,6 @@ export const createTelegramStore = (
     };
 
     const history = new ConversationHistory({
-      yieldForBackground: yieldToBackground,
       online: () => get().authorization.kind === "ready" && get().connectionStatus === "online",
       active: (chatId, topicId) => get().activeChatId === chatId && get().activeTopicId === topicId,
       messages: (chatId, topicId) => (get().messages.get(chatId) ?? []).filter(message => !topicId || message.topicId === topicId),

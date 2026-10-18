@@ -47,7 +47,7 @@ describe("Store recovery synchronization", () => {
     expect(pendingCachedIdsAfterConfirmation(cached, returned)).toEqual(new Set(["100"]));
   });
 
-  it("bridges more than one page of new forum messages back to the cached topic", async () => {
+  it("refreshes one forum head page and bridges back to cache on reader input", async () => {
     class ForumRecoveryTransport extends RecoveryTransport {
       topicSource = [{ ...message("old-topic"), chatId: "chat-forum", topicId: "1" }];
       offset = 0;
@@ -73,7 +73,13 @@ describe("Store recovery synchronization", () => {
     transport.pages = 0;
     transport.setConnectionStatus("waitingForNetwork");
     transport.setConnectionStatus("online");
-    await vi.waitFor(() => expect(store.getState().messages.get("chat-forum")?.filter((item) => item.id.startsWith("missed-"))).toHaveLength(65));
+    await vi.waitFor(() => expect(store.getState().topicHistories.get("chat-forum:topic:1")?.recovery).toBe("paused"));
+    expect(transport.pages).toBe(1);
+    expect(store.getState().messages.get("chat-forum")?.filter((item) => item.id.startsWith("missed-"))).toHaveLength(30);
+    await store.getState().loadMoreHistory("chat-forum");
+    expect(transport.pages).toBe(2);
+    await store.getState().loadMoreHistory("chat-forum");
+    expect(store.getState().messages.get("chat-forum")?.filter((item) => item.id.startsWith("missed-"))).toHaveLength(65);
     expect(transport.pages).toBe(3);
     expect(store.getState().messages.get("chat-forum")?.some((item) => item.id === "old-topic")).toBe(true);
   });

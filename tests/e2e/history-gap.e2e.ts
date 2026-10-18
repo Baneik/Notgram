@@ -65,11 +65,21 @@ const snapshot = (page: Page) => page.evaluate(async () => {
 });
 
 for (const forum of [false, true]) {
-  test(`fills the overnight gap and retains it after restart (forum: ${forum})`, async ({ page }) => {
+  test(`fills the overnight gap on input and retains it after restart (forum: ${forum})`, async ({ page }) => {
     await fixture(page, forum, 200);
-    await expect.poll(async () => (await snapshot(page)).recovery).toBe("complete");
+    await expect.poll(async () => (await snapshot(page)).recovery).toBe("paused");
+    expect((await snapshot(page)).reads).toBe(1);
+    for (let turn = 0; turn < 7 && (await snapshot(page)).recovery !== "complete"; turn++) {
+      const current = await snapshot(page);
+      await page.locator(".message-list").hover();
+      await page.mouse.wheel(0, -100000);
+      await expect.poll(async () => (await snapshot(page)).ids[0]).toBeLessThan(current.ids[0]);
+    }
+    expect((await snapshot(page)).recovery).toBe("complete");
     expect((await snapshot(page)).ids).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
     const list = page.locator(".message-list");
+    await list.press("End");
+    await expect(page.locator('[data-message-id="200"]')).toBeInViewport();
     await list.hover();
     await page.mouse.wheel(0, -700);
     await expect(page.locator('[data-message-id="175"]')).toBeVisible();
@@ -78,7 +88,7 @@ for (const forum of [false, true]) {
       await telegramStore.getState().rebuildCachedSnapshot();
     });
     await page.reload();
-    await expect.poll(async () => (await snapshot(page)).recovery).toBe("complete");
+    await expect.poll(async () => (await snapshot(page)).recovery).toMatch(/^(paused|complete)$/);
     for (let turn = 0; turn < 8; turn++) {
       const current = await snapshot(page);
       expect(current.ids).toEqual(Array.from({ length: 201 - current.ids[0] }, (_, i) => i + current.ids[0]));
@@ -93,8 +103,9 @@ for (const forum of [false, true]) {
   test(`upward scrolling resumes a large gap one page at a time (forum: ${forum})`, async ({ page }) => {
     await fixture(page, forum, 1200);
     await expect.poll(async () => (await snapshot(page)).recovery).toBe("paused");
-    expect((await snapshot(page)).ids).toEqual(Array.from({ length: 270 }, (_, i) => i + 931));
-    for (let turn = 0; turn < 32; turn++) {
+    expect((await snapshot(page)).ids).toEqual(Array.from({ length: 30 }, (_, i) => i + 1171));
+    expect((await snapshot(page)).reads).toBe(1);
+    for (let turn = 0; turn < 40; turn++) {
       const current = await snapshot(page);
       expect(current.ids).toEqual(Array.from({ length: 1201 - current.ids[0] }, (_, i) => i + current.ids[0]));
       if (current.ids[0] === 1) break;

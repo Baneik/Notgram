@@ -58,6 +58,8 @@ it("repairs an overnight gap through the native pager after a partial refresh is
     return result;
   });
   transport.setConnectionStatus("online");
+  await vi.waitFor(() => expect(store.getState().histories.get("7")?.recovery).toBe("paused"));
+  await store.getState().loadMoreHistory("7");
   await vi.waitFor(() => expect(store.getState().histories.get("7")?.recovery).toBe("failed"));
   transport.setConnectionStatus("offline");
   expect(await store.getState().rebuildCachedSnapshot()).toBe(true);

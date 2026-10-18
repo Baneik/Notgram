@@ -268,8 +268,10 @@ invalidate the content checkpoint. Pointer dragging and middle autoscroll keep t
 ownership and yield detached anchor writes for the full interaction.
 
 Upward intent requests the next history page within one viewport of the loaded boundary, with a
-64px minimum. Passive scroll/measurement events never arm requests. Finishing a request while the
-reader is still near the boundary does not itself start another visible-page load.
+64px minimum. Passive scroll/measurement events and a list shorter than the viewport never start
+reader pagination. Upward wheel/key input also schedules a page for a short list, where the browser
+cannot emit a scroll event. Finishing a request while the reader is still near the boundary does not
+itself start another visible-page load.
 
 Interior insertions/deletions, tail edits, group splits/merges, mixed changes and independent history
 window replacements keep the origin. Mounted rows remeasure at their current indexes. Stable block
@@ -458,11 +460,11 @@ still releases refresh. New navigation/account changes discard the intent; the s
 account and navigation generations after yielding. Empty entries still request their first page
 immediately, and connection recovery retains its existing history owner.
 
-Between recovery pages, history yields to painting/input and rechecks scope generation and active
-chat/topic before sending another request. The nine-page recovery budget, independent reader cursor,
-and resumable paused recovery remain intact. Child layout commits leave an active reading-anchor
-loop to reconcile once per frame. A missing index has at most one pending request for the same
-list, generation, message and offset; the mounted follow-up rejects stale generations.
+Entry and reconnect accept at most one refresh page, then pause any unfinished recovery until reader
+input. Independent reader cursors and resumable paused recovery remain intact. Child layout commits
+leave an active reading-anchor loop to reconcile once per frame. A missing index has at most one
+pending request for the same list, generation, message and offset; the mounted follow-up rejects stale
+generations.
 
 Image resource readiness survives virtual row remounts through bounded URL metadata. A
 previously decoded image that is already loaded in the new element is revealed before paint
@@ -500,21 +502,21 @@ opening a context alone never starts a scan toward latest.
 
 Recovery captures the recent server-message boundary before accepting new live updates. It refreshes
 from the head until that boundary is returned/passed or the server confirms exhaustion. Distant
-context membership is never a recovery target. Each recovery has a total nine-page budget (including
-the first page), rather than an eight-page limit that silently restarts every five seconds. A budget
-stop preserves the cursor and publishes `recovery: paused`; it neither deletes unconfirmed messages
-nor claims completion. Explicit older loading continues that repair from its committed cursor with a
-one-page budget per gesture, including retries after a request failure. Taking manual ownership cancels
-a queued background retry, so it cannot resume a nine-page scan after the reader stops. Reconnect
-starts a new background budget while preserving the unfinished boundary. An accepted partial or
-stalled manual page stays paused until the next gesture. Request failures before page acceptance and
-background stalls have a bounded three-attempt retry path using the existing retry queue. Switching
-accounts clears all window and retry ownership. Reconnect retires requests but preserves reader
+context membership is never a recovery target. Entry and reconnect request one head page. An unfinished
+recovery preserves its cursor and publishes `recovery: paused`; it neither deletes unconfirmed messages
+nor claims completion. Reentry/readiness callbacks cannot resume a paused scan. Explicit older loading
+continues that repair from its committed cursor with a one-page budget per gesture, including retries
+after a request failure. Taking manual ownership cancels a queued background retry. Reconnect reads
+one fresh head page while preserving the unfinished boundary. Any accepted partial or stalled page
+stays paused until the next gesture. Request failures before page acceptance have a bounded
+three-attempt retry path using the existing retry queue. Switching accounts clears all window and
+retry ownership. Reconnect retires requests but preserves reader
 windows and their cursors.
 
 A cold cache has no continuity guarantee: it may contain an old tail plus a newer head page saved
-after an interrupted recovery. Its first refresh must walk through the oldest ordinary cached
-message outside explicit contexts, rather than stopping at the newest cached ID. After validation,
+after an interrupted recovery. Validation must eventually walk through the oldest ordinary cached
+message outside explicit contexts, rather than stopping at the newest cached ID; entry alone does
+not authorize that scan. Further pages require reader input. After validation,
 ordinary reconnects use the recent boundary again. An unfinished refresh keeps its original boundary
 across further reconnects; accepting a newer page does not prove that the remaining gap is filled.
 
@@ -536,7 +538,7 @@ separate context without treating the intervening history as loaded. A retained 
 join distant server windows.
 
 Reader pagination walks duplicate cached pages until it extends the displayed history, reaches a
-confirmed end, stalls, or consumes the same nine-page budget. Each accepted page commits its cursor;
+confirmed end, stalls, or consumes its separate nine-page budget. Each accepted page commits its cursor;
 an error can retry from that cursor, while account/recovery generations still reject stale pages.
 This keeps a single upward gesture useful after restart without starting an unbounded cache scan.
 Numeric reader cursors never move toward newer messages, including when an endpoint repeats a page.
