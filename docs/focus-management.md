@@ -112,6 +112,13 @@ Restored drafts start with a collapsed selection at the end; routine focus retur
 preserve the current selection. Native and browser format menus retain the range
 that opened them and return through the same focus owner.
 
+Hard breaks declare their plain-text serialization as a newline. Keyboard copy,
+cut and text drag serialization must preserve all selected whitespace, including
+leading, consecutive and trailing newlines, just like the clipboard menu actions.
+Plain-text paste normalizes CRLF/CR to LF and replaces only the selected range,
+retaining the surrounding marks. Each paste is an independent undo step, isolated
+from adjacent typing and other pastes; an empty clipboard changes nothing.
+
 The main Windows WebView delivers HTML drag/drop events; Tauri's native file-drop
 interceptor stays disabled for this window. External text is inserted as plain text
 at the drop caret, retaining newlines and its own undo boundary. Editor-local moves

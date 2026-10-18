@@ -31,7 +31,7 @@ const extensions = [
     parseHTML: () => [{ tag: "p" }], renderHTML: () => ["p", 0] }),
   EditorNode.create({ name: "text", group: "inline" }),
   EditorNode.create({ name: "hardBreak", inline: true, group: "inline", selectable: false,
-    parseHTML: () => [{ tag: "br" }], renderHTML: () => ["br"] }),
+    parseHTML: () => [{ tag: "br" }], renderHTML: () => ["br"], renderText: () => "\n" }),
   ...composerEntityKinds.map(kind => Mark.create({
     name: kind, inclusive: false,
     addAttributes: () => ({ entity: { default: {}, rendered: false } }),
@@ -116,8 +116,11 @@ export function ComposerInput(props: Props) {
     const completeLink = isPastingIntoComposerLink(editorText(editor), from - 1, to - 1);
     const marks = editor.state.storedMarks ?? editor.state.selection.$from.marks();
     const content = composerDocument(text.replace(/\r\n?/g, "\n"), []).content?.[0].content ?? [];
+    // Clipboard insertions must not merge with adjacent typing or another paste.
+    editor.view.dispatch(closeHistory(editor.state.tr));
     editor.commands.insertContentAt({ from, to }, content.map(node => ({ ...node, marks: marks.map(mark => mark.toJSON()) })), { parseOptions: { preserveWhitespace: "full" } });
     if (completeLink) editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.view.dispatch(closeHistory(editor.state.tr));
   }, []);
 
   useLayoutEffect(() => {
