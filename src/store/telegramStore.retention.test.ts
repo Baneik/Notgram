@@ -40,6 +40,40 @@ class RetentionTransport extends MockTelegramTransport {
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
+it.each([false, true])("bounds aggregate inactive histories without losing protected records (forum: %s)", async forum => {
+  vi.useFakeTimers();
+  const transport = new RetentionTransport({ connectionStatus: "offline" });
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const seed = store.getState().chats.get("chat-product")!;
+  const chats = new Map(store.getState().chats);
+  const topicHistories = new Map(store.getState().topicHistories);
+  for (let index = 0; index < 8; index++) {
+    const id = `inactive-${index}`;
+    chats.set(id, { ...seed, id, isForum: forum });
+    topicHistories.set(`${id}:topic:1`, { initialized: true, loading: false, hasMore: false });
+  }
+  store.setState({ chats, messages: new Map(), topicHistories, connectionStatus: "online" });
+  store.getState().updateChatDraft("inactive-0", "preserve reply", "3");
+  for (let index = 0; index < 8; index++) {
+    const id = `inactive-${index}`;
+    const rows = Array.from({ length: 1500 }, (_, offset) => ({ ...message(offset + 1, id), topicId: forum ? "1" : undefined }));
+    rows[0] = { ...rows[0], isLocallyDeleted: true };
+    rows[1] = { ...rows[1], delivery: "failed" };
+    transport.dispatch({ type: "messages.upserted", messages: rows });
+  }
+  const state = store.getState();
+  const ordinary = [...state.messages.values()].flat().filter(row => !row.isLocallyDeleted && row.delivery !== "failed");
+  expect(ordinary.length).toBeLessThanOrEqual(10_000);
+  expect(state.messages.get("inactive-0")?.map(row => row.id)).toEqual(["1", "2", "3"]);
+  expect(state.topicHistories.has("inactive-0:topic:1")).toBe(false);
+  expect(transport.evictChatMessages).toHaveBeenCalledWith("inactive-0", expect.arrayContaining(["4", "1500"]));
+  expect(transport.evictChatMessages.mock.calls.filter(([chatId]) => chatId === "inactive-0").flatMap(([, ids]) => ids)).not.toContain("1");
+  transport.source = Array.from({ length: 1500 }, (_, offset) => ({ ...message(offset + 1, "inactive-0"), topicId: forum ? "1" : undefined }));
+  expect(await state.loadMessage("inactive-0", "100", { forceContext: true })).toBe(true);
+  expect(store.getState().messages.get("inactive-0")?.some(row => row.id === "100")).toBe(true);
+});
+
 const fixture = async (reading = false, topicId?: string) => {
   vi.useFakeTimers();
   const transport = new RetentionTransport({ connectionStatus: "offline" });
@@ -58,6 +92,37 @@ const fixture = async (reading = false, topicId?: string) => {
   store.getState().focusHistoryWindow("chat-product", undefined, topicId);
   return { transport, store };
 };
+
+it("caps dormant forum history count even when every chat has a deletion archive", async () => {
+  const { store, transport } = await fixture();
+  const seed = store.getState().chats.get("chat-product")!;
+  const chats = new Map(store.getState().chats);
+  for (let index = 0; index < 105; index++) chats.set(`forum-${index}`, { ...seed, id: `forum-${index}`, isForum: true });
+  store.setState({ chats });
+  for (let index = 0; index < 105; index++) transport.dispatch({ type: "messages.upserted",
+    messages: [{ ...message(1, `forum-${index}`), isLocallyDeleted: true }, message(2, `forum-${index}`)] });
+  const rows = [...store.getState().messages.values()];
+  expect(rows.filter(items => items.some(item => !item.isLocallyDeleted)).length).toBeLessThanOrEqual(100);
+  expect(rows.flat().filter(item => item.isLocallyDeleted)).toHaveLength(105);
+});
+
+it("protects mounted readers and loading forum topics during aggregate eviction", async () => {
+  const { store, transport } = await fixture();
+  const seed = store.getState().chats.get("chat-product")!;
+  const chats = new Map(store.getState().chats);
+  const topicHistories = new Map(store.getState().topicHistories);
+  for (let index = 0; index < 8; index++) chats.set(`forum-${index}`, { ...seed, id: `forum-${index}`, isForum: true });
+  topicHistories.set("forum-1:topic:1", { loading: true, hasMore: true, initialized: true });
+  store.setState({ chats, topicHistories });
+  const dispose = store.getState().registerHistoryRetentionViewport("forum-0", () => ({ following: false, anchorId: "500", protectedIds: ["500"] }));
+  try {
+    for (let index = 0; index < 8; index++) transport.dispatch({ type: "messages.upserted",
+      messages: Array.from({ length: 1500 }, (_, offset) => ({ ...message(offset + 1, `forum-${index}`), topicId: "1" })) });
+    expect(store.getState().messages.get("forum-0")).toHaveLength(1500);
+    expect(store.getState().messages.get("forum-1")).toHaveLength(1500);
+    expect([...store.getState().messages.values()].flat().length).toBeLessThanOrEqual(10_000);
+  } finally { dispose(); }
+});
 
 it("bounds repeated live updates and evicts file and transport indexes without tombstoning messages", async () => {
   const { transport, store } = await fixture();

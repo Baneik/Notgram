@@ -85,7 +85,7 @@ import {
 import { markMessageEntrance, transferMessageEntrance } from "../utils/messageEntrance";
 import { trimComposerFormattedText } from "../utils/composerMentions";
 import { protectedCachePaths } from "./cacheProtection";
-import { HISTORY_MESSAGE_LIMIT, retainedHistoryMessages, type HistoryRetentionViewport } from "./historyRetention";
+import { HISTORY_MESSAGE_LIMIT, isOrdinaryHistoryMessage, protectedHistoryMessages, retainedHistoryMessages, type HistoryRetentionViewport } from "./historyRetention";
 import { emptyGlobalSearch } from "./globalSearchState";
 import { emptyChatMessageSearch } from "./chatMessageSearchState";
 import { emptyProfileState } from "./profileState";
@@ -928,8 +928,7 @@ export const createTelegramStore = (
     const ordinaryMessageCount = (items: Message[]) => {
       let count = ordinaryMessageCounts.get(items);
       if (count === undefined) {
-        count = items.reduce((sum, message) => sum + Number(!message.isLocallyDeleted && !message.isPending &&
-          message.delivery !== "sending" && message.delivery !== "failed"), 0);
+        count = items.reduce((sum, message) => sum + Number(isOrdinaryHistoryMessage(message)), 0);
         ordinaryMessageCounts.set(items, count);
       }
       return count;
@@ -945,8 +944,9 @@ export const createTelegramStore = (
         boundedMessages = current.messages;
       }
       let total = boundedMessageCount;
+      let historyCount = current.messages.size;
       const oversized = [...current.messages].filter(([, items]) => ordinaryMessageCount(items) > HISTORY_MESSAGE_LIMIT);
-      if (total <= 10_000 && current.messages.size <= 100 && oversized.length === 0) return;
+      if (total <= 10_000 && historyCount <= 100 && oversized.length === 0) return;
       const messages = new Map(current.messages);
       const histories = new Map(current.histories);
       const topicHistories = new Map(current.topicHistories);
@@ -980,19 +980,26 @@ export const createTelegramStore = (
       }
       const protectedChats = new Set(current.outbox.map((item) => item.chatId));
       for (const [chatId, items] of messages) {
-        if (total <= 10_000 && messages.size <= 100) break;
+        if (total <= 10_000 && historyCount <= 100) break;
         if (
-          current.chats.get(chatId)?.isForum ||
           chatId === current.activeChatId ||
+          retentionViewports.has(chatId) ||
           protectedChats.has(chatId) ||
           histories.get(chatId)?.loading ||
-          items.some((message) => message.isLocallyDeleted)
+          [...topicHistories].some(([key, state]) => key.startsWith(`${chatId}:topic:`) && state.loading)
         ) continue;
-        if (items.some((message) => message.delivery === "sending")) continue;
-        total -= ordinaryMessageCount(items);
-        messages.delete(chatId); histories.delete(chatId); history.discard(chatId);
-        evictions.push({ chatId, ids: items.map(message => message.id) });
-        transport.discardChatHistoryCache?.(chatId);
+        const replyIds = new Set([...current.drafts.values()].filter(draft => draft.chatId === chatId && draft.replyToMessageId)
+          .map(draft => draft.replyToMessageId!));
+        const kept = protectedHistoryMessages(items, replyIds);
+        if (kept.length === items.length) continue;
+        total -= ordinaryMessageCount(items) - ordinaryMessageCount(kept);
+        if (kept.length === 0) historyCount--;
+        const keptIds = new Set(kept.map(message => message.id));
+        if (kept.length) messages.set(chatId, kept); else messages.delete(chatId);
+        histories.delete(chatId); history.discard(chatId);
+        for (const key of topicHistories.keys()) if (key.startsWith(`${chatId}:topic:`)) topicHistories.delete(key);
+        evictions.push({ chatId, ids: items.filter(message => !keptIds.has(message.id)).map(message => message.id) });
+        transport.discardChatHistoryCache?.(chatId, [...keptIds]);
       }
       if (evictions.length) {
         boundedMessages = messages;

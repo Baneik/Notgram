@@ -46,6 +46,12 @@ export class TauriForumTopicService {
     if (generation !== this.generation) throw new Error("TDLib synchronization superseded");
   }
 
+  discardChatHistoryCache(chatId: string) {
+    const prefix = `${chatId}:`;
+    for (const key of this.historyCursors.keys()) if (key.startsWith(prefix)) this.historyCursors.delete(key);
+    for (const key of this.exhaustedHistories) if (key.startsWith(prefix)) this.exhaustedHistories.delete(key);
+  }
+
   private topicKey(chatId: string, topicId: string) {
     return `${chatId}:${topicId}`;
   }

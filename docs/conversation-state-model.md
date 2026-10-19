@@ -589,6 +589,16 @@ An open channel-discussion panel temporarily protects its source and thread cach
 panel has a separate thread-pagination owner. Closing it allows the ordinary policy to
 resume; this change does not replace its pagination or trim its displayed comment list.
 
+The aggregate cache budget is 10,000 ordinary messages across at most 100 histories,
+including dormant forum chats. A deletion archive does not exempt the rest of its chat:
+retain only local records, pending/failed sends, draft reply targets and their complete
+albums when reclaiming a dormant history. Mounted readers, the active chat, outbox owners
+and loading ordinary/topic windows remain protected. Protected local-only containers may
+exceed the conversation count, while ordinary records still yield to the budget.
+Reset discarded topic memberships and native cursors
+together; retained raw-message references stay available. Reopening uses the existing
+context/refresh pagination without treating eviction as permanent deletion.
+
 Eviction commits the message array and history-window membership together. It releases
 ordinary file indexes, downstream download indexes and native raw-message/file indexes,
 without deletion tombstones or removing locally retained copies. Empty context membership

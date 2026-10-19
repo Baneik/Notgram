@@ -2107,12 +2107,14 @@ export class TauriTelegramTransport implements TelegramTransport {
     this.chatListIds.clear();
   }
 
-  discardChatHistoryCache(chatId: string) {
+  discardChatHistoryCache(chatId: string, retainedMessageIds: readonly string[] = []) {
     if (this.historyLoads.has(chatId)) return;
     this.exhaustedHistories.delete(chatId);
     this.historyCursors.delete(chatId);
-    for (const id of this.rawMessages.get(chatId)?.keys() ?? []) this.unindexMessageFiles(chatId, id);
-    this.rawMessages.delete(chatId);
+    this.forumTopicService.discardChatHistoryCache(chatId);
+    const retained = new Set(retainedMessageIds);
+    const removed = [...this.rawMessages.get(chatId)?.keys() ?? []].filter(id => !retained.has(id));
+    this.evictChatMessages(chatId, removed);
   }
 
   evictChatMessages(chatId: string, messageIds: readonly string[]) {

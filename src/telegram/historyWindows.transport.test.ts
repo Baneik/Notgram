@@ -10,6 +10,20 @@ const raw = (id: number): TdObject => ({
 });
 
 describe("independent history window cursors", () => {
+  it.each([false, true])("resets dormant cursors while retaining protected raw messages (forum: %s)", async forum => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawMessages: Map<string, Map<string, TdObject>> };
+    internal.request = async query => {
+      const from = Number(query.from_message_id) || 100;
+      return { messages: Array.from({ length: Number(query.limit) }, (_, index) => raw(from - index)) };
+    };
+    const read = () => forum ? transport.loadForumTopicHistory("7", "1", 3) : transport.loadChatHistory("7", 3);
+    expect((await read()).messageIds).toEqual(["100", "99", "98"]);
+    expect((await read()).messageIds).toEqual(["98", "97", "96", "95"]);
+    transport.discardChatHistoryCache("7", ["99"]);
+    expect([...internal.rawMessages.get("7")!.keys()]).toEqual(["99"]);
+    expect((await read()).messageIds).toEqual(["100", "99", "98"]);
+  });
   it.each([false, true])("reloads newer native records and releases raw message/file indexes (forum: %s)", async forum => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as { request: (request: TdObject) => Promise<TdObject>; rawMessages: Map<string, Map<string, TdObject>> };
