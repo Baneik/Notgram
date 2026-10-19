@@ -187,6 +187,7 @@ pub fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
+        crate::memory::sync_memory_target(&window);
         let _ = window.set_focus();
     }
 }
@@ -236,6 +237,11 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
+    if matches!(event, WindowEvent::Focused(_) | WindowEvent::Resized(_))
+        && let Some(webview) = window.app_handle().get_webview_window(window.label())
+    {
+        crate::memory::sync_memory_target(&webview);
+    }
     if matches!(event, WindowEvent::Destroyed) {
         crate::telegram::update_delivery::close_window(window.app_handle(), window.label());
     }
@@ -247,6 +253,9 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
         crate::window_placement::flush_window(window);
         api.prevent_close();
         let _ = window.hide();
+        if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
+            crate::memory::sync_memory_target(&webview);
+        }
     }
 }
 

@@ -170,6 +170,7 @@ export const conversationBottleneckStages: Readonly<Record<number, string>> = {
 };
 
 const eventMetadata: Record<string, EventMetadata> = {
+  ui_memory_usage: { get label() { return translate("内存与缓存"); }, category: "data", warningMs: Infinity, criticalMs: Infinity },
   ui_startup: { get label() { return translate("应用启动"); }, category: "startup", warningMs: 1_000, criticalMs: 2_500 },
   ui_slow_interaction: { get label() { return translate("慢交互"); }, category: "interaction", warningMs: 50, criticalMs: 100 },
   ui_long_frame: { get label() { return translate("长动画帧"); }, category: "render", warningMs: 50, criticalMs: 100 },

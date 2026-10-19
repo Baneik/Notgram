@@ -2,6 +2,10 @@ import { App } from "./app/App";
 import { WindowChrome } from "./components/WindowChrome";
 import { prepareNativeContextMenuWindow } from "./contextMenu/nativeContextMenuBridge";
 import { mountWindow } from "./windows/mountWindow";
+import { telegramStore } from "./store/telegramStore";
+
+const unregisterMemoryCaches = telegramStore.getState().registerMemoryCaches();
+if (import.meta.hot) import.meta.hot.dispose(unregisterMemoryCaches);
 
 void prepareNativeContextMenuWindow().catch(() => undefined);
 

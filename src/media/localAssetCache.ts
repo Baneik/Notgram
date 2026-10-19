@@ -1,5 +1,6 @@
+import { memoryCacheBudget, registerMemoryCache } from "./memoryCacheBudget";
+
 const MAX_ENTRIES = 512;
-const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 
 type CacheEntry = {
@@ -8,16 +9,18 @@ type CacheEntry = {
   objectUrl?: string;
   bytes: number;
   users: number;
+  touchedAt: number;
 };
 
 const entries = new Map<string, CacheEntry>();
 let cachedBytes = 0;
 
-const trimCache = () => {
+const trimCache = (idleBefore = -Infinity) => {
   for (const [source, entry] of entries) {
-    if (entries.size <= MAX_ENTRIES && cachedBytes <= MAX_BYTES) break;
+    const overBudget = entries.size > MAX_ENTRIES || cachedBytes > memoryCacheBudget("localAssets");
     // Live video players may still seek through their URL. Evict only idle data.
     if (entry.users > 0 || !entry.objectUrl) continue;
+    if (!overBudget && entry.touchedAt > idleBefore) continue;
     entries.delete(source);
     cachedBytes -= entry.bytes;
     URL.revokeObjectURL(entry.objectUrl);
@@ -48,6 +51,7 @@ export const retainLocalAsset = (source: string) => {
       controller,
       users: 0,
       bytes: 0,
+      touchedAt: Date.now(),
       promise: fetch(source, { signal: controller.signal }).then(async (response) => {
         if (!response.ok) throw new Error(`Unable to read local asset (${response.status})`);
         if (Number(response.headers.get("content-length")) > MAX_FILE_BYTES) {
@@ -78,6 +82,7 @@ export const retainLocalAsset = (source: string) => {
     entries.set(source, entry);
   }
   entry.users += 1;
+  entry.touchedAt = Date.now();
   const retained = entry;
   let released = false;
   return {
@@ -86,6 +91,7 @@ export const retainLocalAsset = (source: string) => {
       if (released) return;
       released = true;
       retained.users -= 1;
+      retained.touchedAt = Date.now();
       trimCache();
     },
   };
@@ -99,3 +105,10 @@ export const clearLocalAssetCache = () => {
   entries.clear();
   cachedBytes = 0;
 };
+
+registerMemoryCache("localAssets", {
+  read: () => ({ entries: entries.size, bytes: cachedBytes,
+    activeBytes: [...entries.values()].reduce((sum, entry) => sum + (entry.users > 0 ? entry.bytes : 0), 0),
+    pending: [...entries.values()].filter(entry => !entry.objectUrl).length }),
+  trim: trimCache,
+});

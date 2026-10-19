@@ -31,6 +31,12 @@ const filters: Array<{ id: CategoryFilter; label: string }> = [
 ];
 
 const detailLabels: Record<string, string> = {
+  get cacheBytes() { return translate("缓存估算占用"); },
+  get activeCacheBytes() { return translate("使用中的缓存"); },
+  get cacheEntryCount() { return translate("缓存条目"); },
+  get heapBytes() { return translate("JavaScript 堆"); },
+  get pendingCount() { return translate("待处理数量"); },
+  get background() { return translate("窗口在后台"); },
   get durationMs() { return translate("总耗时"); },
   get inputDelayMs() { return translate("输入等待"); },
   get processingDurationMs() { return translate("事件处理"); },
@@ -276,6 +282,7 @@ const formatDetail = (key: string, value: number | boolean) => {
   if (key === "completedStageMask" || key === "missingStageMask") return formatStageMask(value);
   if (key === "refreshRateHz") return `${value.toFixed(1)} Hz`;
   if (key.endsWith("Ms")) return formatDuration(value);
+  if (key.endsWith("Bytes")) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   if (key.endsWith("Px")) return `${value.toFixed(1)} px`;
   if (key === "shiftScore") return value.toFixed(3);
   return Number.isInteger(value) ? String(value) : value.toFixed(1);

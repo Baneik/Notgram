@@ -15,6 +15,7 @@ interface TgsStickerProps {
 export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsStickerProps) {
   const containerElementRef = useRef<HTMLSpanElement | null>(null);
   const [readySource, setReadySource] = useState<string>();
+  const [idle, setIdle] = useState(false);
   const previewGeneration = useMemo(() => mediaPreviewGeneration(), [src]);
   const [visibilityRef, visible] = useElementVisibility<HTMLSpanElement>();
   const animationRef = useRef<import("lottie-web").AnimationItem | undefined>(undefined);
@@ -37,6 +38,15 @@ export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsSticke
   }, [shouldPlay]);
 
   useEffect(() => {
+    if (visible) { setIdle(false); return; }
+    // Brief scrolling keeps the player warm. Long-hidden players retain only
+    // the shared display frame, releasing Lottie's graph and SVG renderer.
+    const timer = setTimeout(() => setIdle(true), 15_000);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
+  useEffect(() => {
+    if (idle) { setReadySource(undefined); return; }
     const container = containerElementRef.current;
     if (!container) return;
     let active = true;
@@ -96,7 +106,7 @@ export function TgsSticker({ src, label, autoplay, onError, onReady }: TgsSticke
       if (animationRef.current === animation) animationRef.current = undefined;
       container.replaceChildren();
     };
-  }, [previewGeneration, src]);
+  }, [idle, previewGeneration, src]);
 
   return <span
     ref={visibilityRef}

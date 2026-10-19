@@ -97,6 +97,7 @@ import { createForumController } from "./telegramStore.forum";
 import { createSessionController } from "./telegramStore.session";
 import { createEmojiPickerController } from "./telegramStore.emoji";
 import { SharedMediaIndex } from "./sharedMediaIndex";
+import { registerMemoryCache } from "../media/memoryCacheBudget";
 import {
   attachmentOutbox,
   describeOutgoingAttachments,
@@ -4722,6 +4723,11 @@ export const createTelegramStore = (
         return !failure;
       },
 
+      registerMemoryCaches: () => {
+        const unregisterPicker = registerMemoryCache("stickerPreviews", emojiPickerController.memoryCache);
+        const unregisterMedia = registerMemoryCache("sharedMedia", sharedMediaIndex.memoryCache);
+        return () => { unregisterPicker(); unregisterMedia(); };
+      },
       getCachedEmojiPicker: emojiPickerController.getCachedEmojiPicker,
       getCachedStickerPickerPreview: emojiPickerController.getCachedStickerPickerPreview,
       emojiRevision: 0,

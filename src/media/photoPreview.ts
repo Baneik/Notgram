@@ -1,5 +1,6 @@
 import { isNativeAssetSource } from "./localAssetCache";
 import { logPerformance } from "../utils/performanceMonitor";
+import { memoryCacheBudget, registerMemoryCache } from "./memoryCacheBudget";
 
 export interface PhotoPreviewSize { width: number; height: number; cover: boolean }
 export interface PhotoPreview {
@@ -23,10 +24,10 @@ type Entry = {
   bytes: number;
   queuedAt: number;
   token: number;
+  touchedAt: number;
 };
 const entries = new Map<string, Entry>();
 const queue: Entry[] = [];
-const MAX_BYTES = 48 * 1024 * 1024;
 const MAX_ENTRIES = 128;
 let bytes = 0;
 let running = 0;
@@ -58,10 +59,10 @@ const discard = (key: string, entry: Entry) => {
   const queued = queue.indexOf(entry);
   if (queued >= 0) queue.splice(queued, 1);
 };
-const trim = () => {
+const trim = (idleBefore = -Infinity) => {
   for (const [key, entry] of entries) {
-    if (bytes <= MAX_BYTES && entries.size <= MAX_ENTRIES) break;
-    if (entry.users === 0 && entry.value) discard(key, entry);
+    if (entry.users === 0 && entry.value && (bytes > memoryCacheBudget("photoPreviews") ||
+      entries.size > MAX_ENTRIES || entry.touchedAt <= idleBefore)) discard(key, entry);
   }
 };
 export const clearPhotoPreviewCache = () => {
@@ -163,7 +164,7 @@ export const retainPhotoPreview = (source: string, size: PhotoPreviewSize, visib
     let resolve!: Entry["resolve"];
     let reject!: Entry["reject"];
     const promise = new Promise<PhotoPreview>((ok, fail) => { resolve = ok; reject = fail; });
-    entry = { source, size, users: 0, visibleUsers: 0, controller: new AbortController(), promise, resolve, reject, bytes: 0, queuedAt: performance.now(), token: ++nextToken };
+    entry = { source, size, users: 0, visibleUsers: 0, controller: new AbortController(), promise, resolve, reject, bytes: 0, queuedAt: performance.now(), token: ++nextToken, touchedAt: Date.now() };
     entries.set(key, entry);
     queue.push(entry);
   } else {
@@ -171,6 +172,7 @@ export const retainPhotoPreview = (source: string, size: PhotoPreviewSize, visib
     entries.set(key, entry);
   }
   entry.users++;
+  entry.touchedAt = Date.now();
   if (visible) entry.visibleUsers++;
   if (entry.value) logPerformance("ui_photo_preview", {
     durationMs: 0, cached: true, imageToken: entry.token, phase: 2,
@@ -191,9 +193,16 @@ export const retainPhotoPreview = (source: string, size: PhotoPreviewSize, visib
       if (released) return;
       released = true;
       retained.users--;
+      retained.touchedAt = Date.now();
       if (visible) retained.visibleUsers--;
       if (retained.users === 0 && !retained.value && entries.get(key) === retained) discard(key, retained);
       trim();
     },
   };
 };
+
+registerMemoryCache("photoPreviews", {
+  read: () => ({ entries: entries.size, bytes,
+    activeBytes: [...entries.values()].reduce((sum, entry) => sum + (entry.users > 0 ? entry.bytes : 0), 0), pending: queue.length + running }),
+  trim,
+});

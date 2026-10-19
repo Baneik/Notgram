@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { mergeSharedMediaMessages } from "../store/sharedMediaIndex";
 import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
 import {
   Download,
@@ -107,6 +108,7 @@ export function SharedMediaBrowser({
   const loadFirstPage = async (force = false, nextQuery = appliedQuery) => {
     const generation = ++generationRef.current;
     setLoading(true);
+    setLoadingMore(false);
     setSelected(new Set());
     const result = await onLoad({ chatId, category, query: nextQuery, limit: 40 }, force);
     if (generation === generationRef.current && result) setPage(result);
@@ -171,6 +173,7 @@ export function SharedMediaBrowser({
 
   const loadMore = async () => {
     if (!page.hasMore || !page.nextFromMessageId || loadingMore) return;
+    const generation = generationRef.current;
     setLoadingMore(true);
     const result = await onLoad({
       chatId,
@@ -179,7 +182,9 @@ export function SharedMediaBrowser({
       fromMessageId: page.nextFromMessageId,
       limit: 40,
     });
-    if (result) setPage(result);
+    if (generation !== generationRef.current) return;
+    // Idle cache eviction must not discard rows owned by the open browser.
+    if (result) setPage(current => ({ ...result, messages: mergeSharedMediaMessages(current.messages, result.messages) }));
     setLoadingMore(false);
   };
 

@@ -13,6 +13,11 @@ import {
 } from "./performanceMonitor";
 
 describe("performance monitor", () => {
+  it("keeps memory samples as byte counts without reporting a slow duration", () => {
+    logPerformance("ui_memory_usage", { cacheBytes: 90_000_000, heapBytes: 180_000_000, background: true });
+    expect(getPerformanceRecords().at(-1)).toMatchObject({ event: "ui_memory_usage", severity: "normal", durationMs: undefined,
+      details: expect.objectContaining({ cacheBytes: 90_000_000, heapBytes: 180_000_000, background: true }) });
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
     clearPerformanceRecords();

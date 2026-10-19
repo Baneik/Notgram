@@ -48,8 +48,8 @@ pack read. Persist TDLib remote file IDs and unique IDs: restored sends use
 `getRemoteFile`. Original files and the shared Blob/decoded/player caches are
 replaceable; their eviction must not erase a saved picker preview.
 
-Main-window authorization and reconnection prepare installed packs in the
-background. Settings-only windows do not start this work. Pack reads, preview
+Main-window authorization and reconnection prepare the first two installed packs
+while visible. Settings-only and hidden windows do not start this work. Pack reads, preview
 loads and raster preparation are bounded separately to two workers each; local
 pixels can prepare while both network loads wait. Thumbnails and static stickers
 use the existing small-preview priority 19, independent of the three full-file
@@ -60,8 +60,13 @@ Pixel publications are coalesced over 16ms. Sticker metadata becomes usable befo
 the saved-GIF request finishes, preserving previous GIFs during that refresh.
 Animated stickers prefer their thumbnail; otherwise capture a nonempty frame
 without autoplay or audio. Previews are 96px, at most 32 KiB of serialized data
-each and 24 MiB total in memory. Keep all installed pack metadata while bounding
-uninstalled previews to 128 packs. Account switch and explicit cache cleanup
+each and 8 MiB total in foreground memory (2 MiB in the background). Keep all
+installed pack summaries without their sticker arrays; full contents use a 16-pack
+LRU, reduced to four packs in the background, including after snapshot hydration.
+Preview queues and retry metadata each retain at most 256 jobs; at most four
+local raster jobs can be running or waiting. Hiding aborts preview preparation
+and retries; returning resumes from the catalog and retained packs.
+Account switch and explicit cache cleanup
 clear previews and cancel their owners so late work cannot refill another account.
 New or uncached stickers still require an initial background preparation; sending
 an already known asset never waits for it.
@@ -127,8 +132,27 @@ callbacks. Idle children ignore synchronization, and stale/duplicate parking can
 close a reopened session. Video closure, replacement, account reset and media-cache
 cleanup still destroy the child; an expired idle child is destroyed as well.
 
+All WebViews install the shared memory lifecycle. Every 30 seconds, reclaim
+unowned cache entries idle for two minutes; after hiding for 15 seconds, use the
+smaller background budgets and a 15-second idle threshold. Live Blob URLs, photo
+previews and original image owners stay valid until released. Budgets in MiB
+(foreground/background) are Blob assets 20/4, photo previews 24/4, still frames
+8/2, serialized TGS 8/2, picker previews 8/2 and viewer originals 64/0.
+Shared-media search caches retain at most 5,000 messages globally and an estimated
+8/2 MiB; the open browser owns its rows and merges subsequent pages even if the
+search cache was evicted. These estimates omit browser internals and are not
+process working-set limits. Paused TGS players are destroyed after 15 seconds
+out of view and restore through the shared still frame on return.
+
+Windows WebViews request `MemoryUsageTargetLevel` LOW while hidden or minimized,
+and NORMAL when shown, where the runtime supports the interface. Do not suspend
+the main WebView: its JavaScript handles message delivery and notifications.
+When performance monitoring is enabled, `ui_memory_usage` samples estimated
+cache bytes, active bytes, entries, pending jobs and optional Chromium JS heap.
+The sample contains only numeric diagnostics and never file paths or messages.
+
 The photo viewer retains decoded image elements, rather than URL readiness flags,
-in a separate LRU cache of three entries and 192 MiB estimated RGBA pixels. Live
+in a separate LRU cache of three entries and 64 MiB estimated RGBA pixels. Live
 elements cannot be evicted; an oversized live original is released when it becomes
 idle. Source upgrades keep the previous painted node until the replacement is ready.
 Adjacent local photos warm sequentially at low priority after the current original

@@ -7,6 +7,7 @@ mod display_metrics;
 mod distribution;
 mod external_links;
 mod media_viewer_window;
+mod memory;
 mod proxy;
 mod settings_window;
 mod shortcuts;
@@ -90,6 +91,7 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            memory::notgram_sync_memory_target,
             shortcuts::notgram_check_shortcut,
             telegram_links::notgram_take_telegram_links,
             telegram_links::notgram_telegram_protocol_settings,

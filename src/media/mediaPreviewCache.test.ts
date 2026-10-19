@@ -60,7 +60,7 @@ describe("media preview cache", () => {
     expect(hasMediaPreview("0")).toBe(false);
     expect(hasMediaPreview("49")).toBe(true);
     const survivors = Array.from({ length: 50 }, (_, index) => String(index)).filter(hasMediaPreview);
-    expect(survivors.length * 384 * 384 * 4).toBeLessThanOrEqual(24 * 1024 * 1024);
+    expect(survivors.length * 384 * 384 * 4).toBeLessThanOrEqual(8 * 1024 * 1024);
   });
 
   it("rejects late ready callbacks after an account or cache reset", () => {

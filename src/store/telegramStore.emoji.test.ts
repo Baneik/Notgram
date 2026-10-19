@@ -5,6 +5,7 @@ import { MockTelegramTransport } from "../telegram/mockTransport";
 import type { TelegramTransport } from "../telegram/transport";
 import type { EmojiPickerAsset, EmojiPickerCatalog, StickerSet } from "../telegram/types";
 import { migrateEmojiPickerCache } from "./telegramStore.emojiCache";
+import { setMemoryBackground } from "../media/memoryCacheBudget";
 
 const asset: EmojiPickerAsset = {
   id: "sticker:1",
@@ -54,7 +55,7 @@ const deferred = <T>() => {
   return { promise, resolve };
 };
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { setMemoryBackground(false); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("emoji picker cache", () => {
   it("publishes installed-list changes immediately and refreshes stale catalog data", async () => {
@@ -229,7 +230,8 @@ describe("emoji picker cache", () => {
     transport.getEmojiPickerCatalog.mockResolvedValueOnce(installed);
     await controller.addStickerSet("set-1");
     await controller.loadEmojiPicker();
-    expect(controller.getCachedEmojiPicker()?.stickerSets).toEqual([stickerSet]);
+    expect(controller.getCachedEmojiPicker()?.stickerSets).toMatchObject([{ id: stickerSet.id, title: stickerSet.title }]);
+    expect(controller.getCachedEmojiPicker()?.stickerSets[0]).not.toHaveProperty("stickers");
 
     vi.advanceTimersByTime(6 * 60_000);
     const stale = deferred<EmojiPickerCatalog>();
@@ -312,15 +314,39 @@ describe("emoji cache store integration", () => {
     expect(controller.snapshot().emojiPickerPreviews).toEqual([]);
   });
 
-  it("retains every installed pack even after more than 128 packs are loaded", async () => {
+  it("retains every installed summary with a bounded full-pack LRU and reloads evicted packs", async () => {
     const { controller, transport } = createHarness();
     const sets = Array.from({ length: 140 }, (_, index) => ({ ...stickerSet, id: `installed-${index}` }));
     transport.getEmojiPickerCatalog.mockResolvedValue({ ...catalog, stickerSets: sets });
     transport.getStickerSet.mockImplementation(async id => sets.find(set => set.id === id)!);
     await controller.loadEmojiPicker();
     for (const set of sets) await controller.loadStickerSet(set.id);
-    expect(controller.getCachedStickerSet(sets[0].id)).toEqual(sets[0]);
-    expect(controller.snapshot().emojiPickerSets).toHaveLength(140);
+    expect(controller.getCachedStickerSet(sets[0].id)).toBeUndefined();
+    expect(controller.getCachedStickerSet(sets.at(-1)!.id)).toEqual(sets.at(-1));
+    expect(controller.snapshot().emojiPickerSets).toHaveLength(16);
+    expect(controller.getCachedEmojiPicker()?.stickerSets).toHaveLength(140);
+    expect(controller.getCachedEmojiPicker()?.stickerSets.every(set => !("stickers" in set))).toBe(true);
+    expect(await controller.loadStickerSet(sets[0].id)).toEqual(sets[0]);
+    expect(transport.getStickerSet.mock.calls.filter(([id]) => id === sets[0].id)).toHaveLength(2);
+    setMemoryBackground(true);
+    controller.memoryCache.trim(-Infinity);
+    expect(controller.snapshot().emojiPickerSets).toHaveLength(4);
+  });
+
+  it("warms only two installed packs and bounds legacy snapshots", async () => {
+    vi.stubGlobal("document", {});
+    const { controller, transport } = createHarness();
+    const sets = Array.from({ length: 140 }, (_, index) => ({ ...stickerSet, id: `installed-${index}`, stickers: [] }));
+    transport.getEmojiPickerCatalog.mockResolvedValue({ ...catalog, recentStickers: [], stickerSets: sets });
+    transport.getStickerSet.mockImplementation(async id => sets.find(set => set.id === id)!);
+    await controller.loadEmojiPicker();
+    await vi.waitFor(() => expect(transport.getStickerSet).toHaveBeenCalledTimes(2));
+    controller.reset();
+    controller.hydrate({ emojiPickerCatalog: { ...catalog, stickerSets: sets }, emojiPickerSets: sets });
+    expect(controller.snapshot().emojiPickerSets).toHaveLength(16);
+    expect(controller.getCachedEmojiPicker()?.stickerSets).toHaveLength(140);
+    expect(controller.getCachedEmojiPicker()?.stickerSets[0]).not.toHaveProperty("stickers");
+    controller.reset();
   });
   it("models actual installation and removal, including same-account updates from another client", async () => {
     const transport = new MockTelegramTransport();

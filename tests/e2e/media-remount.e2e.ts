@@ -85,6 +85,41 @@ const prepare = async (page: Page, videoSticker = false) => {
     images.every(image => image.getAttribute("data-image-state") === "ready"))).toBe(true);
 };
 
+test("hidden memory reclamation releases TGS players and restores painted media on return", async ({ page }) => {
+  await prepare(page);
+  const player = page.locator('.message-list .tgs-sticker-player svg');
+  await expect(player).toHaveCount(1);
+  const height = await page.locator('[data-message-id="remount-media-1"]').evaluate(element => element.getBoundingClientRect().height);
+  await page.clock.install();
+  for (let cycle = 0; cycle < 3; cycle++) {
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(page.locator('.message-list .tgs-sticker')).toHaveAttribute("data-motion-autoplay", "false");
+    await page.clock.fastForward(16_000);
+    await expect(player).toHaveCount(0);
+    await expect(page.locator('.message-list .tgs-sticker .cached-media-preview svg')).toHaveCount(1);
+    expect(await page.evaluate(async () => {
+      const { readMemoryCacheUsage } = await import("/src/media/memoryCacheBudget.ts" as string);
+      return readMemoryCacheUsage().find((cache: { kind: string }) => cache.kind === "stickerPreviews")?.pending;
+    })).toBe(0);
+    await page.evaluate(() => {
+      Reflect.deleteProperty(document, "visibilityState");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect(player).toHaveCount(1);
+    await expect(page.locator('.message-list .sticker-placeholder')).toHaveCount(0);
+    expect(await page.locator('[data-message-id="remount-media-1"]').evaluate(element => element.getBoundingClientRect().height)).toBe(height);
+  }
+  const usage = await page.evaluate(async () => {
+    const { readMemoryCacheUsage } = await import("/src/media/memoryCacheBudget.ts" as string);
+    return readMemoryCacheUsage() as Array<{ kind: string; bytes: number; budgetBytes: number; pending?: number }>;
+  });
+  expect(usage.every(cache => cache.bytes <= cache.budgetBytes)).toBe(true);
+  expect(usage.find(cache => cache.kind === "tgsAnimations")?.pending).toBe(0);
+});
+
 const leaveLatest = async (page: Page) => {
   await page.locator('[data-message-id="remount-reply"] .message-reply-preview').click();
   await expect(page.locator('[data-message-id="remount-history-10"]')).toHaveClass(/is-notification-target/);

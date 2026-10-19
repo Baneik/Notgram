@@ -1,4 +1,11 @@
 export const en = {
+  "内存与缓存": "Memory and caches",
+  "缓存估算占用": "Estimated cache memory",
+  "使用中的缓存": "Active cache memory",
+  "缓存条目": "Cache entries",
+  "JavaScript 堆": "JavaScript heap",
+  "待处理数量": "Pending operations",
+  "窗口在后台": "Window in background",
   "松开鼠标以添加附件": "Release to add attachments",
   "隐藏消息头像": "Hide message avatars",
   "显示消息头像": "Show message avatars",

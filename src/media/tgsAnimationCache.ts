@@ -1,20 +1,22 @@
 import { forgetMediaPreview } from "./mediaPreviewCache";
+import { memoryCacheBudget, registerMemoryCache } from "./memoryCacheBudget";
 
 type AnimationData = Record<string, unknown>;
 
 const MAX_ENTRIES = 128;
-const MAX_SERIALIZED_BYTES = 32 * 1024 * 1024;
-const animations = new Map<string, { data: AnimationData; bytes: number }>();
-const pending = new Map<string, { promise: Promise<AnimationData>; controller: AbortController }>();
+const animations = new Map<string, { serialized: string; bytes: number; touchedAt: number }>();
+const pending = new Map<string, { promise: Promise<string>; controller: AbortController }>();
 let cachedBytes = 0;
 
-/** Lottie mutates its input; each player receives a clone of the decoded master. */
+/** Lottie mutates its input. Retain compact JSON and parse a private player copy
+ * instead of keeping both a parsed master graph and every player's clone. */
 export const loadTgsAnimationData = async (src: string): Promise<AnimationData> => {
   const cached = animations.get(src);
   if (cached) {
     animations.delete(src);
     animations.set(src, cached);
-    return structuredClone(cached.data);
+    cached.touchedAt = Date.now();
+    return JSON.parse(cached.serialized) as AnimationData;
   }
   let request = pending.get(src);
   if (!request) {
@@ -28,25 +30,25 @@ export const loadTgsAnimationData = async (src: string): Promise<AnimationData> 
     ]).then(([compressed, { ungzip }]) => {
       if (controller.signal.aborted) throw new DOMException("TGS cache was cleared", "AbortError");
       const serialized = ungzip(compressed, { toText: true });
-      const data = JSON.parse(serialized) as AnimationData;
+      JSON.parse(serialized); // Invalid data must not poison the shared cache.
       const bytes = serialized.length * 2;
-      if (!controller.signal.aborted && bytes <= MAX_SERIALIZED_BYTES) {
-        animations.set(src, { data, bytes });
+      if (!controller.signal.aborted && bytes <= memoryCacheBudget("tgsAnimations")) {
+        animations.set(src, { serialized, bytes, touchedAt: Date.now() });
         cachedBytes += bytes;
-        while (animations.size > MAX_ENTRIES || cachedBytes > MAX_SERIALIZED_BYTES) {
+        while (animations.size > MAX_ENTRIES || cachedBytes > memoryCacheBudget("tgsAnimations")) {
           const oldest = animations.keys().next().value!;
           cachedBytes -= animations.get(oldest)!.bytes;
           animations.delete(oldest);
         }
       }
-      return data;
+      return serialized;
     }).finally(() => {
       if (pending.get(src)?.promise === promise) pending.delete(src);
     });
     request = { promise, controller };
     pending.set(src, request);
   }
-  return structuredClone(await request.promise);
+  return JSON.parse(await request.promise) as AnimationData;
 };
 
 export const invalidateTgsAnimation = (src: string) => {
@@ -63,3 +65,15 @@ export const clearTgsAnimationCache = () => {
   animations.clear();
   cachedBytes = 0;
 };
+
+registerMemoryCache("tgsAnimations", {
+  read: () => ({ entries: animations.size, bytes: cachedBytes, pending: pending.size }),
+  trim: idleBefore => {
+    for (const [src, cached] of animations) {
+      if (cached.touchedAt <= idleBefore || cachedBytes > memoryCacheBudget("tgsAnimations")) {
+        cachedBytes -= cached.bytes;
+        animations.delete(src);
+      }
+    }
+  },
+});

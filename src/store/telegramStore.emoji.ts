@@ -3,20 +3,23 @@ import { clearTgsAnimationCache } from "../media/tgsAnimationCache";
 import { clearLocalAssetCache } from "../media/localAssetCache";
 import { clearMediaPreviewCache } from "../media/mediaPreviewCache";
 import { clearPhotoPreviewCache } from "../media/photoPreview";
+import { isMemoryBackground, memoryCacheBudget } from "../media/memoryCacheBudget";
 import { stickerOutlinePath } from "../media/stickerOutline";
 import { prepareStickerPickerPreview } from "../media/stickerPickerPreview";
 import { emojiAssetPreview } from "../media/emojiAssetPreview";
 import type { TelegramTransport } from "../telegram/transport";
 import { FILE_PREVIEW_PRIORITY } from "../telegram/fileDownloadQueue";
-import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, TelegramEvent } from "../telegram/types";
+import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, StickerSetSummary, TelegramEvent } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
 const CATALOG_TTL_MS = 5 * 60_000;
 const STICKER_SET_TTL_MS = 30 * 60_000;
-const MAX_STICKER_SETS = 128;
+const MAX_STICKER_SETS = 16;
+const WARM_STICKER_SETS = 2;
 const MAX_ASSET_PATHS = 2_048;
-const MAX_PREVIEW_BYTES = 24 * 1024 * 1024;
 const previewKey = (asset: EmojiPickerAsset) => asset.remoteUniqueId ?? asset.remoteId ?? String(asset.fileId);
+const summarizeSet = ({ id, title, name, size, covers, isInstalled, isArchived }: StickerSetSummary): StickerSetSummary =>
+  ({ id, title, name, size, covers, isInstalled, isArchived });
 type PickerSnapshot = Pick<CachedTelegramSnapshot, "emojiPickerCatalog" | "emojiPickerSets" | "emojiPickerPreviews">;
 
 interface CachedValue<T> {
@@ -69,6 +72,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   const outlines = new Map<number, CachedValue<string>>();
   const outlineRequests = new Map<number, Promise<string | undefined>>();
   const previews = new Map<string, string>();
+  let previewTouchedAt = Date.now();
   let previewBytes = 0;
   let previewAbort = new AbortController();
   const previewQueue = new Map<string, EmojiPickerAsset>();
@@ -101,6 +105,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   const schedulePreviewRetry = () => {
     if (previewRetryTimer !== undefined) globalThis.clearTimeout(previewRetryTimer);
     previewRetryTimer = undefined;
+    if (isMemoryBackground()) return;
     let next = Infinity;
     for (const [key, retry] of previewRetries) {
       if (!previewPending.has(key) && !previewQueue.has(key) && !previews.has(key)) next = Math.min(next, retry.notBefore);
@@ -108,7 +113,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     if (!Number.isFinite(next)) return;
     previewRetryTimer = globalThis.setTimeout(() => {
       previewRetryTimer = undefined;
-      if (get().authorization.kind !== "ready") return;
+      if (get().authorization.kind !== "ready" || isMemoryBackground()) return;
       for (const [key, retry] of previewRetries) {
         if (retry.notBefore > Date.now() || previews.has(key) || previewPending.has(key)) continue;
         previewQueue.set(key, retry.asset);
@@ -122,24 +127,26 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     const bytes = dataUrl.length * 2;
     previewBytes -= (previews.get(key)?.length ?? 0) * 2;
     previews.delete(key);
-    while (previewBytes + bytes > MAX_PREVIEW_BYTES && previews.size) {
+    while (previewBytes + bytes > memoryCacheBudget("stickerPreviews") && previews.size) {
       const oldest = previews.keys().next().value!;
       previewBytes -= previews.get(oldest)!.length * 2;
       previews.delete(oldest);
     }
     previews.set(key, dataUrl);
     previewBytes += bytes;
+    previewTouchedAt = Date.now();
     return true;
   };
 
   const pumpPreviews = () => {
-    if (typeof document === "undefined") return;
+    if (typeof document === "undefined" || isMemoryBackground()) return;
     if (get().authorization.kind !== "ready") return;
     for (const [key, asset] of previewQueue) {
       const thumbnail = emojiAssetPreview(asset);
       const local = getCachedEmojiAsset(asset) ? asset : thumbnail && getCachedEmojiAsset(thumbnail) ? thumbnail : undefined;
       // Network waits never own a raster slot or prevent already-local stickers from preparing.
       if (!local && loadingPreviews >= 2) continue;
+      if (local && preparing + frameQueue.length >= 4) continue;
       if (!local && !thumbnail && (asset.mimeType === "application/x-tgsticker" || asset.mimeType === "video/webm") && loadingAnimationPreviews) continue;
       previewQueue.delete(key);
       const isCurrent = currentRequest();
@@ -151,7 +158,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
         for (const visual of candidates) {
           let ownsAnimationSlot = false;
           try {
-            if (!isCurrent() || signal.aborted) return;
+            if (!isCurrent() || signal.aborted || isMemoryBackground()) return;
             const animated = visual.mimeType === "application/x-tgsticker" || visual.mimeType === "video/webm";
             if (animated && !getCachedEmojiAsset(visual)) {
               if (loadingAnimationPreviews) continue;
@@ -159,7 +166,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
               ownsAnimationSlot = true;
             }
             const path = getCachedEmojiAsset(visual) ?? await transport.loadEmojiAsset({ ...visual, localPath: undefined }, animated ? 16 : FILE_PREVIEW_PRIORITY);
-            if (!isCurrent() || signal.aborted) return;
+            if (!isCurrent() || signal.aborted || isMemoryBackground()) return;
             if (!path) continue;
             remember(assetPaths, visual.fileId, path, MAX_ASSET_PATHS);
             const dataUrl = await prepareFrame(visual, path, signal);
@@ -173,13 +180,13 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
             if (!isCurrent() || signal.aborted) return;
             remember(assetPaths, visual.fileId, undefined, MAX_ASSET_PATHS);
           } finally {
-            if (ownsAnimationSlot && isCurrent()) loadingAnimationPreviews--;
+            if (ownsAnimationSlot && isCurrent() && !signal.aborted) loadingAnimationPreviews--;
           }
         }
         const failures = (previewRetries.get(key)?.failures ?? 0) + 1;
-        previewRetries.set(key, { asset, failures, notBefore: Date.now() + Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6)) });
+        remember(previewRetries, key, { asset, failures, notBefore: Date.now() + Math.min(60_000, 1_000 * 2 ** Math.min(failures - 1, 6)) }, 256);
       })().catch(() => undefined).finally(() => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || signal.aborted) return;
         if (!local) loadingPreviews--;
         previewPending.delete(key);
         pumpPreviews();
@@ -188,19 +195,22 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     }
   };
   const queuePreviews = (assets: EmojiPickerAsset[]) => {
+    if (isMemoryBackground()) return;
     for (const asset of assets) {
       if (asset.kind !== "sticker") continue;
       const key = previewKey(asset);
-      if (!previews.has(key) && !previewPending.has(key) && (previewRetries.get(key)?.notBefore ?? 0) <= Date.now()) previewQueue.set(key, asset);
+      if (!previews.has(key) && !previewPending.has(key) && (previewRetries.get(key)?.notBefore ?? 0) <= Date.now()) {
+        remember(previewQueue, key, asset, 256);
+      }
     }
     pumpPreviews();
   };
   const warmStickerSets = () => {
-    if (warmingSets || !catalog || get().authorization.kind !== "ready") return warmingSets;
+    if (warmingSets || !catalog || !canWarm() || isMemoryBackground() || get().authorization.kind !== "ready") return warmingSets;
     const isCurrent = currentRequest();
-    const ids = catalog.value.stickerSets.map(set => set.id);
+    const ids = catalog.value.stickerSets.slice(0, WARM_STICKER_SETS).map(set => set.id);
     const request = Promise.all(Array.from({ length: Math.min(2, ids.length) }, async () => {
-      while (ids.length && isCurrent()) {
+      while (ids.length && isCurrent() && !isMemoryBackground()) {
         const id = ids.shift()!;
         await loadStickerSet(id, true);
       }
@@ -239,6 +249,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
         return catalog?.value;
       }
       if (partial) value = { ...value, savedAnimations: catalog?.value.savedAnimations ?? [] };
+      if (value.stickerSets.some(set => "stickers" in set)) value = { ...value, stickerSets: value.stickerSets.map(summarizeSet) };
       catalog = { value, loadedAt: Date.now() };
       queuePreviews([...value.recentStickers, ...value.stickerSets.flatMap(set => set.covers)]);
       if (typeof document !== "undefined" && canWarm()) void warmStickerSets();
@@ -275,8 +286,8 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     if (catalog) {
       const sets = catalog.value.stickerSets;
       const next = value.isInstalled === false ? sets.filter((set) => set.id !== value.id)
-        : sets.some((set) => set.id === value.id) ? sets.map((set) => set.id === value.id ? value : set)
-        : value.isInstalled ? [...sets, value] : sets;
+        : sets.some((set) => set.id === value.id) ? sets.map((set) => set.id === value.id ? summarizeSet(value) : set)
+        : value.isInstalled ? [...sets, summarizeSet(value)] : sets;
       catalog = { ...catalog, value: { ...catalog.value, stickerSets: next } };
     }
     trimStickerSets();
@@ -353,7 +364,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     const request = transport.getStickerSet(id).then((value) => {
       if (!isCurrent()) return undefined;
       if (stickerSetRequests.get(id) !== request) return stickerSets.get(id)?.value;
-      // Installed sets stay available even when many other packs are previewed.
+      // The catalog retains all installed summaries; full packs are a bounded LRU.
       stickerSets.set(id, { value, loadedAt: Date.now() });
       trimStickerSets();
       queuePreviews([...value.covers, ...value.stickers]);
@@ -371,16 +382,56 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     return request;
   };
   const trimStickerSets = () => {
-    const installed = new Set(catalog?.value.stickerSets.map(set => set.id));
-    for (const [id, cached] of stickerSets) if (cached.value.isInstalled) installed.add(id);
-    const limit = Math.max(MAX_STICKER_SETS, installed.size);
+    const limit = isMemoryBackground() ? 4 : MAX_STICKER_SETS;
     for (const id of stickerSets.keys()) {
       if (stickerSets.size <= limit) break;
-      if (!installed.has(id)) stickerSets.delete(id);
+      stickerSets.delete(id);
     }
   };
 
+  const warm = () => {
+    if (!canWarm() || isMemoryBackground() || get().authorization.kind !== "ready") return;
+    if (catalog) queuePreviews([...catalog.value.recentStickers, ...catalog.value.stickerSets.flatMap(set => set.covers)]);
+    for (const cached of stickerSets.values()) queuePreviews(cached.value.stickers);
+    void loadEmojiPicker(true).then(() => warmStickerSets());
+    pumpPreviews();
+    schedulePreviewRetry();
+  };
+  const pausePreviews = () => {
+    previewAbort.abort();
+    previewAbort = new AbortController();
+    for (const task of frameQueue.splice(0)) task.cancel();
+    previewQueue.clear();
+    previewPending.clear();
+    previewRetries.clear();
+    preparing = 0;
+    loadingPreviews = 0;
+    loadingAnimationPreviews = 0;
+    if (previewRetryTimer !== undefined) clearTimeout(previewRetryTimer);
+    previewRetryTimer = undefined;
+  };
+
   return {
+    memoryCache: {
+      onBackgroundChanged: (hidden: boolean) => { if (hidden) pausePreviews(); else warm(); },
+      read: () => ({ entries: previews.size + stickerSets.size, bytes: previewBytes,
+        pending: previewQueue.size + previewPending.size + stickerSetRequests.size }),
+      trim: (idleBefore: number) => {
+        trimStickerSets();
+        if (previewTouchedAt <= idleBefore) { previews.clear(); previewBytes = 0; }
+        while (previewBytes > memoryCacheBudget("stickerPreviews") && previews.size) {
+          const key = previews.keys().next().value!;
+          previewBytes -= previews.get(key)!.length * 2;
+          previews.delete(key);
+        }
+        if (isMemoryBackground()) {
+          previewQueue.clear();
+          previewRetries.clear();
+          if (previewRetryTimer !== undefined) clearTimeout(previewRetryTimer);
+          previewRetryTimer = undefined;
+        }
+      },
+    },
     reset: () => {
       clearTgsAnimationCache();
       clearLocalAssetCache();
@@ -420,20 +471,22 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       emojiPickerPreviews: [...previews].map(([key, dataUrl]) => ({ key, dataUrl })),
     }),
     hydrate: (snapshot: PickerSnapshot) => {
-      if (!catalog && snapshot.emojiPickerCatalog) catalog = { value: snapshot.emojiPickerCatalog, loadedAt: -Infinity };
+      if (!catalog && snapshot.emojiPickerCatalog) catalog = { value: { ...snapshot.emojiPickerCatalog,
+        stickerSets: snapshot.emojiPickerCatalog.stickerSets.map(summarizeSet) }, loadedAt: -Infinity };
       for (const value of snapshot.emojiPickerSets ?? []) {
         if (!stickerSets.has(value.id)) stickerSets.set(value.id, { value, loadedAt: -Infinity });
       }
       for (const { key, dataUrl } of snapshot.emojiPickerPreviews ?? []) if (!previews.has(key)) rememberPreview(key, dataUrl);
+      trimStickerSets();
       notify();
     },
-    warm: () => {
-      if (!canWarm() || get().authorization.kind !== "ready") return;
-      if (catalog) queuePreviews([...catalog.value.recentStickers, ...catalog.value.stickerSets.flatMap(set => set.covers)]);
-      for (const cached of stickerSets.values()) queuePreviews(cached.value.stickers);
-      void loadEmojiPicker(true).then(() => warmStickerSets());
+    warm,
+    getCachedStickerPickerPreview: (asset: EmojiPickerAsset) => {
+      const key = previewKey(asset);
+      const value = read(previews, key);
+      if (value) previewTouchedAt = Date.now();
+      return value;
     },
-    getCachedStickerPickerPreview: (asset: EmojiPickerAsset) => previews.get(previewKey(asset)),
 
     updateFile,
     rememberStickerSet,

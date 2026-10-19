@@ -1,8 +1,9 @@
+import { memoryCacheBudget, registerMemoryCache } from "./memoryCacheBudget";
+
 type PreviewSurface = HTMLCanvasElement | SVGSVGElement;
-type Preview = { surface: PreviewSurface; bytes: number };
+type Preview = { surface: PreviewSurface; bytes: number; touchedAt: number };
 
 const MAX_ENTRIES = 256;
-const MAX_BYTES = 24 * 1024 * 1024;
 const MAX_SVG_BYTES = 2 * 1024 * 1024;
 const MAX_RASTER_EDGE = 384;
 const previews = new Map<string, Preview>();
@@ -15,14 +16,16 @@ export const hasMediaPreview = (source: string) => previews.has(source);
 
 export const forgetMediaPreview = (source: string) => {
   const previous = previews.get(source);
-  if (previous) bytes -= previous.bytes;
+  if (previous) {
+    bytes -= previous.bytes;
+    if (previous.surface instanceof HTMLCanvasElement) previous.surface.width = previous.surface.height = 0;
+  }
   previews.delete(source);
 };
 
 export const clearMediaPreviewCache = () => {
   generation++;
-  previews.clear();
-  bytes = 0;
+  for (const source of previews.keys()) forgetMediaPreview(source);
 };
 
 /** Keep only a bounded still frame, never a live player or its listeners. */
@@ -37,7 +40,7 @@ export const rememberMediaPreview = (
   if (media instanceof SVGSVGElement) {
     const estimatedBytes = media.outerHTML.length * 2 + media.querySelectorAll("*").length * 128;
     if (estimatedBytes > MAX_SVG_BYTES) return;
-    preview = { surface: media.cloneNode(true) as SVGSVGElement, bytes: estimatedBytes };
+    preview = { surface: media.cloneNode(true) as SVGSVGElement, bytes: estimatedBytes, touchedAt: Date.now() };
   } else {
     const image = media instanceof HTMLImageElement;
     const width = image ? media.naturalWidth : media.videoWidth;
@@ -53,12 +56,12 @@ export const rememberMediaPreview = (
       // Copy display pixels without encoding them or starting another decode.
       context.drawImage(media, 0, 0, canvas.width, canvas.height);
     } catch { return; }
-    preview = { surface: canvas, bytes: canvas.width * canvas.height * 4 };
+    preview = { surface: canvas, bytes: canvas.width * canvas.height * 4, touchedAt: Date.now() };
   }
   forgetMediaPreview(source);
   previews.set(source, preview);
   bytes += preview.bytes;
-  while (previews.size > MAX_ENTRIES || bytes > MAX_BYTES) {
+  while (previews.size > MAX_ENTRIES || bytes > memoryCacheBudget("mediaPreviews")) {
     forgetMediaPreview(previews.keys().next().value!);
   }
 };
@@ -66,6 +69,7 @@ export const rememberMediaPreview = (
 export const cloneMediaPreview = (source: string): PreviewSurface | undefined => {
   const preview = previews.get(source);
   if (!preview) return;
+  preview.touchedAt = Date.now();
   previews.delete(source);
   previews.set(source, preview);
   const clone = preview.surface.cloneNode(true) as PreviewSurface;
@@ -91,3 +95,12 @@ export const cloneMediaPreview = (source: string): PreviewSurface | undefined =>
   }
   return clone;
 };
+
+registerMemoryCache("mediaPreviews", {
+  read: () => ({ entries: previews.size, bytes }),
+  trim: idleBefore => {
+    for (const [source, preview] of previews) {
+      if (preview.touchedAt <= idleBefore || bytes > memoryCacheBudget("mediaPreviews")) forgetMediaPreview(source);
+    }
+  },
+});

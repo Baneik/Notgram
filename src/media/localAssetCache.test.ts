@@ -1,12 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearLocalAssetCache, getCachedLocalAsset, retainLocalAsset } from "./localAssetCache";
+import { readMemoryCacheUsage, setMemoryBackground, sweepMemoryCaches } from "./memoryCacheBudget";
 
 afterEach(() => {
   clearLocalAssetCache();
+  setMemoryBackground(false);
   vi.unstubAllGlobals();
 });
 
 describe("local asset cache", () => {
+  it("reclaims idle blobs after backgrounding while preserving a mounted owner's URL", async () => {
+    const revoke = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("sticker")));
+    vi.stubGlobal("URL", { createObjectURL: vi.fn().mockReturnValueOnce("blob:live").mockReturnValueOnce("blob:idle"), revokeObjectURL: revoke });
+    const live = retainLocalAsset("live"); const idle = retainLocalAsset("idle");
+    await Promise.all([live.promise, idle.promise]); idle.release();
+    setMemoryBackground(true); sweepMemoryCaches(Date.now() + 16_000);
+    expect(getCachedLocalAsset("live")).toBe("blob:live");
+    expect(getCachedLocalAsset("idle")).toBeUndefined();
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:idle");
+    live.release(); sweepMemoryCaches(Date.now() + 16_000);
+    expect(readMemoryCacheUsage().find(cache => cache.kind === "localAssets")?.bytes).toBe(0);
+  });
   it("downloads a native asset once and reuses its blob URL", async () => {
     const fetch = vi.fn(async () => new Response("sticker"));
     const createObjectURL = vi.fn(() => "blob:sticker");

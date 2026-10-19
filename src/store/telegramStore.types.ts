@@ -173,6 +173,7 @@ export interface TelegramState {
   groupManagementError?: string;
   blockedSenders: BlockedSender[];
   blockedSendersLoading: boolean;
+  registerMemoryCaches: () => () => void;
   initialize: (options?: {
     settingsOnly?: boolean;
     preserveAccountPending?: boolean;

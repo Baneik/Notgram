@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { createEmojiPickerController } from "./telegramStore.emoji";
 import { FileDownloadQueue } from "../telegram/fileDownloadQueue";
+import { registerMemoryCache, setMemoryBackground } from "../media/memoryCacheBudget";
 import type { TelegramTransport } from "../telegram/transport";
 import type { EmojiPickerAsset, EmojiPickerCatalog } from "../telegram/types";
 
@@ -8,7 +9,34 @@ const pixels = "data:image/webp;base64,AAAA";
 const sticker = (id: number): EmojiPickerAsset => ({ id: String(id), fileId: id, kind: "sticker", fileName: "sticker.webp" });
 const catalog = (assets: EmojiPickerAsset[]): EmojiPickerCatalog => ({ recentStickers: assets, stickerSets: [], savedAnimations: [] });
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { setMemoryBackground(false); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it("cancels hidden preparation and resumes without accepting stale pixels", async () => {
+  vi.useFakeTimers(); vi.stubGlobal("document", {});
+  const finish: Array<(value: string) => void> = [];
+  const prepare = vi.fn(() => new Promise<string>(resolve => finish.push(resolve)));
+  const assets = [1, 2, 3, 4, 5, 6].map(id => ({ ...sticker(id), localPath: `C:/${id}.webp` }));
+  const controller = createEmojiPickerController({
+    transport: { getEmojiPickerCatalog: async () => catalog(assets) } as unknown as TelegramTransport,
+    get: () => ({ authorization: { kind: "ready" }, activeAccountId: "audit" }),
+    set: () => undefined, onError: (_error, fallback) => fallback, preparePreview: prepare,
+  });
+  const unregister = registerMemoryCache("stickerPreviews", controller.memoryCache);
+  try {
+    await controller.loadEmojiPicker(); await flush();
+    expect(prepare).toHaveBeenCalledTimes(2);
+    setMemoryBackground(true);
+    finish.splice(0).forEach(resolve => resolve(pixels)); await flush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(controller.snapshot().emojiPickerPreviews).toEqual([]);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(controller.memoryCache.read().pending).toBe(0);
+    setMemoryBackground(false); await flush();
+    expect(prepare).toHaveBeenCalledTimes(4);
+    finish.splice(0).forEach(resolve => resolve(pixels)); await flush();
+    expect(controller.snapshot().emojiPickerPreviews).toHaveLength(2);
+  } finally { unregister(); controller.reset(); }
+});
 
 it("prepares local pixels and starts small sticker downloads while archive prefetches are stalled", async () => {
   vi.useFakeTimers(); vi.stubGlobal("document", {});

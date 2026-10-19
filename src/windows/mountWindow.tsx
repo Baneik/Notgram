@@ -5,12 +5,15 @@ import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import { installPerformanceMonitoring } from "../utils/performanceMonitor";
 import { installWebviewGuards } from "../utils/webviewGuards";
+import { installMemoryManagement } from "../media/memoryLifecycle";
 import emojiFontLicense from "../assets/fonts/noto-color-emoji/OFL.txt?url&no-inline";
 import "../styles/themes.css";
 import "../styles/global.css";
 
 installWebviewGuards();
 installPerformanceMonitoring();
+const stopMemoryManagement = installMemoryManagement();
+if (import.meta.hot) import.meta.hot.dispose(stopMemoryManagement);
 
 const fontLicense = document.createElement("link");
 fontLicense.rel = "license";

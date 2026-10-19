@@ -97,6 +97,7 @@ pub struct PastedUploadReplyQuote {
     position: i32,
 }
 const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
+    "ui_memory_usage",
     "ui_history_data",
     "ui_history_cache_confirmation",
     "ui_history_merge",
@@ -131,6 +132,12 @@ const ALLOWED_PERFORMANCE_EVENTS: &[&str] = &[
     "video_window_open_started",
 ];
 const ALLOWED_PERFORMANCE_DETAIL_FIELDS: &[&str] = &[
+    "cacheBytes",
+    "activeCacheBytes",
+    "cacheEntryCount",
+    "heapBytes",
+    "pendingCount",
+    "background",
     "addedCount",
     "afterCount",
     "averageFrameGapMs",

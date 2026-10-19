@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canWarmViewerImage, clearViewerImages, hasViewerImage, retainViewerImage } from "./viewerImages";
+import { setMemoryBackground, sweepMemoryCaches } from "./memoryCacheBudget";
 
 vi.mock("../utils/performanceMonitor", () => ({ logPerformance: vi.fn() }));
 
@@ -20,7 +21,7 @@ class TestImage {
 }
 
 beforeEach(() => { TestImage.created = []; vi.stubGlobal("Image", TestImage); });
-afterEach(() => { clearViewerImages(); vi.unstubAllGlobals(); });
+afterEach(() => { clearViewerImages(); setMemoryBackground(false); vi.unstubAllGlobals(); });
 const loaded = async (source: string, width = 1000, height = width) => {
   const retained = retainViewerImage(source);
   const image = retained.image as unknown as TestImage;
@@ -31,6 +32,14 @@ const loaded = async (source: string, width = 1000, height = width) => {
 };
 
 describe("viewer decoded image ownership", () => {
+  it("releases idle originals in the background and retains a displayed owner", async () => {
+    const live = await loaded("live"); const idle = await loaded("idle"); idle.release();
+    setMemoryBackground(true); sweepMemoryCaches();
+    expect(hasViewerImage("live")).toBe(true);
+    expect(hasViewerImage("idle")).toBe(false);
+    live.release(); await Promise.resolve();
+    expect(hasViewerImage("live")).toBe(false);
+  });
   it("reuses the decoded node without a new request or decode", async () => {
     const first = await loaded("photo");
     first.release(); await Promise.resolve();
@@ -64,9 +73,11 @@ describe("viewer decoded image ownership", () => {
   it("does not warm neighbors that cannot fit alongside the live original", async () => {
     const active = await loaded("large", 8000, 5333);
     expect(canWarmViewerImage(3931, 2894)).toBe(false);
-    expect(canWarmViewerImage(1000, 1000)).toBe(true);
+    expect(canWarmViewerImage(1000, 1000)).toBe(false);
     expect(canWarmViewerImage()).toBe(false);
     active.release();
+    await Promise.resolve();
+    expect(canWarmViewerImage(1000, 1000)).toBe(true);
   });
 
   it("cancels ownerless pending work but shares a StrictMode reacquisition", async () => {
