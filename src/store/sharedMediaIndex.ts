@@ -13,6 +13,7 @@ const MAX_MESSAGES_PER_ENTRY = 5_000;
 interface SharedMediaCacheEntry extends SharedMediaPage {
   cachedAt: number;
   bytes: number;
+  fromStart: boolean;
 }
 
 const cacheKey = (chatId: string, category: SharedMediaCategory, query = "") =>
@@ -62,7 +63,7 @@ export class SharedMediaIndex {
     this.prune(now);
     const key = cacheKey(input.chatId, input.category, input.query);
     const entry = this.entries.get(key);
-    if (!entry || now - entry.cachedAt > this.ttlMs) return undefined;
+    if (!entry || !entry.fromStart || now - entry.cachedAt > this.ttlMs) return undefined;
     this.entries.delete(key);
     this.entries.set(key, entry);
     return { ...entry, messages: structuredClone(entry.messages.filter((message) => !messageExpired(message, now))), cached: true } satisfies SharedMediaPage;
@@ -79,18 +80,23 @@ export class SharedMediaIndex {
       // when local capacity trimmed older rows.
       messages,
       totalCount: page.totalCount ?? current?.totalCount,
-      nextFromMessageId: page.nextFromMessageId,
+      nextFromMessageId: mergedMessages.length > messages.length ? messages.at(-1)?.id : page.nextFromMessageId,
       hasMore: page.hasMore || mergedMessages.length > messages.length,
       cachedAt: now,
       // An estimate of retained message data; decoded media belongs to other caches.
       bytes: JSON.stringify(messages).length * 2,
+      fromStart: reset || current?.fromStart === true,
     };
     this.forget(key);
     this.entries.set(key, entry);
     this.bytes += entry.bytes;
     this.messageCount += entry.messages.length;
     this.prune(now);
-    return { ...entry, messages: structuredClone(entry.messages.filter((message) => !messageExpired(message, now))), cached: false } satisfies SharedMediaPage;
+    // The active browser owns the fetched rows independently of the smaller
+    // reusable cache. Its server cursor must still describe this actual page.
+    return { messages: structuredClone(mergedMessages.filter((message) => !messageExpired(message, now))),
+      totalCount: entry.totalCount, nextFromMessageId: page.nextFromMessageId,
+      hasMore: page.hasMore, cached: false } satisfies SharedMediaPage;
   }
 
   remove(chatId: string, messageIds: string[]) {

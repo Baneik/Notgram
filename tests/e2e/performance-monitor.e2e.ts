@@ -27,6 +27,7 @@ test("the timeline separates trace timestamps, dropped-log counts and measured d
     monitor.logPerformance("ui_performance_log_drop", { droppedCount: 91 });
     monitor.logPerformance("ui_message_projection", { durationMs: 0.1 });
     monitor.logPerformance("ui_history_merge", { durationMs: 120 });
+    monitor.logPerformance("ui_memory_usage", { cacheBytes: 16 * 1024 * 1024, heapBytes: 128 * 1024 * 1024, cacheEntryCount: 64, background: false });
   });
 
   const trace = page.locator(".performance-entry").filter({ hasText: "滚动定位" }).first();
@@ -46,6 +47,12 @@ test("the timeline separates trace timestamps, dropped-log counts and measured d
   const projection = page.locator(".performance-entry").filter({ hasText: "消息投影" });
   await expect(projection.locator(".performance-entry-duration")).toHaveText("0.1 ms");
   await expect(projection).toHaveClass(/severity-normal/);
+  const memory = page.locator(".performance-entry").filter({ hasText: "内存与缓存" });
+  await expect(memory).toHaveClass(/severity-normal/);
+  await expect(memory.locator(".performance-entry-duration")).toHaveText("--");
+  await memory.locator("button").click();
+  await expect(memory.locator(".performance-entry-details")).toContainText("16.0 MiB");
+  await expect(memory.locator(".performance-entry-details")).toContainText("128.0 MiB");
 });
 
 test("monitoring stays disabled after settings remount and application reload, then resumes explicitly", async ({ page }) => {

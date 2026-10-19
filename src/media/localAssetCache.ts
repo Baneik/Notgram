@@ -19,7 +19,11 @@ const trimCache = (idleBefore = -Infinity) => {
   for (const [source, entry] of entries) {
     const overBudget = entries.size > MAX_ENTRIES || cachedBytes > memoryCacheBudget("localAssets");
     // Live video players may still seek through their URL. Evict only idle data.
-    if (entry.users > 0 || !entry.objectUrl) continue;
+    if (entry.users > 0) continue;
+    if (!entry.objectUrl) {
+      if (entry.touchedAt <= idleBefore) { entries.delete(source); entry.controller.abort(); }
+      continue;
+    }
     if (!overBudget && entry.touchedAt > idleBefore) continue;
     entries.delete(source);
     cachedBytes -= entry.bytes;

@@ -2,6 +2,42 @@ import { expect, test } from "@playwright/test";
 import type { ChatProfile } from "../../src/telegram/types";
 import { horizontalOverflow, revealVirtualMessage, chooseMessageMenuItem } from "./helpers";
 
+for (const width of [1366, 390]) test(`shared media keeps loaded rows after idle cache eviction at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto("/");
+  if (width < 768) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const { SharedMediaIndex } = await import("/src/store/sharedMediaIndex.ts" as string) as typeof import("../../src/store/sharedMediaIndex");
+    const { registerMemoryCache } = await import("/src/media/memoryCacheBudget.ts" as string);
+    const index = new SharedMediaIndex();
+    registerMemoryCache("sharedMedia", index.memoryCache);
+    const base = telegramStore.getState().messages.get("chat-product")!.find(row => row.content.kind === "file")!;
+    const rows = Array.from({ length: 80 }, (_, i) => ({ ...base, id: `memory-${i}`,
+      sentAt: new Date(Date.now() - i * 1000).toISOString(),
+      content: { ...base.content, fileName: `memory-file-${i}.txt` } }));
+    telegramStore.setState({ loadSharedMedia: async input => {
+      if (input.category !== "file") return { messages: [], hasMore: false };
+      const offset = input.fromMessageId ? 40 : 0;
+      return index.merge(input, { messages: rows.slice(offset, offset + 40), hasMore: !offset, nextFromMessageId: offset ? undefined : "memory-39" }, !offset);
+    } });
+  });
+  await page.getByRole("button", { name: "查看 产品讨论 资料" }).click();
+  const profile = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "资料", exact: true }) });
+  await profile.getByRole("button", { name: "共享媒体" }).click();
+  await profile.locator('.shared-media-tabs [role="tab"]').nth(1).click();
+  await expect(profile.locator(".shared-media-item")).toHaveCount(40);
+  await page.evaluate(async () => {
+    const { sweepMemoryCaches } = await import("/src/media/memoryCacheBudget.ts" as string);
+    sweepMemoryCaches(Date.now() + 130_000);
+  });
+  await profile.getByRole("button", { name: "加载更多", exact: true }).click();
+  await expect(profile.locator(".shared-media-item")).toHaveCount(80);
+  await expect(profile.getByLabel("选择 memory-0", { exact: true })).toHaveCount(1);
+  await expect(profile.getByLabel("选择 memory-79", { exact: true })).toHaveCount(1);
+});
+
 test("search paginates, filters the current conversation by member, and opens exact messages", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("searchbox")).toHaveCount(1);

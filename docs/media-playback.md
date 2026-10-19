@@ -140,8 +140,13 @@ previews and original image owners stay valid until released. Budgets in MiB
 8/2, serialized TGS 8/2, picker previews 8/2 and viewer originals 64/0.
 Shared-media search caches retain at most 5,000 messages globally and an estimated
 8/2 MiB; the open browser owns its rows and merges subsequent pages even if the
-search cache was evicted. These estimates omit browser internals and are not
-process working-set limits. Paused TGS players are destroyed after 15 seconds
+search cache was evicted. A continuation whose prefix was evicted cannot be
+reused as a first page. Capped reusable results keep their own oldest-row cursor;
+the open browser retains all fetched rows with the actual server-page cursor.
+These estimates omit browser internals and are not process working-set limits.
+Prepared picker preview strings expire by budget rather than idle age so offline
+picker use and snapshot persistence do not depend on keeping original files.
+Paused TGS players are destroyed after 15 seconds
 out of view and restore through the shared still frame on return.
 
 Windows WebViews request `MemoryUsageTargetLevel` LOW while hidden or minimized,

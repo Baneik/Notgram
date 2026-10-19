@@ -72,7 +72,6 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   const outlines = new Map<number, CachedValue<string>>();
   const outlineRequests = new Map<number, Promise<string | undefined>>();
   const previews = new Map<string, string>();
-  let previewTouchedAt = Date.now();
   let previewBytes = 0;
   let previewAbort = new AbortController();
   const previewQueue = new Map<string, EmojiPickerAsset>();
@@ -134,7 +133,6 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     }
     previews.set(key, dataUrl);
     previewBytes += bytes;
-    previewTouchedAt = Date.now();
     return true;
   };
 
@@ -416,9 +414,8 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       onBackgroundChanged: (hidden: boolean) => { if (hidden) pausePreviews(); else warm(); },
       read: () => ({ entries: previews.size + stickerSets.size, bytes: previewBytes,
         pending: previewQueue.size + previewPending.size + stickerSetRequests.size }),
-      trim: (idleBefore: number) => {
+      trim: (_idleBefore: number) => {
         trimStickerSets();
-        if (previewTouchedAt <= idleBefore) { previews.clear(); previewBytes = 0; }
         while (previewBytes > memoryCacheBudget("stickerPreviews") && previews.size) {
           const key = previews.keys().next().value!;
           previewBytes -= previews.get(key)!.length * 2;
@@ -484,7 +481,6 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     getCachedStickerPickerPreview: (asset: EmojiPickerAsset) => {
       const key = previewKey(asset);
       const value = read(previews, key);
-      if (value) previewTouchedAt = Date.now();
       return value;
     },
 

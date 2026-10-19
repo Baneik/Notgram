@@ -14,6 +14,30 @@ const message = (id: string, sentAt: string): Message => ({
 });
 
 describe("SharedMediaIndex", () => {
+  it("does not publish a continuation after eviction as a cached first page", () => {
+    const index = new SharedMediaIndex();
+    const input = { chatId: "7", category: "media" as const };
+    index.merge(input, { messages: [message("2", "2026-01-02")], hasMore: true, nextFromMessageId: "2" }, true);
+    index.clear();
+    const page = index.merge({ ...input, fromMessageId: "2" }, { messages: [message("1", "2026-01-01")], hasMore: false }, false);
+    expect(page.messages.map(row => row.id)).toEqual(["1"]);
+    expect(page.hasMore).toBe(false);
+    expect(index.read(input)).toBeUndefined();
+  });
+
+  it("keeps fetched rows for the active browser and resumes a capped cache from its own boundary", () => {
+    const index = new SharedMediaIndex();
+    const input = { chatId: "7", category: "media" as const };
+    const rows = Array.from({ length: 5040 }, (_, id) => message(String(5040 - id), new Date(1_700_000_000_000 - id * 1000).toISOString()));
+    index.merge(input, { messages: rows.slice(0, 5000), hasMore: true, nextFromMessageId: rows[4999].id }, true);
+    const page = index.merge({ ...input, fromMessageId: rows[4999].id }, { messages: rows.slice(5000), hasMore: false }, false);
+    expect(page.messages).toHaveLength(5040);
+    expect(page.hasMore).toBe(false);
+    const cached = index.read(input)!;
+    expect(cached.messages).toHaveLength(5000);
+    expect(cached.hasMore).toBe(true);
+    expect(cached.nextFromMessageId).toBe(rows[4999].id);
+  });
   it("enforces aggregate bytes and reclaims idle entries without another read", () => {
     const index = new SharedMediaIndex();
     const large = { ...message("large", "2026-01-01"), content: { kind: "text" as const, text: "x".repeat(700_000) } };

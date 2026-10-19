@@ -9,6 +9,20 @@ afterEach(() => {
 });
 
 describe("local asset cache", () => {
+  it("cancels ownerless stalled reads on idle reclamation without accepting their late response", async () => {
+    let finish!: (value: Response) => void;
+    let signal!: AbortSignal;
+    vi.stubGlobal("fetch", vi.fn((_source, options) => { signal = options.signal; return new Promise<Response>(resolve => { finish = resolve; }); }));
+    const createObjectURL = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
+    const stalled = retainLocalAsset("stalled");
+    const rejected = expect(stalled.promise).rejects.toThrow("cleared");
+    stalled.release();
+    sweepMemoryCaches(Date.now() + 121_000);
+    expect(signal.aborted).toBe(true);
+    finish(new Response("late")); await rejected;
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
   it("reclaims idle blobs after backgrounding while preserving a mounted owner's URL", async () => {
     const revoke = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async () => new Response("sticker")));
