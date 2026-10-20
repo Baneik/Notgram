@@ -70,7 +70,7 @@ import {
   reconcileComposerMentionEntities,
   trimComposerFormattedText,
 } from "../utils/composerMentions";
-import { messageSummary } from "./conversationMessages";
+import { replySummary } from "./conversationMessages";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { EmojiPicker } from "./EmojiPicker";
 import { MotionPresence } from "./MotionPresence";
@@ -1349,9 +1349,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 <> <span className={`composer-context-subject ${contextSubjectIsAdministrator ? "is-administrator" : ""}`.trim()}>{contextSubject}</span></>
               ) : null}
             </strong>
-            <small>{editingMessage
-              ? messageSummary(composerContextMessage.content)
-              : activeReplyQuote?.text ?? messageSummary(composerContextMessage.content)}</small>
+            <small>{replySummary(composerContextMessage.content, editingMessage ? undefined : activeReplyQuote?.text)}</small>
           </span>
           <button
             className="icon-button"

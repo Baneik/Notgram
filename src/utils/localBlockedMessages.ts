@@ -1,4 +1,5 @@
 import type { Message } from "../telegram/types";
+import { replyTargetMessage } from "../telegram/messageReplyTarget";
 
 export const isLocalHiddenMessage = (
   message: Pick<Message, "senderId" | "outgoing">,
@@ -43,9 +44,7 @@ export const replySenderId = (
   messagesById: ReadonlyMap<string, Message>,
 ) => {
   if (!message.replyTo || message.replyTo.kind !== "message") return undefined;
-  const target = message.replyTo.messageId
-    ? messagesById.get(message.replyTo.messageId)
-    : undefined;
+  const target = replyTargetMessage(message, messagesById);
   const origin = message.replyTo.origin;
   return target?.senderId ?? message.replyTo.senderId ?? (origin?.kind === "user" ? origin.userId : undefined);
 };

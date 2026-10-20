@@ -56,6 +56,7 @@ export const messageFromOutbox = (
           kind: "media",
           mediaType: asset.kind === "sticker" ? "sticker" : "animation",
           fileName: asset.fileName,
+          stickerEmoji: asset.kind === "sticker" ? asset.emoji : undefined,
           sizeLabel: "",
           fileId: asset.fileId,
           remoteId: asset.remoteId,

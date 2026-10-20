@@ -1,6 +1,7 @@
 import { translate } from "../i18n";
 import type { Chat, Message, MessageContent, User } from "../telegram/types";
-import { messageContentText } from "../telegram/messageContent";
+import { messageContentText, messageReplyText } from "../telegram/messageContent";
+import { replyTargetMessage } from "../telegram/messageReplyTarget";
 
 export type SenderChat = Pick<Chat, "title" | "avatar">;
 
@@ -144,13 +145,11 @@ export const replyPreviewFor = (
   if (message.replyTo.kind === "story") {
     return { author: translate("动态"), text: translate("回复了一条动态") };
   }
-  const target = message.replyTo.messageId
-    ? messagesById.get(message.replyTo.messageId)
-    : undefined;
+  const target = replyTargetMessage(message, messagesById);
   if (target) {
     return {
       author: senderNameForMessage(target, users, chat, chats),
-      text: message.replyTo.quote || messageSummary(target.content),
+      text: replySummary(target.content, message.replyTo.quote),
       chatId: target.chatId,
       messageId: target.id,
       isCurrentUser: target.outgoing,
@@ -173,8 +172,7 @@ export const replyPreviewFor = (
         : undefined;
   return {
     author: hydratedAuthor || originAuthor || (message.replyTo.outgoing ? translate("你") : translate("回复消息")),
-    text: message.replyTo.quote ||
-      (message.replyTo.content ? messageSummary(message.replyTo.content) : translate("原消息不可用")),
+    text: replySummary(message.replyTo.content, message.replyTo.quote),
     chatId: message.replyTo.chatId ?? message.chatId,
     messageId: message.replyTo.messageId,
     isCurrentUser: message.replyTo.senderId === currentUserId ||
@@ -187,6 +185,11 @@ export const messageSummary = (content: MessageContent) => {
   const raw = messageContentText(content);
   const normalized = raw.replace(/\s+/g, " ").trim();
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
+};
+
+export const replySummary = (content?: MessageContent, quote?: string) => {
+  const raw = quote?.trim() || (content ? messageReplyText(content) : translate("原消息不可用"));
+  return raw.replace(/\s+/g, " ").trim();
 };
 
 export const serviceTargetSummary = (

@@ -29,7 +29,7 @@ import type {
   SponsoredMessage,
   User,
 } from "./types";
-import { messagePreviewText } from "./messageContent";
+import { messagePreviewText, richBlockText, richRunsText } from "./messageContent";
 import { deriveChatManagementCapabilitiesFromTd } from "./chatManagement";
 import { parseTdlibRemoteFileDataCenter } from "./fileDataCenter";
 import { sanitizeIdentityText } from "./identityText";
@@ -385,6 +385,7 @@ const fileContent = (
   fileName: string,
   file: unknown,
   options: {
+    fileNameIsGenerated?: boolean;
     caption?: string;
     captionEntities?: MessageTextEntity[];
     mimeType?: string;
@@ -415,6 +416,9 @@ const mediaContent = (
   options: {
     title?: string;
     performer?: string;
+    isDocument?: boolean;
+    fileNameIsGenerated?: boolean;
+    stickerEmoji?: string;
     caption?: string;
     captionEntities?: MessageTextEntity[];
     mimeType?: string;
@@ -590,8 +594,6 @@ const richTextRuns = (
       return [];
   }
 };
-
-const richRunsText = (runs: MessageRichTextRun[]) => runs.map(({ text }) => text).join("");
 
 const captionRuns = (value: unknown) => {
   const caption = richCaption(value);
@@ -953,53 +955,10 @@ const pageBlock = (block: TdObject, depth = 0): MessageRichBlock[] => {
   }
 };
 
-const richBlockText = (block: MessageRichBlock): string[] => {
-  switch (block.kind) {
-    case "heading":
-    case "paragraph":
-    case "preformatted":
-    case "footer":
-    case "thinking":
-      return [richRunsText(block.text)];
-    case "mathematicalExpression":
-      return [block.expression];
-    case "anchor":
-      return [];
-    case "list":
-      return block.items.flatMap((item) => item.blocks.flatMap(richBlockText));
-    case "quote":
-      return [
-        ...block.blocks.flatMap(richBlockText),
-        ...(block.credit ? [richRunsText(block.credit)] : []),
-      ];
-    case "details":
-      return [richRunsText(block.summary), ...block.blocks.flatMap(richBlockText)];
-    case "table":
-      return [
-        ...(block.caption ? [richRunsText(block.caption)] : []),
-        ...block.rows.flatMap((row) => row.map((cell) => richRunsText(cell.text))),
-      ];
-    case "media":
-      return [
-        ...(block.media.caption ? [richRunsText(block.media.caption.text)] : []),
-        block.media.fileName,
-      ];
-    case "collection":
-      return [
-        ...block.blocks.flatMap(richBlockText),
-        ...(block.caption ? [richRunsText(block.caption.text)] : []),
-      ];
-    case "map":
-      return block.caption ? [richRunsText(block.caption.text)] : [translate("位置")];
-    case "divider":
-      return [];
-  }
-};
-
 const richMessageContent = (value: unknown): MessageContent => {
   const message = asTdObject(asTdObject(value)?.message);
   let blocks = pageBlocks(message?.blocks);
-  let text = blocks.flatMap(richBlockText).filter(Boolean).join("\n").trim();
+  let text = blocks.flatMap(block => richBlockText(block)).filter(Boolean).join("\n").trim();
   if (!text) text = translate("富文本消息");
   if (blocks.length === 0) blocks = paragraph([{ text }]);
   return {
@@ -1044,6 +1003,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const minithumbnail = asTdObject(document?.minithumbnail);
       const options = {
         ...formattedCaption(content.caption),
+        fileNameIsGenerated: !(typeof document?.file_name === "string" && document.file_name.trim()),
         mimeType,
         ...thumbnailDetails(document?.thumbnail),
         includePendingUpload,
@@ -1051,6 +1011,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       if (isDisplayableImageDocument(fileName, mimeType)) {
         return mediaContent("photo", fileName, document?.document, {
           ...options,
+          isDocument: true,
           previewDataUrl: minithumbnailDataUrl(document?.minithumbnail),
           width: tdNumber(thumbnail?.width) ?? tdNumber(minithumbnail?.width),
           height: tdNumber(thumbnail?.height) ?? tdNumber(minithumbnail?.height),
@@ -1148,6 +1109,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
           ...formattedCaption(content.caption),
           title: typeof audio?.title === "string" ? audio.title.trim() || undefined : undefined,
           performer: typeof audio?.performer === "string" ? audio.performer.trim() || undefined : undefined,
+          fileNameIsGenerated: !(typeof audio?.file_name === "string" && audio.file_name.trim()),
           mimeType: typeof audio?.mime_type === "string" ? audio.mime_type : undefined,
           thumbnailPath: thumbnailPath(audio?.album_cover_thumbnail),
           duration: tdNumber(audio?.duration),
@@ -1187,6 +1149,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       const sticker = asTdObject(content.sticker);
       const emoji = typeof sticker?.emoji === "string" ? sticker.emoji : "";
       return mediaContent("sticker", emoji || translate("贴纸"), sticker?.sticker, {
+        stickerEmoji: emoji || undefined,
         ...thumbnailDetails(sticker?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
         mimeType: tdStickerMimeType(sticker?.format),
@@ -1202,17 +1165,17 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         .filter((part): part is string => typeof part === "string" && Boolean(part.trim()))
         .join(" ");
       const phone = typeof contact?.phone_number === "string" ? contact.phone_number : "";
-      return { kind: "text", text: [translate("联系人"), name, phone].filter(Boolean).join(" · ") };
+      return { kind: "text", text: [translate("联系人"), name, phone].filter(Boolean).join(" · "), mediaPreview: { type: "contact" } };
     }
     case "messageLocation":
-      return { kind: "text", text: translate("位置") };
+      return { kind: "text", text: translate("位置"), mediaPreview: { type: "location" } };
     case "messageLiveLocation":
-      return { kind: "text", text: translate("实时位置") };
+      return { kind: "text", text: translate("实时位置"), mediaPreview: { type: "liveLocation" } };
     case "messageVenue": {
       const venue = asTdObject(content.venue);
       const title = typeof venue?.title === "string" ? venue.title : "";
       const address = typeof venue?.address === "string" ? venue.address : "";
-      return { kind: "text", text: [translate("地点"), title, address].filter(Boolean).join(" · ") };
+      return { kind: "text", text: [translate("地点"), title, address].filter(Boolean).join(" · "), mediaPreview: { type: "venue", title } };
     }
     case "messagePoll": {
       const poll = asTdObject(content.poll);
@@ -1259,7 +1222,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     case "messageDice": {
       const emoji = typeof content.emoji === "string" && content.emoji ? content.emoji : "🎲";
       const value = tdNumber(content.value);
-      return { kind: "text", text: value === undefined ? emoji : `${emoji} ${value}` };
+      return { kind: "text", text: value === undefined ? emoji : `${emoji} ${value}`, mediaPreview: { type: "dice", emoji } };
     }
     case "messageAnimatedEmoji": {
       const animatedEmoji = asTdObject(content.animated_emoji);
@@ -1272,6 +1235,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
       // TDLib includes the full animated sticker here. Keep it as media so
       // the normal TGS/WebM download and renderer can play the large emoji.
       return mediaContent("sticker", emoji, sticker?.sticker, {
+        stickerEmoji: emoji,
         mimeType: tdStickerMimeType(format),
         ...thumbnailDetails(sticker?.thumbnail),
         previewDataUrl: minithumbnailDataUrl(sticker?.minithumbnail),
@@ -1282,20 +1246,20 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
     }
     case "messageGame": {
       const game = asTdObject(content.game);
-      return { kind: "text", text: labeledText(translate("游戏"), game?.title) };
+      return { kind: "text", text: labeledText(translate("游戏"), game?.title), mediaPreview: { type: "game", title: textValue(game?.title) } };
     }
     case "messageInvoice":
-      return { kind: "text", text: labeledText(translate("账单"), content.title) };
+      return { kind: "text", text: labeledText(translate("账单"), content.title), mediaPreview: { type: "invoice", title: textValue(content.title) } };
     case "messageChecklist": {
       const checklist = asTdObject(content.checklist);
-      return { kind: "text", text: labeledText(translate("清单"), checklist?.title) };
+      return { kind: "text", text: labeledText(translate("清单"), checklist?.title), mediaPreview: { type: "checklist", title: textValue(checklist?.title) } };
     }
     case "messagePaidMedia": {
       const caption = formattedText(content.caption);
-      return { kind: "text", text: caption ? translate("付费媒体：{{value0}}", { value0: caption }) : translate("付费媒体") };
+      return { kind: "text", text: caption ? translate("付费媒体：{{value0}}", { value0: caption }) : translate("付费媒体"), mediaPreview: { type: "paidMedia", title: caption } };
     }
     case "messageStory":
-      return { kind: "text", text: translate("故事") };
+      return { kind: "text", text: translate("故事"), mediaPreview: { type: "story" } };
     default: {
       const type = typeof content?.["@type"] === "string" ? content["@type"] : "unknown";
       return unsupportedContent(value, type);

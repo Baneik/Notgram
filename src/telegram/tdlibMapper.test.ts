@@ -1189,7 +1189,7 @@ describe("TDLib mapper", () => {
     expect(mapTdMessageContent({
       "@type": "messageContact",
       contact: { first_name: "Mia", last_name: "Chen", phone_number: "+123" },
-    })).toEqual({ kind: "text", text: "联系人 · Mia Chen · +123" });
+    })).toEqual({ kind: "text", text: "联系人 · Mia Chen · +123", mediaPreview: { type: "contact" } });
     expect(mapTdMessageContent({
       "@type": "messagePoll",
       poll: { question: { "@type": "formattedText", text: "午餐吃什么？" } },
@@ -1214,7 +1214,7 @@ describe("TDLib mapper", () => {
       "@type": "messageDice",
       emoji: "🎲",
       value: 6,
-    })).toEqual({ kind: "text", text: "🎲 6" });
+    })).toEqual({ kind: "text", text: "🎲 6", mediaPreview: { type: "dice", emoji: "🎲" } });
   });
 
   it("maps rich message headings, nested formatting, lists, and quotes", () => {

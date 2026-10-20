@@ -1,4 +1,6 @@
 export const en = {
+  "{{value0}}，{{value1}}": "{{value0}}, {{value1}}",
+  "{{value0}} 贴纸": "{{value0}} Sticker",
   "内存与缓存": "Memory and caches",
   "缓存估算占用": "Estimated cache memory",
   "使用中的缓存": "Active cache memory",

@@ -2815,6 +2815,7 @@ export class MockTelegramTransport implements TelegramTransport {
         fileId: input.asset.fileId,
         stickerSetId: mediaType === "sticker" ? input.asset.stickerSetId : undefined,
         fileName: input.asset.fileName,
+        stickerEmoji: mediaType === "sticker" ? input.asset.emoji : undefined,
         sizeLabel: mediaType === "sticker" ? "贴纸" : "GIF",
         mimeType: input.asset.mimeType,
         previewDataUrl: input.asset.previewDataUrl,

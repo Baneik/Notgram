@@ -1,6 +1,8 @@
 import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
+  "{{value0}}，{{value1}}": "{{value0}}、{{value1}}",
+  "{{value0}} 贴纸": "{{value0}} ステッカー",
   "内存与缓存": "メモリとキャッシュ",
   "缓存估算占用": "キャッシュの推定メモリ",
   "使用中的缓存": "使用中のキャッシュ",

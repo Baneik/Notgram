@@ -3,6 +3,34 @@
 This document defines the ownership and completion rules for conversation switching and message
 viewport positioning. It is a contract for future changes, not a description of one incident.
 
+## Reply content and identity
+
+Reply bubbles and the composer reply/edit header share `messageReplyText` and `replySummary`.
+Their text follows Telegram Desktop v7.3.1's `HistoryItem::inReplyText`, `Media::toPreview`
+and song-name rules: photos/video/voice/video notes use type labels, animations use GIF,
+stickers include their emoji, songs use performer/title with file-name fallback, and documents
+keep their file names. Nonblank captions accompany the type/name. An image document keeps
+its document identity even when the timeline renders it as a photo. Download names, the full
+message text, clipboard text and chat-list summaries remain separate concerns.
+
+The mapper preserves semantic preview metadata for content displayed as plain text (contact,
+location, venue, dice, game, invoice, checklist, paid-media fallback and story). Reply formatting
+must use that metadata instead of guessing from localized text or file-name extensions. Legacy
+snapshots without this metadata retain a conservative fallback until TDLib refreshes them;
+sticker emoji stored in a legacy file-name field may be recovered only when it is an emoji.
+Explicit nonblank quotes override automatic summaries. Normalize whitespace for the single-line
+header, preserve its full text and let CSS elide it rather than cutting UTF-16 at a fixed length.
+
+A reply target is identified by `(chatId, messageId)`. Both preview/navigation and local hiding
+must reject a same-ID candidate from another chat and fall back to the embedded reply content
+and sender. Do not let history loading, cache eviction or a cross-chat ID collision change the
+meaning of the reply.
+
+Reference behavior: [reply header](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/history/view/history_view_reply.cpp),
+[composer header](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/history/view/controls/history_view_compose_controls.cpp),
+[media previews](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/data/data_media_types.cpp),
+[song names](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/ui/text/format_song_name.cpp).
+
 ## Evidence from the db808d7 artifact
 
 The portable artifact used for the `16fd66a` state-model analysis was built from clean commit

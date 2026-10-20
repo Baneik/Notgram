@@ -824,6 +824,10 @@ export type MessageRichBlock =
 
 interface TransferableMessageContent {
   fileName: string;
+  /** Image documents keep document naming even when rendered as photos. */
+  isDocument?: boolean;
+  fileNameIsGenerated?: boolean;
+  stickerEmoji?: string;
   title?: string;
   performer?: string;
   sizeLabel: string;
@@ -859,8 +863,13 @@ interface TransferableMessageContent {
   hasSpoiler?: boolean;
 }
 
+export type MessageTextMediaPreview =
+  | { type: "contact" | "location" | "liveLocation" | "story" }
+  | { type: "venue" | "game" | "invoice" | "checklist" | "paidMedia"; title?: string }
+  | { type: "dice"; emoji: string };
+
 export type MessageContent =
-  | { kind: "text"; text: string; entities?: MessageTextEntity[] }
+  | { kind: "text"; text: string; entities?: MessageTextEntity[]; mediaPreview?: MessageTextMediaPreview }
   | {
       kind: "rich";
       blocks: MessageRichBlock[];
