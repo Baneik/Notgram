@@ -22,12 +22,15 @@ presentation animations. They remain under their existing single-owner coordinat
 shows the destination header and composer immediately and hides only the unpositioned message list.
 Loading feedback never delays selection or takes ownership of destination geometry.
 
-Expanding a quote detaches bottom following before changing its height and preserves
-the containing message's current screen offset, so the added content grows downward.
-Reuse the content-anchor coordinator through virtual measurements and layout commits.
-For a short bottom-aligned chat, preserve its existing leading gap as measured start
-space; explicit latest navigation clears it through the normal scroll lifecycle.
-User scrolling and newer navigation immediately take over from expansion settlement.
+Expanding a quote in the latest message while the viewport is at the bottom detaches
+bottom following and shifts the message upward by the added height. Stop when its top
+reaches the visible viewport top; keep shorter expansions bottom-aligned. Other messages
+preserve their current screen offset, so their content grows downward. Reuse the
+content-anchor coordinator through virtual measurements and layout commits. For a short
+bottom-aligned chat in the downward-expansion case, preserve its existing leading gap as
+measured start space; explicit latest navigation clears it through the normal scroll
+lifecycle. User scrolling and newer navigation immediately take over from expansion
+settlement.
 
 Collapsing a long quote is a local layout change. Commit the collapsed content and
 anchor its expand chevron to the pointer before the next paint (keyboard activation

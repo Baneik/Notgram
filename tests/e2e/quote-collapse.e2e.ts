@@ -30,8 +30,9 @@ const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25
           sentAt:new Date(1700000000000+i*1000).toISOString(), delivery:"read",
           content:i===${quoteIndex} ? {kind:"text",text,entities} : {kind:"text",text:"Surrounding message " + i}
         }));
-        if (["photo", "album"].includes(${JSON.stringify(surface)})) {
-          source[${quoteIndex}].content = {...photo.content,width:600,height:320,caption:text,captionEntities:entities};
+        if (["photo", "album", "album-above"].includes(${JSON.stringify(surface)})) {
+          source[${quoteIndex}].content = {...photo.content,width:600,height:320,caption:text,captionEntities:entities,
+            showCaptionAboveMedia:${JSON.stringify(surface)} === "album-above"};
         }
         if (${JSON.stringify(surface)} === "markdown") {
           source[${quoteIndex}].content = {kind:"text",text:"Before the quote\\n\\n" + quote.split("\\n").map(line => "> " + line).join("\\n") + "\\n\\nAfter the quote"};
@@ -43,8 +44,9 @@ const installQuoteHistory = async (page: Page, surface = "text", quoteIndex = 25
             {kind:"paragraph",text:[{text:"After the quote"}]}
           ]};
         }
-        if (${JSON.stringify(surface)} === "album") {
+        if (["album", "album-above"].includes(${JSON.stringify(surface)})) {
           source[${quoteIndex - 1}].content = {...photo.content,width:600,height:320,caption:undefined};
+          source[${quoteIndex - 1}].senderId = source[${quoteIndex}].senderId;
           source[${quoteIndex - 1}].mediaAlbumId = source[${quoteIndex}].mediaAlbumId = "collapse-album";
         }
         this.snapshot.messages = [...this.snapshot.messages.filter(m=>m.chatId!=="chat-product"),...source];
@@ -111,17 +113,21 @@ const collapseFrames = (page: Page) => page.evaluate(() => (
 
 for (const scenario of [
   { name: "bottom", surface: "text", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "short quote at bottom", surface: "text", quoteIndex: 50, scale: 100, keyboard: false, lines: 12 },
   { name: "near bottom", surface: "text", quoteIndex: 48, scale: 100, keyboard: false },
   { name: "zoom and keyboard", surface: "text", quoteIndex: 50, scale: 125, keyboard: true },
   { name: "photo caption", surface: "photo", quoteIndex: 50, scale: 100, keyboard: false },
   { name: "album caption", surface: "album", quoteIndex: 50, scale: 100, keyboard: false },
+  { name: "album caption above media", surface: "album-above", quoteIndex: 50, scale: 100, keyboard: false },
   { name: "markdown", surface: "markdown", quoteIndex: 50, scale: 100, keyboard: false },
   { name: "rich", surface: "rich", quoteIndex: 50, scale: 100, keyboard: false },
   { name: "detached history", surface: "text", quoteIndex: 25, scale: 100, keyboard: false },
+  { name: "latest message while reading history", surface: "text", quoteIndex: 50, scale: 100, keyboard: false, detached: true },
+  { name: "latest message after a small upward scroll", surface: "text", quoteIndex: 50, scale: 100, keyboard: false, detached: true, detachBy: 16 },
   { name: "short chat", surface: "text", quoteIndex: 0, scale: 100, keyboard: false, messageCount: 1 },
   { name: "short quote in short chat", surface: "text", quoteIndex: 0, scale: 125, keyboard: false, messageCount: 1, lines: 12 },
   { name: "narrow and reduced motion", surface: "text", quoteIndex: 50, scale: 100, keyboard: false, width: 580, reduced: true },
-].map(scenario => ({ messageCount: 51, lines: 70, width: 1280, reduced: false, ...scenario }))) test(`quote expands downward from its visible position (${scenario.name})`, async ({ page }) => {
+].map(scenario => ({ messageCount: 51, lines: 70, width: 1280, reduced: false, detached: false, detachBy: 56, ...scenario }))) test(`quote expansion preserves the intended vertical anchor (${scenario.name})`, async ({ page }) => {
   await page.setViewportSize({ width: scenario.width, height: 800 });
   await page.addInitScript(({ scale, reduced }) => localStorage.setItem("notgram:preferences:v1",
     JSON.stringify({ interfaceScale: scale, reduceMotion: reduced })), scenario);
@@ -134,22 +140,43 @@ for (const scenario of [
   else await expect.poll(() => list.evaluate(element =>
     element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
   const quote = list.locator(".rich-blockquote");
+  if (scenario.surface.startsWith("album")) await expect(list.locator(".media-album-caption .rich-blockquote")).toHaveCount(1);
+  if (scenario.detached) {
+    await quote.hover({ position: { x: 20, y: 20 } });
+    await page.mouse.wheel(0, -scenario.detachBy);
+    await expect.poll(() => list.evaluate(element =>
+      element.scrollHeight - element.clientHeight - element.scrollTop)).toBeGreaterThan(scenario.detachBy / 2);
+  }
   await expect(quote).toHaveAttribute("data-quote-state", "collapsed");
   await page.evaluate(() => {
-    const state = window as typeof window & { expansionFrames?: Promise<number[]> };
+    const state = window as typeof window & {
+      expansionBefore?: { top: number; height: number; viewportTop: number; bottomDistance: number };
+      expansionFrames?: Promise<Array<{ top: number; height: number }>>;
+    };
     document.addEventListener("click", function record(event) {
       const button = (event.target as Element).closest(".rich-blockquote-expand");
       if (!button) return;
       document.removeEventListener("click", record, true);
-      const quote = button.closest(".rich-blockquote")!;
-      const top = quote.getBoundingClientRect().top;
+      const row = button.closest<HTMLElement>(".media-album") ?? button.closest<HTMLElement>("[data-message-id]")!;
+      const list = button.closest<HTMLElement>(".message-list")!;
+      const listBounds = list.getBoundingClientRect();
+      const scale = listBounds.height / list.offsetHeight || 1;
+      const rowBounds = row.getBoundingClientRect();
+      state.expansionBefore = {
+        top: rowBounds.top - listBounds.top,
+        height: rowBounds.height,
+        viewportTop: list.clientTop * scale,
+        bottomDistance: list.scrollHeight - list.clientHeight - list.scrollTop,
+      };
       state.expansionFrames = new Promise(resolve => {
-        const offsets: number[] = [];
+        const frames: Array<{ top: number; height: number }> = [];
         const started = performance.now();
         const sample = () => requestAnimationFrame(() => setTimeout(() => {
-          offsets.push(quote.isConnected ? quote.getBoundingClientRect().top - top : 1e6);
+          const bounds = row.isConnected ? row.getBoundingClientRect() : undefined;
+          frames.push(bounds ? { top: bounds.top - list.getBoundingClientRect().top, height: bounds.height }
+            : { top: 1e6, height: 0 });
           if (performance.now() - started < 1000) sample();
-          else resolve(offsets);
+          else resolve(frames);
         }, 0));
         sample();
       });
@@ -159,15 +186,39 @@ for (const scenario of [
   if (scenario.keyboard) await expand.press("Enter");
   else await expand.click();
   await expect(quote).toHaveAttribute("data-quote-state", "expanded");
-  const frames = await page.evaluate(() => (window as typeof window & {
-    expansionFrames?: Promise<number[]>;
-  }).expansionFrames!);
+  const trace = await page.evaluate(async () => {
+    const state = window as typeof window & {
+      expansionBefore?: { top: number; height: number; viewportTop: number; bottomDistance: number };
+      expansionFrames?: Promise<Array<{ top: number; height: number }>>;
+    };
+    return { before: state.expansionBefore!, frames: await state.expansionFrames! };
+  });
+  const frames = trace.frames;
   expect(frames.length).toBeGreaterThan(10);
-  expect(Math.max(...frames.map(Math.abs)), JSON.stringify(frames)).toBeLessThanOrEqual(1);
-  const scrollTop = await list.evaluate(element => element.scrollTop);
+  const latestAtBottom = scenario.quoteIndex === scenario.messageCount - 1 && !scenario.detached;
+  if (latestAtBottom) expect(trace.before.bottomDistance).toBeLessThanOrEqual(1);
+  if (scenario.detached) expect(trace.before.bottomDistance).toBeGreaterThan(scenario.detachBy / 2);
+  const expandedHeight = frames.at(-1)!.height - trace.before.height;
+  const expectedTop = latestAtBottom
+    ? Math.max(trace.before.viewportTop, trace.before.top - expandedHeight)
+    : trace.before.top;
+  expect(Math.max(...frames.map(frame => Math.abs(frame.top - expectedTop))), JSON.stringify(frames))
+    .toBeLessThanOrEqual(1);
+  if (latestAtBottom && trace.before.top - expandedHeight < trace.before.viewportTop) {
+    expect(Math.abs(frames.at(-1)!.top - trace.before.viewportTop)).toBeLessThanOrEqual(1);
+  }
+  const scrollPosition = await list.evaluate(element => ({
+    top: element.scrollTop,
+    maximum: Math.max(0, element.scrollHeight - element.clientHeight),
+  }));
   await quote.hover({ position: { x: 10, y: 10 } });
-  await page.mouse.wheel(0, 240);
-  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(scrollTop + 100);
+  if (scrollPosition.maximum - scrollPosition.top > 100) {
+    await page.mouse.wheel(0, 240);
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(scrollPosition.top + 100);
+  } else if (scrollPosition.top > 100) {
+    await page.mouse.wheel(0, -240);
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeLessThan(scrollPosition.top - 100);
+  }
   await expect(page.getByRole("button", { name: /^返回跳转前位置/ })).toHaveCount(0);
 });
 
@@ -188,6 +239,11 @@ for (const action of ["wheel", "latest", "switch chat"]) {
     const expand = list.getByRole("button", { name: /展开引用/ });
     await expand.click();
     if (action === "wheel") {
+      const bounds = await list.boundingBox();
+      expect(bounds).not.toBeNull();
+      await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+      await expect.poll(() => list.evaluate(element =>
+        element.scrollHeight - element.clientHeight)).toBeGreaterThan(100);
       await page.mouse.wheel(0, 240);
       await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(100);
       const tops = await list.evaluate(async element => {

@@ -2480,17 +2480,27 @@ export const useConversationScroll = ({
 
   const expandCollapsedQuote = useCallback((expand: () => void, quote: Element) => {
     const element = messageListRef.current;
-    const row = quote.closest<HTMLElement>("[data-message-id]");
+    const album = quote.closest<HTMLElement>(".media-album");
+    const latestId = lastVisibleMessageIdRef.current;
+    const row = quote.closest<HTMLElement>("[data-message-id]") ??
+      (latestId ? album?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(latestId)}"]`) : undefined) ??
+      album?.querySelector<HTMLElement>("[data-message-id]");
     const messageId = row?.dataset.messageId;
     if (!element || !currentScrollKey || !row || !messageId || !element.contains(quote) ||
       element.dataset.conversationVirtuosoKey !== virtuosoKey) {
       expand();
       return;
     }
-    // Explicit expansion owns the reading position even at the latest message.
-    // Detach before the resize so bottom following cannot pull its top upward.
-    const offset = row.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    const surface = album ?? row;
+    const before = surface.getBoundingClientRect();
+    const listBounds = element.getBoundingClientRect();
+    const offset = row.getBoundingClientRect().top - listBounds.top;
+    const expandsLatestAtBottom = !hasNewerMessages && !historyWindowIsContext &&
+      messageId === lastVisibleMessageIdRef.current &&
+      distanceFromBottom(element) <= BOTTOM_WHEEL_GUARD_PX;
     const leadingSpace = conversationLeadingSpace(element);
+    // Expansion owns a bounded reading anchor; unrestricted bottom following
+    // would hide the message's beginning when the expanded content exceeds a screen.
     interruptControlledPositioning("detached");
     userIntentUntilRef.current = 0;
     pointerActiveRef.current = false;
@@ -2498,15 +2508,29 @@ export const useConversationScroll = ({
     const persist = () => writeMemory(currentScrollKey, element, false,
       conversationScrollMemory.get(currentScrollKey)?.pendingNewCount ?? 0, true);
     persist();
-    settleContentAnchorPosition(element, messageId, offset, virtuosoKey, persist);
-    // Short chats lose their bottom-alignment gap as the quote grows. Keep it
-    // as measured space; scrollTop cannot preserve a position above zero.
-    element.style.setProperty("--conversation-entry-start-space", `${leadingSpace}px`);
+    if (!expandsLatestAtBottom) {
+      settleContentAnchorPosition(element, messageId, offset, virtuosoKey, persist);
+      // Short chats lose their bottom-alignment gap as the quote grows. Keep it
+      // as measured space; scrollTop cannot preserve a position above zero.
+      element.style.setProperty("--conversation-entry-start-space", `${leadingSpace}px`);
+    }
     flushSync(expand);
-    flushSync(() => remeasureMessageText(row));
-    restoreAnchor(element, messageId, offset);
+    flushSync(() => remeasureMessageText(surface));
+    if (expandsLatestAtBottom) {
+      const expanded = surface.getBoundingClientRect();
+      const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+      // Shared album captions sit outside their message rows. Anchor a tile,
+      // but apply the top limit to the whole album presentation.
+      const expandedTop = Math.max(element.clientTop * scale,
+        before.top - listBounds.top - (expanded.height - before.height));
+      const expandedOffset = expandedTop + row.getBoundingClientRect().top - expanded.top;
+      settleContentAnchorPosition(element, messageId, expandedOffset, virtuosoKey, persist);
+    } else {
+      restoreAnchor(element, messageId, offset);
+    }
   }, [currentScrollKey, interruptControlledPositioning, restoreAnchor,
-    settleContentAnchorPosition, virtuosoKey, writeMemory]);
+    settleContentAnchorPosition, virtuosoKey, writeMemory, hasNewerMessages,
+    historyWindowIsContext]);
 
   const collapseExpandedQuote = useCallback((
     messageId: string,
