@@ -3,6 +3,7 @@ import { translate } from "../i18n";
 import { messageFilesForCache } from "../telegram/messageFileState";
 import { retainedMessageForCache } from "../telegram/retainedMessages";
 import { savedMessagesAvatar } from "../telegram/savedMessages";
+import { usersForSnapshot } from "../telegram/snapshotCache";
 import type {
   CachedTelegramSnapshot,
   Chat,
@@ -515,7 +516,7 @@ export const cachedSnapshotFrom = (
     accountId: state.activeAccountId,
     savedAt: new Date().toISOString(),
     currentUserId: state.currentUserId ?? "",
-    users: [...state.users.values()].map(sanitizeCachedUser),
+    users: [],
     folders: state.folders.map((folder) => ({
       ...folder,
       title: sanitizeIdentityText(folder.title, translate("聊天文件夹"), 12),
@@ -534,6 +535,7 @@ export const cachedSnapshotFrom = (
     forumTopics: forumTopicsForCache(state),
     lastForumTopicIds: lastForumTopicIdsForCache(state),
   };
+  snapshot.users = usersForSnapshot(snapshot, state.users.values()).map(sanitizeCachedUser);
   const durationMs = startedAt === undefined ? 0 : performance.now() - startedAt;
   if (durationMs >= CACHE_SNAPSHOT_LOG_THRESHOLD_MS) {
     logPerformance("ui_cache_snapshot", {

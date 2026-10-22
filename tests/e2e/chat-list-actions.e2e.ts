@@ -6,6 +6,7 @@ declare global {
     __chatActionsTransport: MockTelegramTransport;
     __chatDeletionScopes: boolean[];
     __finishChatDeletion?: () => void;
+    __folderSnapshotCount?: number;
   }
 }
 
@@ -27,6 +28,67 @@ const openMenu = async (page: Page, id: string, title: string) => {
   await expect(menu.getByRole("menuitem").first()).toBeFocused();
   return menu;
 };
+
+for (const width of [1366, 390]) {
+  test(`channel folder membership remains successful after cache failure at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await prepare(page);
+    await page.evaluate(async () => {
+      await window.__chatActionsTransport.setChatFolderMembership("folder:work", "chat-release", false);
+      window.__chatActionsTransport.saveCachedSnapshot = async () => { throw new Error("UI cache record limit exceeded"); };
+    });
+    for (const included of [true, false]) {
+      const menu = await openMenu(page, "chat-release", "Release Notes");
+      await menu.getByRole("menuitem", { name: "分组", exact: true }).click();
+      await page.getByRole("menu", { name: "选择分组", exact: true })
+        .getByRole("menuitemcheckbox", { name: included ? "添加到工作" : "从工作移除", exact: true }).click();
+      await expect(menu).toBeHidden();
+      await expect.poll(() => page.evaluate(async () => {
+        const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+        const state = telegramStore.getState();
+        return { included: state.chats.get("chat-release")!.folderIds.includes("folder:work"),
+          health: state.cacheHealth, error: state.operationError ?? null, pending: state.folderManagementPending };
+      })).toEqual({ included, health: "invalid", error: null, pending: false });
+    }
+  });
+
+  test(`channel grouping saves a bounded snapshot from a large user catalog at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await prepare(page);
+    await page.evaluate(async () => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const { prepareSnapshotCache } = await import("/src/telegram/snapshotCache.ts" as string) as typeof import("../../src/telegram/snapshotCache");
+      const state = telegramStore.getState();
+      const seed = state.users.values().next().value!;
+      const users = new Map(state.users);
+      for (let index = 0; index < 50_100; index++) users.set(`unused-${index}`, { ...seed, id: `unused-${index}` });
+      telegramStore.setState({ users });
+      await window.__chatActionsTransport.setChatFolderMembership("folder:work", "chat-release", false);
+      const original = window.__chatActionsTransport.saveCachedSnapshot.bind(window.__chatActionsTransport);
+      window.__chatActionsTransport.saveCachedSnapshot = async snapshot => {
+        const prepared = await prepareSnapshotCache(snapshot);
+        window.__folderSnapshotCount = Object.values(prepared).reduce<number>((sum, value) => sum + (Array.isArray(value) ? value.length : 0), 0);
+        if (window.__folderSnapshotCount > 50_000) throw new Error("UI cache record limit exceeded");
+        await original(prepared);
+      };
+    });
+    const menu = await openMenu(page, "chat-release", "Release Notes");
+    await menu.getByRole("menuitem", { name: "分组", exact: true }).click();
+    await page.getByRole("menu", { name: "选择分组", exact: true })
+      .getByRole("menuitemcheckbox", { name: "添加到工作", exact: true }).click();
+    await expect(menu).toBeHidden();
+    const saved = await page.evaluate(async () => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      const state = telegramStore.getState();
+      return { count: window.__folderSnapshotCount, users: state.users.size,
+        error: state.operationError ?? null, health: state.cacheHealth,
+        included: state.chats.get("chat-release")!.folderIds.includes("folder:work") };
+    });
+    expect(saved).toMatchObject({ error: null, health: "healthy", included: true });
+    expect(saved.count).toBeLessThan(50_000);
+    expect(saved.users).toBeGreaterThan(50_000);
+  });
+}
 
 test("chat list menu matches each chat kind and toggles mute without opening the conversation", async ({ page }) => {
   await prepare(page);

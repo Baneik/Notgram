@@ -70,4 +70,24 @@ describe("TauriAccountStorage snapshot cache", () => {
       expect.objectContaining({ transactionId: expect.any(String) }),
     );
   });
+
+  it("removes unreferenced users before starting a native transaction", async () => {
+    const snapshot = snapshotWithMessages(1);
+    const unused = { ...snapshot.users[0], id: "unused-user" };
+    snapshot.users.push(unused);
+    await new TauriAccountStorage().saveCachedSnapshot(snapshot);
+    const users = invokeMock.mock.calls.filter(([, args]) => args?.section === "users").flatMap(([, args]) => args.values);
+    expect(users.some(user => user.id === "unused-user")).toBe(false);
+    expect(snapshot.users).toContain(unused);
+  });
+
+  it("rejects necessary-record overflow before beginning or replacing the native snapshot", async () => {
+    const snapshot = snapshotWithMessages(0);
+    snapshot.locallyDeletedMessages = Array.from({ length: 50_001 }, (_, index) => ({
+      ...mockSnapshot.messages[0], id: String(index), isLocallyDeleted: true, locallyDeletedAt: snapshot.savedAt,
+    }));
+    await expect(new TauriAccountStorage().saveCachedSnapshot(snapshot)).rejects.toThrow("UI cache record limit exceeded");
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(snapshot.locallyDeletedMessages).toHaveLength(50_001);
+  });
 });

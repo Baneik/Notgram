@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { prepareSnapshotCache, SNAPSHOT_CACHE_CHUNK_SIZE } from "./snapshotCache";
 import type {
   CachedTelegramSnapshot,
   CacheCleanupInput,
@@ -8,8 +9,6 @@ import type {
   TelegramAccount,
   TelegramAccountState,
 } from "./types";
-
-const SNAPSHOT_CACHE_CHUNK_SIZE = 64;
 
 const yieldToMainThread = () => new Promise<void>((resolve) => {
   globalThis.setTimeout(resolve, 0);
@@ -39,6 +38,7 @@ export class TauriAccountStorage {
   }
 
   async saveCachedSnapshot(snapshot: CachedTelegramSnapshot) {
+    snapshot = await prepareSnapshotCache(snapshot);
     const transactionId = globalThis.crypto.randomUUID();
     const header: Record<string, unknown> = {};
     const sections: Array<{ name: string; values: unknown[] }> = [];

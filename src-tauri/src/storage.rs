@@ -181,14 +181,26 @@ impl SnapshotCacheWriteState {
         let snapshot = writes
             .get_mut(transaction_id)
             .ok_or_else(|| "UI cache transaction was not started".to_string())?;
+        if !snapshot.snapshot.get(section).is_some_and(Value::is_array) {
+            return Err("UI cache section is not an array".into());
+        }
         let bytes = serde_json::to_vec(&values)
             .map_err(|e| e.to_string())?
             .len();
-        if snapshot.touched.elapsed() >= Duration::from_secs(120)
-            || snapshot.bytes + bytes > MAX_SNAPSHOT_BYTES
-            || snapshot.items + values.len() > MAX_SNAPSHOT_ITEMS
-        {
-            return Err("UI cache transaction expired or exceeded capacity".into());
+        if snapshot.touched.elapsed() >= Duration::from_secs(120) {
+            return Err("UI cache transaction expired after 120 seconds of inactivity".into());
+        }
+        if snapshot.bytes + bytes > MAX_SNAPSHOT_BYTES {
+            return Err(format!(
+                "UI cache byte limit exceeded ({} > {MAX_SNAPSHOT_BYTES})",
+                snapshot.bytes + bytes
+            ));
+        }
+        if snapshot.items + values.len() > MAX_SNAPSHOT_ITEMS {
+            return Err(format!(
+                "UI cache record limit exceeded ({} > {MAX_SNAPSHOT_ITEMS})",
+                snapshot.items + values.len()
+            ));
         }
         snapshot.bytes += bytes;
         snapshot.items += values.len();
@@ -897,6 +909,59 @@ mod tests {
                 )
                 .is_err()
         );
+        let writes = state.writes.lock().unwrap();
+        assert_eq!(writes.get("valid-id").unwrap().items, 0);
+    }
+
+    #[test]
+    fn distinguishes_snapshot_item_byte_and_idle_limits_without_consuming_the_budget() {
+        let state = SnapshotCacheWriteState::default();
+        state
+            .begin("bounded", serde_json::json!({ "users": [] }))
+            .unwrap();
+        {
+            let mut writes = state.writes.lock().unwrap();
+            writes.get_mut("bounded").unwrap().items = MAX_SNAPSHOT_ITEMS - 1;
+        }
+        state
+            .append(
+                "bounded",
+                "users",
+                vec![serde_json::json!({ "id": "last" })],
+            )
+            .unwrap();
+        let record_error = state
+            .append(
+                "bounded",
+                "users",
+                vec![serde_json::json!({ "id": "extra" })],
+            )
+            .unwrap_err();
+        assert!(record_error.starts_with("UI cache record limit exceeded"));
+        {
+            let mut writes = state.writes.lock().unwrap();
+            let write = writes.get_mut("bounded").unwrap();
+            assert_eq!(write.items, MAX_SNAPSHOT_ITEMS);
+            write.items = 0;
+            write.bytes = MAX_SNAPSHOT_BYTES;
+        }
+        let byte_error = state
+            .append("bounded", "users", vec![serde_json::json!({})])
+            .unwrap_err();
+        assert!(byte_error.starts_with("UI cache byte limit exceeded"));
+        {
+            let mut writes = state.writes.lock().unwrap();
+            let write = writes.get_mut("bounded").unwrap();
+            assert_eq!(write.bytes, MAX_SNAPSHOT_BYTES);
+            assert_eq!(write.items, 0);
+            write.bytes = 0;
+            write.touched = std::time::Instant::now() - Duration::from_secs(121);
+        }
+        let idle_error = state
+            .append("bounded", "users", vec![serde_json::json!({})])
+            .unwrap_err();
+        assert!(idle_error.starts_with("UI cache transaction expired after 120 seconds"));
+        state.abort("bounded").unwrap();
     }
 
     #[test]

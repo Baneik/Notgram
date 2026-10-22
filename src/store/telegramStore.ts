@@ -2676,20 +2676,25 @@ export const createTelegramStore = (
       operation: () => Promise<T>,
       confirmed: (result: T) => boolean,
     ): Promise<T | undefined> => {
-      if (get().authorization.kind !== "ready" || get().folderManagementPending) {
+      const generation = accountGeneration;
+      const isCurrent = () => generation === accountGeneration && !accountTransition;
+      if (!isCurrent() || get().authorization.kind !== "ready" || get().folderManagementPending) {
         return undefined;
       }
       set({ folderManagementPending: true, operationError: undefined });
       try {
         const result = await operation();
+        if (!isCurrent()) return undefined;
         if (!confirmed(result)) throw new Error(confirmationError);
-        await flushCachedSnapshot();
-        return result;
+        await flushCachedSnapshot().catch(() => {
+          if (isCurrent()) set({ cacheHealth: "invalid" });
+        });
+        return isCurrent() ? result : undefined;
       } catch (error) {
-        set({ operationError: errorMessage(error, fallbackError) });
+        if (isCurrent()) set({ operationError: errorMessage(error, fallbackError) });
         return undefined;
       } finally {
-        set({ folderManagementPending: false });
+        if (isCurrent()) set({ folderManagementPending: false });
       }
     };
 

@@ -611,6 +611,30 @@ jump-return navigation, interrupted renders, bounded recovery continuation, inde
 cursors, restart membership and deleted recovery boundaries. Final scroll position alone is not an
 adequate assertion for this failure mode.
 
+## Persistent snapshot capacity
+
+Folder membership, creation, rename and deletion complete when the current account's transport
+and Store confirm the result. A subsequent snapshot failure marks cache health invalid without
+turning that confirmed result into an operation failure. Account changes invalidate late folder
+completions, including pending-state cleanup.
+
+Snapshots keep users referenced by persisted chats, ordinary/retained messages, embedded reply and
+forward identities, reactions, service events, rich-text mentions, profiles, forum topics and unsent
+content. Unrelated users accumulated during a long session stay in the live Store but are omitted
+from the next snapshot. Cached profile members already carry their own identity data.
+
+Before native staging, measure the empty-array header and 64-item UTF-8 chunks against the native
+50,000-record / 64 MiB limits, reserving 64 KiB for native header metadata. Yield during measurement
+to keep the UI responsive. If needed, discard rebuildable previews, picker data, profiles, forum
+metadata and ordinary history; recompute user references after each removal. Dropping history also
+invalidates its saved context membership. Never trim deletion archives, drafts, attachment manifests,
+outbox records, chat membership or their remaining user identities to satisfy this budget. Necessary
+records exceeding the limits reject the new write before staging, leaving the previous file and
+the live records intact. This bounded snapshot is not an unbounded archive database.
+
+Native staging distinguishes inactivity expiry, byte capacity and record capacity. Rejected chunks
+do not consume staging budget, and only a complete committed transaction replaces the persisted file.
+
 ## Ordinary history retention
 
 The in-memory Store trims ordinary history per chat at 2,400 messages, targeting 2,000
