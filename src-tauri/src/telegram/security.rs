@@ -49,6 +49,7 @@ const WEBVIEW_TDLIB_REQUESTS: &[&str] = &[
     "getChatFolder",
     "getChatHistory",
     "getChatSponsoredMessages",
+    "getMessage",
     "getMessageThread",
     "getMessageThreadHistory",
     "getChatMessageByDate",
@@ -972,7 +973,7 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 return Err("Invalid message date".to_string());
             }
         }
-        "getMessageThread" => validate_message_target(request)?,
+        "getMessage" | "getMessageThread" => validate_message_target(request)?,
         "getMessageThreadHistory" => {
             validate_message_target(request)?;
             if request
@@ -2869,6 +2870,46 @@ mod tests {
             "@extra": EXTRA
         });
         assert!(validate_webview_tdlib_request(&message_by_date).is_ok());
+    }
+
+    #[test]
+    fn validates_single_message_lookups() {
+        for chat_id in [7, -1007] {
+            let request = json!({
+                "@type": "getMessage",
+                "chat_id": chat_id,
+                "message_id": 31,
+                "@extra": EXTRA
+            });
+            assert_eq!(validate_webview_tdlib_request(&request), Ok(()));
+            for (field, invalid) in [
+                ("chat_id", json!(0)),
+                ("chat_id", json!("7")),
+                ("chat_id", Value::Null),
+                ("message_id", json!(0)),
+                ("message_id", json!(-31)),
+                ("message_id", json!(31.5)),
+                ("message_id", json!("31")),
+                ("message_id", Value::Null),
+                ("@extra", json!("native:getMessage")),
+                ("@extra", Value::Null),
+            ] {
+                let mut malformed = request.clone();
+                malformed[field] = invalid;
+                assert!(
+                    validate_webview_tdlib_request(&malformed).is_err(),
+                    "{field}"
+                );
+            }
+            for field in ["chat_id", "message_id", "@extra"] {
+                let mut incomplete = request.clone();
+                incomplete.as_object_mut().unwrap().remove(field);
+                assert!(
+                    validate_webview_tdlib_request(&incomplete).is_err(),
+                    "{field}"
+                );
+            }
+        }
     }
 
     #[test]
