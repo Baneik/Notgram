@@ -71,6 +71,7 @@ import { Avatar } from "./Avatar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { DesktopStartupSettings } from "./DesktopStartupSettings";
+import { BackupSettings } from "./BackupSettings";
 import { TelegramProtocolSettings } from "./TelegramProtocolSettings";
 import { MotionPresence } from "./MotionPresence";
 import { MotionSelectionIndicator } from "./MotionSelectionIndicator";
@@ -117,7 +118,7 @@ const searchTerms = (value: string) => decodeURIComponent(value);
 
 const categories: SettingsCategory[] = [
   { id: "account", get label() { return translate("我的账号"); }, icon: UserCircle, searchTerms: searchTerms("%E8%B4%A6%E5%8F%B7 %E4%B8%AA%E4%BA%BA%E8%B5%84%E6%96%99 %E5%A4%B4%E5%83%8F %E6%89%8B%E6%9C%BA%E5%8F%B7 %E7%94%A8%E6%88%B7%E5%90%8D %E7%94%A8%E6%88%B7ID %E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83 %E7%AD%BE%E5%90%8D %E9%80%80%E5%87%BA%E7%99%BB%E5%BD%95") },
-  { id: "notgram", label: "Notgram", icon: SendHorizontal, searchTerms: searchTerms("%E5%B9%BF%E5%91%8A %E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA %E5%B1%8F%E8%94%BD Zalgo %E8%87%AA%E5%AE%9A%E4%B9%89%E5%85%B3%E9%94%AE%E8%AF%8D %E6%AD%A3%E5%88%99 %E8%BE%93%E5%85%A5%E7%8A%B6%E6%80%81 %E6%92%A4%E5%9B%9E%E6%B6%88%E6%81%AF %E6%9C%AC%E5%9C%B0%E4%BF%9D%E5%AD%98 %E5%BC%80%E6%9C%BA%E5%90%AF%E5%8A%A8 %E5%90%AF%E5%8A%A8") },
+  { id: "notgram", label: "Notgram", icon: SendHorizontal, searchTerms: searchTerms("backup restore WebDAV %E5%A4%87%E4%BB%BD %E6%81%A2%E5%A4%8D %E5%AF%BC%E5%85%A5 %E5%AF%BC%E5%87%BA %E5%B9%BF%E5%91%8A %E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA %E5%B1%8F%E8%94%BD Zalgo %E8%87%AA%E5%AE%9A%E4%B9%89%E5%85%B3%E9%94%AE%E8%AF%8D %E6%AD%A3%E5%88%99 %E8%BE%93%E5%85%A5%E7%8A%B6%E6%80%81 %E6%92%A4%E5%9B%9E%E6%B6%88%E6%81%AF %E6%9C%AC%E5%9C%B0%E4%BF%9D%E5%AD%98 %E5%BC%80%E6%9C%BA%E5%90%AF%E5%8A%A8 %E5%90%AF%E5%8A%A8") },
   { id: "notifications", get label() { return translate("通知与声音"); }, icon: Bell, searchTerms: searchTerms("%E9%80%9A%E7%9F%A5 %E6%A1%8C%E9%9D%A2%E9%80%9A%E7%9F%A5 %E6%B6%88%E6%81%AF%E9%A2%84%E8%A7%88 %E5%A3%B0%E9%9F%B3 %E6%9D%83%E9%99%90") },
   { id: "chats", get label() { return translate("聊天设置"); }, icon: MessageCircle, searchTerms: searchTerms("%E5%BC%95%E7%94%A8 %E8%87%AA%E5%8A%A8%E6%8A%98%E5%8F%A0 %E9%98%88%E5%80%BC %E8%81%8A%E5%A4%A9 %E6%98%BE%E7%A4%BA %E4%B8%BB%E9%A2%98 %E6%B5%85%E8%89%B2 %E6%B7%B1%E8%89%B2 %E8%83%8C%E6%99%AF%E6%A0%B7%E5%BC%8F %E7%AE%80%E6%B4%81 %E6%9F%94%E5%92%8C %E5%AD%97%E4%BD%93 %E7%BC%A9%E6%94%BE %E6%9C%AA%E8%AF%BB%E8%AE%A1%E6%95%B0 %E5%AF%86%E5%BA%A6 %E8%A1%8C%E9%AB%98 %E6%B6%88%E6%81%AF%E7%BB%84%E9%97%B4%E8%B7%9D %E5%90%8C%E7%BB%84%E6%B6%88%E6%81%AF %E6%B0%94%E6%B3%A1%E7%95%99%E7%99%BD") },
   { id: "shortcuts", get label() { return translate("快捷键"); }, icon: Keyboard, searchTerms: searchTerms("%E5%BF%AB%E6%8D%B7%E9%94%AE %E4%B8%8A%E4%B8%80%E4%B8%AA %E4%B8%8B%E4%B8%80%E4%B8%AA %E4%BC%9A%E8%AF%9D %E8%AF%9D%E9%A2%98 %E6%96%87%E4%BB%B6%E5%A4%B9 %E9%87%8D%E6%96%B0%E7%BC%96%E8%BE%91%E4%B8%8A%E4%B8%80%E6%9D%A1%E6%B6%88%E6%81%AF %E5%88%87%E6%8D%A2%E5%AA%92%E4%BD%93%E5%8F%91%E9%80%81%E6%A8%A1%E5%BC%8F %E6%B6%88%E6%81%AF%E6%A0%BC%E5%BC%8F%E4%BF%AE%E9%A5%B0 %E4%B8%8A%E4%B8%80%E4%B8%AA%E8%AF%9D%E9%A2%98 %E4%B8%8B%E4%B8%80%E4%B8%AA%E8%AF%9D%E9%A2%98 keyboard shortcuts topic edit message formatting modifiers media send mode tab") },
@@ -650,6 +651,7 @@ function PreferenceSettings({
   return (
     <div className="settings-detail-scroll preference-settings">
       {category === "notgram" && <AdBlockingSettings preferences={preferences} onChange={onChange} />}
+      {category === "notgram" && <BackupSettings />}
       {category === "notgram" && <DesktopStartupSettings />}
       {category === "notgram" && <TelegramProtocolSettings />}
       {category === "chats" && (

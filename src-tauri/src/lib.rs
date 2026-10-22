@@ -9,6 +9,7 @@ mod external_links;
 mod media_viewer_window;
 mod memory;
 mod proxy;
+mod settings_backup;
 mod settings_window;
 mod shortcuts;
 mod storage;
@@ -91,6 +92,11 @@ pub fn run() {
             },
         )
         .invoke_handler(tauri::generate_handler![
+            settings_backup::notgram_webdav_settings,
+            settings_backup::notgram_webdav_edit_settings,
+            settings_backup::notgram_webdav_save_settings,
+            settings_backup::notgram_webdav_request,
+            settings_backup::notgram_export_settings_backup,
             memory::notgram_sync_memory_target,
             shortcuts::notgram_check_shortcut,
             telegram_links::notgram_take_telegram_links,

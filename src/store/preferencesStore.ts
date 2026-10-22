@@ -115,6 +115,7 @@ const defaults: AppPreferences = {
   themeId: "notgram-light",
   backgroundStyle: "plain",
 };
+export const defaultAppPreferences: Readonly<AppPreferences> = defaults;
 
 const boundedInteger = (value: unknown, fallback: number, minimum: number, maximum: number) =>
   Number.isFinite(value)

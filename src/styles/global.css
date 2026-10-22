@@ -3269,6 +3269,40 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .proxy-latency { color: var(--color-status-success); font-size: 12px; font-weight: 650; }
 .preference-list { display: grid; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .preference-policy-note { margin: 10px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.backup-settings { gap: 16px; }
+.backup-local { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.backup-local > strong { font-size: 12px; font-weight: 550; }
+.backup-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.backup-settings .backup-actions > button { min-width: 76px; height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 6px; font-size: 11px; }
+.backup-settings .dialog-secondary { color: var(--ink); border: 1px solid var(--line); background: var(--color-bg-control); }
+.backup-settings .dialog-secondary:hover:not(:disabled) { background: var(--color-bg-control-hover); }
+.backup-settings .dialog-save { color: var(--color-text-on-accent); border: 1px solid var(--accent); background: var(--accent); cursor: pointer; font-weight: 600; }
+.backup-settings .dialog-save:hover:not(:disabled) { background: var(--color-accent-strong); }
+.backup-settings .dialog-save:disabled { opacity: .5; cursor: default; }
+.backup-webdav { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--color-bg-surface); }
+.backup-webdav-heading { min-height: 46px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--color-bg-surface-hover); }
+.backup-webdav-title { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.backup-webdav-title > svg { flex: 0 0 auto; color: var(--muted); }
+.backup-webdav-title > strong { font-size: 12px; font-weight: 600; }
+.backup-sync-state { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; color: var(--muted); border-radius: 4px; background: var(--color-bg-control-hover); font-size: 10px; line-height: 1.2; }
+.backup-sync-state.is-synced { color: var(--color-status-success); background: color-mix(in srgb, var(--color-status-success) 9%, transparent); }
+.backup-sync-state.is-error { color: var(--color-status-danger); background: color-mix(in srgb, var(--color-status-danger) 9%, transparent); }
+.backup-edit-button { min-height: 28px; padding: 0 6px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent); border: 0; border-radius: 4px; background: transparent; font-size: 11px; cursor: pointer; }
+.backup-edit-button:hover:not(:disabled) { background: var(--accent-soft); }
+.backup-edit-button:disabled { opacity: .45; cursor: default; }
+.backup-webdav-form, .backup-webdav-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; margin: 0; padding: 12px; border-top: 1px solid var(--line); }
+.backup-webdav-form > .preference-row { grid-column: 1 / -1; min-height: 28px; padding: 0; background: transparent; }
+.backup-webdav-form > .backup-actions, .backup-url-field { grid-column: 1 / -1; }
+.backup-webdav-summary > div { min-width: 0; display: grid; gap: 5px; }
+.backup-webdav-summary dt { color: var(--muted); font-size: 10px; }
+.backup-webdav-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; line-height: 1.45; }
+.backup-feedback { margin: 0; display: flex; align-items: center; gap: 5px; color: var(--color-status-success); font-size: 11px; }
+@media (max-width: 480px) {
+  .backup-local { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .backup-local .backup-actions { width: 100%; }
+  .backup-local .backup-actions > button { flex: 1; }
+  .backup-webdav-form { grid-template-columns: minmax(0, 1fr); }
+}
 .preference-row {
   min-height: 46px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
   color: var(--ink); background: var(--color-bg-surface); font-size: 12px;
