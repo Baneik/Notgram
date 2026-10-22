@@ -1,6 +1,7 @@
 import type { en } from "./en";
 
 export const ja: Record<keyof typeof en, string> = {
+  "屏蔽已读上报": "既読通知を送信しない",
   "{{value0}}，{{value1}}": "{{value0}}、{{value1}}",
   "{{value0}} 贴纸": "{{value0}} ステッカー",
   "内存与缓存": "メモリとキャッシュ",

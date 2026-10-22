@@ -2704,6 +2704,17 @@ export class MockTelegramTransport implements TelegramTransport {
     this.listener?.({ type: "chat.upsert", chat: clone(chat) });
   }
 
+  async loadReadStatePage(chatId: string, topicId?: string, fromMessageId?: string,
+    filter?: "mention" | "reaction"): Promise<import("./types").MessageThreadHistoryPage> {
+    const sorted = this.snapshot.messages.filter(message => message.chatId === chatId &&
+      (!topicId || message.topicId === topicId) &&
+      (!filter || (filter === "mention" ? message.containsUnreadMention : message.containsUnreadReaction)))
+      .sort((left, right) => Date.parse(right.sentAt) - Date.parse(left.sentAt) || right.id.localeCompare(left.id, undefined, { numeric: true }));
+    const offset = fromMessageId ? Math.max(0, sorted.findIndex(message => message.id === fromMessageId) + 1) : 0;
+    const messages = clone(sorted.slice(offset, offset + 100));
+    return { messages, hasMore: offset + messages.length < sorted.length, nextFromMessageId: messages.at(-1)?.id };
+  }
+
   async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
     const topic = this.ensureForumTopics(chatId).find((item) => item.id === topicId);
     if (!topic || !this.snapshot.messages.some((message) => message.id === messageId && message.topicId === topicId)) return;

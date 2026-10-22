@@ -748,9 +748,50 @@ actual Windows visibility, monitor changes, sleep/wake and sound still require n
 Regression coverage includes ordered new/edit/delete bursts through encrypted overflow, acknowledgement
 and I/O retry behavior, session disposal, and user input while a large backlog is still being applied.
 
+## Local reading without remote receipts
+
+`blockReadReceipts` is an opt-in application preference. `withLocalReadState` routes normal chat,
+forum topic, discussion, mention and reaction reads to durable local state while it is enabled.
+Channel visibility must not call `viewMessages` in this mode: TDLib reads history sources even
+with `force_read=false`. Keep `openChat`/`closeChat` subscriptions for channel updates. The TDLib
+request boundary rechecks the preference after asynchronous preparation; a retired request is
+handled locally without pretending that the server acknowledged it. Already sent requests cannot
+be withdrawn. Turning the preference off does not upload a backlog; subsequent ordinary reading
+can advance the server boundary normally.
+
+The encrypted `notgram:local-read-state:v1` account metadata stores read cursors, per-scope effective
+counts, and sparse mention/reaction acknowledgements. It loads before either cache restoration or
+TDLib connection. Account, chat and topic identities are separate; numeric IDs compare without
+floating-point conversion. Removing an account removes these records through the existing metadata
+cleanup. Media cleanup, message retention and UI-cache rebuilds must preserve them. Cache counts
+are already projected and must never be fed back as raw server counts.
+
+TDLib snapshots remain unchanged. Chat-list pages, message/history/search results and live events
+receive the local projection before entering the Store. Sidebar totals, mention navigation,
+notification filtering and conversation entry therefore share the same effective state. Forum
+reads use this projection instead of also deducting through `ForumUnreadState`. Whole-group reads
+cover topics; a topic read must not clear another topic. Outgoing delivery receipts remain remote.
+
+An aggregate server count minus a fixed historical offset is insufficient after offline arrivals,
+deletion or another device's reads. Private read-only pagination reconciles messages beyond the
+effective cursor, with independent topic boundaries and sparse attention filters. It never emits
+history into the timeline, advances a reader cursor or sends a read request. At most two chats
+reconcile concurrently and pages yield to the event loop. Commit only a complete pass within the
+same account and unread revision; preserve the previous effective count on failure or stalled
+pagination, and retry on an update/reconnection. Repeated history records do not animate as new
+messages. Reaction acknowledgements include sender/type identity so a different reaction on the
+same message remains visible.
+
+Regression coverage includes all remote read entry points, activation during a queued request,
+restart after UI-cache deletion, multiple offline pages, duplicate updates, remote deletion/reads,
+independent topic and whole-forum reads, mention restoration, changed reactions, corrupted durable
+records and account switches with requests in flight. Browser coverage checks 1366px/390px restart
+badges for both zero and new offline messages, and the standalone settings preference.
+
 ## Unread mention navigation
 
-The TDLib chat mention count and per-message unread flags own mention state. The conversation
+With remote receipts enabled, the TDLib chat mention count and per-message unread flags own mention state.
+Local receipt blocking applies the durable projection described above. The conversation
 attention index is a navigation index, not a second unread authority. Restore explicit unread
 mentions from cached snapshots and history pages; an old reply to an outgoing message alone does
 not establish unread state. Live replies keep their existing local attention behavior.

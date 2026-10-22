@@ -1,4 +1,5 @@
 import { chatReportRequest, mapChatReportResult } from "./chatReport";
+import { assertReadReceiptAllowed } from "./readReceiptPolicy";
 import { chatEventSummary } from "./chatEventSummary";
 import { ChatViewSession } from "./chatViewSession";
 import { mapChatInvitePreview, mapChatJoinResult } from "./chatJoin";
@@ -2442,6 +2443,33 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
+  async loadReadStatePage(chatId: string, topicId?: string, fromMessageId?: string,
+    filter?: "mention" | "reaction"): Promise<import("./types").MessageThreadHistoryPage> {
+    chatId = this.canonicalChatId(chatId);
+    if (filter) {
+      const page = await this.searchService.searchChatMessages({ chatId, topicId,
+        query: "", filter: filter === "mention" ? "unreadMention" : "unreadReaction",
+        fromMessageId, limit: 100 });
+      return { messages: page.messages, nextFromMessageId: page.nextFromMessageId, hasMore: page.hasMore };
+    }
+    const generation = this.syncGeneration;
+    const raw: TdObject[] = [];
+    const result = await loadHistoryWindow({ chatId, topicId, targetCount: 100,
+      cursor: fromMessageId ? numericId(fromMessageId) : 0,
+      knownMessages: new Map(fromMessageId ? [[fromMessageId, {}]] : []),
+      request: async request => {
+        const response = await this.request(request);
+        this.assertSyncGeneration(generation);
+        return response;
+      },
+      emitMessage: message => raw.push(message),
+    });
+    this.assertSyncGeneration(generation);
+    if (result.stalled) throw new Error("Read-state history did not advance");
+    return { messages: raw.map(message => this.mapMessage(message)).filter((message): message is Message => Boolean(message)),
+      nextFromMessageId: result.cursor ? String(result.cursor) : undefined, hasMore: !result.exhausted };
+  }
+
   async markForumTopicRead(chatId: string, topicId: string, messageId: string) {
     chatId = this.canonicalChatId(chatId);
     numericId(topicId);
@@ -2531,6 +2559,7 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private async request(request: TdObject, timeoutMs?: number) {
+    assertReadReceiptAllowed(request);
     const generation = this.sessionGeneration;
     const response = await this.requestBroker.request(request, timeoutMs);
     if (generation !== this.sessionGeneration) throw new Error("TDLib session superseded");

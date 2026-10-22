@@ -1,4 +1,5 @@
 export const en = {
+  "屏蔽已读上报": "Block read receipts",
   "{{value0}}，{{value1}}": "{{value0}}, {{value1}}",
   "{{value0}} 贴纸": "{{value0}} Sticker",
   "内存与缓存": "Memory and caches",

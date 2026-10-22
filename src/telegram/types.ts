@@ -1205,16 +1205,17 @@ export type TelegramEvent =
   | {
       type: "forumTopics.changed";
       chatId: string;
-      topic?: Pick<
+      topic?: Pick<ForumTopic, "id"> & Partial<Pick<
         ForumTopic,
         | "id"
         | "muted"
         | "useDefaultMuteFor"
         | "lastReadInboxMessageId"
+        | "unreadCount"
         | "lastReadOutboxMessageId"
         | "unreadMentionCount"
         | "unreadReactionCount"
-      >;
+      >>;
     }
   | { type: "user.upsert"; user: User; cacheRelevant?: boolean }
   | { type: "sync.error"; message: string; fatal?: boolean };

@@ -1,12 +1,13 @@
 use serde_json::Value;
 use tauri::AppHandle;
 
-const KEYS: [&str; 5] = [
+const KEYS: [&str; 6] = [
     "notgram:managed-downloads:v1",
     "notgram:local-user-blocks:v1",
     "notgram:conversation-activity:v1",
     "notgram:forum-topic-order:v1",
     "notgram:chat-presentation:v1",
+    "notgram:local-read-state:v1",
 ];
 
 fn path(app: &AppHandle, key: &str) -> Result<std::path::PathBuf, String> {

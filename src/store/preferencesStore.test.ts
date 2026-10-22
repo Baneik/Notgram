@@ -22,3 +22,12 @@ describe("local quote collapse preferences", () => {
     }
   });
 });
+
+it.each([undefined, false, true, "true", 1])("loads the read receipt preference strictly from %s", async blockReadReceipts => {
+  const setItem = vi.fn();
+  vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ blockReadReceipts }), setItem });
+  const { preferencesStore } = await import("./preferencesStore");
+  expect(preferencesStore.getState().blockReadReceipts).toBe(blockReadReceipts === true);
+  preferencesStore.getState().setPreference("blockReadReceipts", true);
+  expect(JSON.parse(setItem.mock.lastCall![1]).blockReadReceipts).toBe(true);
+});

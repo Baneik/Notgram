@@ -16,6 +16,7 @@ import { senderNameForMessage } from "../components/conversationMessages";
 import { MessageFileIndex } from "./messageFileIndex";
 import { IncomingMediaAlbums } from "./incomingMediaAlbums";
 import { ForumUnreadState } from "./forumUnreadState";
+import { withLocalReadState } from "../telegram/localReadTransport";
 import { bindMessageFile, updateMessageFile } from "../telegram/messageFileState";
 import { MediaFileRestorer } from "./mediaFileRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
@@ -249,6 +250,10 @@ export const createTelegramStore = (
   reloadApplication: () => void = reloadCurrentApplication,
 ) =>
   createStore<TelegramState>((set, get) => {
+    transport = withLocalReadState(transport, () => {
+      forumUnreadState.reset();
+      void get().markActiveChatRead();
+    });
     const sharedMediaIndex = new SharedMediaIndex();
     let cacheTimer: ReturnType<typeof setTimeout> | undefined;
     let cacheIdleCallback: number | undefined;
@@ -1578,7 +1583,7 @@ export const createTelegramStore = (
         topic?.lastReadInboxMessageId === latestIncoming.id &&
         topic.unreadCount === 0
       ) return false;
-      const readCount = forumUnreadState.captureRead(chatId, topicId, latestIncoming.id,
+      const readCount = transport.usesLocalReadState?.(chatId) ? undefined : forumUnreadState.captureRead(chatId, topicId, latestIncoming.id,
         Math.max(topic?.unreadCount ?? 0, unreadMessages), boundaryId, unreadMessages);
       try {
         await transport.markForumTopicRead(chatId, topicId, latestIncoming.id);
@@ -2097,7 +2102,7 @@ export const createTelegramStore = (
         const chats = new Map(previousChats);
         for (let chat of incomingChats) {
           cachedChatIds.delete(chat.id);
-          chat = forumUnreadState.observeChat(chat);
+          if (!transport.usesLocalReadState?.(chat.id)) chat = forumUnreadState.observeChat(chat);
           for (const [listId, reorder] of pendingPinnedReorders) {
             if (!reorder.serverOrders.has(chat.id)) continue;
             reorder.serverOrders.set(chat.id, chat.listOrderByFolder?.[listId]);
@@ -2717,7 +2722,7 @@ export const createTelegramStore = (
           // title, avatar, or permission update must not prevent a complete list
           // from repairing a stale forum badge after restart.
           const currentChat = get().chats.get(chatId);
-          if (!page.hasMore && currentChat &&
+          if (!transport.usesLocalReadState?.(chatId) && !page.hasMore && currentChat &&
             currentChat.unreadCount === sourceChat?.unreadCount &&
             currentChat.lastReadInboxMessageId === sourceChat?.lastReadInboxMessageId &&
             unreadRevision === forumUnreadState.revision(chatId)) {
@@ -2727,7 +2732,7 @@ export const createTelegramStore = (
               set({ chats: new Map(get().chats).set(chatId, { ...currentChat, unreadCount }) });
               scheduleCacheWrite();
             }
-          } else if (!page.hasMore && (currentChat?.unreadCount ?? 0) > 0 &&
+          } else if (!transport.usesLocalReadState?.(chatId) && !page.hasMore && (currentChat?.unreadCount ?? 0) > 0 &&
             get().activeChatId === chatId) {
             // A changed read boundary or incoming message invalidates old totals;
             // retain a trailing refresh so the rejected snapshot can converge.
@@ -2953,7 +2958,7 @@ export const createTelegramStore = (
           const drafts = new Map((snapshot.drafts ?? []).map((draft) => [draft.localKey ?? topicKey(draft.chatId, draft.topicId), draft]));
           const current = get();
           for (const [id, chat] of current.chats) chats.set(id, chat);
-          for (const chat of chats.values()) forumUnreadState.seedChat(chat);
+          for (const chat of chats.values()) if (!transport.usesLocalReadState?.(chat.id)) forumUnreadState.seedChat(chat);
           for (const [id, user] of current.users) users.set(id, user);
           for (const [chatId, chatMessages] of current.messages) {
             for (const message of chatMessages) {

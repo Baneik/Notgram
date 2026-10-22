@@ -221,6 +221,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
   const deletedMessageArchiveEnabled = usePreferencesStore((state) => state.deletedMessageArchiveEnabled);
   const sendOnEnter = usePreferencesStore((state) => state.sendOnEnter);
   const blockTypingStatus = usePreferencesStore((state) => state.blockTypingStatus);
+  const blockReadReceipts = usePreferencesStore((state) => state.blockReadReceipts);
   const blockZalgoText = usePreferencesStore((state) => state.blockZalgoText);
   const adBlockingEnabled = usePreferencesStore((state) => state.adBlockingEnabled);
   const blockSponsoredMessages = usePreferencesStore((state) => state.blockSponsoredMessages);
@@ -257,6 +258,7 @@ export function SettingsDialog({ onClose, standalone = false }: SettingsDialogPr
     deletedMessageArchiveEnabled,
     sendOnEnter,
     blockTypingStatus,
+    blockReadReceipts,
     blockZalgoText,
     adBlockingEnabled,
     blockSponsoredMessages,
@@ -629,6 +631,7 @@ function PreferenceSettings({
     ? [
         { key: "blockZalgoText" as const, label: translate("屏蔽 Zalgo 文本") },
         { key: "blockTypingStatus" as const, label: translate("屏蔽输入状态") },
+        { key: "blockReadReceipts" as const, label: translate("屏蔽已读上报") },
         { key: "deletedMessageArchiveEnabled" as const, label: translate("保留已撤回消息") },
       ]
     : category === "notifications"

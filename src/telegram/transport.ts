@@ -97,6 +97,10 @@ export interface TelegramTransport {
   loadCachedSnapshot(): Promise<CachedTelegramSnapshot | undefined>;
   saveCachedSnapshot(snapshot: CachedTelegramSnapshot): Promise<void>;
   clearCachedSnapshot(): Promise<void>;
+  /** Reads metadata without publishing history, advancing a UI cursor, or marking messages read. */
+  loadReadStatePage(chatId: string, topicId?: string, fromMessageId?: string,
+    filter?: "mention" | "reaction"): Promise<import("./types").MessageThreadHistoryPage>;
+  usesLocalReadState?(chatId: string): boolean;
   loadLocalState?(accountId: string): Promise<import("./types").LocalUnsentState | undefined>;
   saveLocalState?(accountId: string, value: import("./types").LocalUnsentState): Promise<void>;
   getAccountState(): Promise<TelegramAccountState>;

@@ -39,6 +39,7 @@ export interface AppPreferences {
   deletedMessageArchiveEnabled: boolean;
   sendOnEnter: boolean;
   blockTypingStatus: boolean;
+  blockReadReceipts: boolean;
   blockZalgoText: boolean;
   adBlockingEnabled: boolean;
   blockSponsoredMessages: boolean;
@@ -86,6 +87,7 @@ const defaults: AppPreferences = {
   deletedMessageArchiveEnabled: false,
   sendOnEnter: true,
   blockTypingStatus: true,
+  blockReadReceipts: false,
   blockZalgoText: true,
   adBlockingEnabled: true,
   blockSponsoredMessages: true,
@@ -143,6 +145,7 @@ const readPreferences = (): AppPreferences => {
       deletedMessageArchiveEnabled: stored.deletedMessageArchiveEnabled ?? defaults.deletedMessageArchiveEnabled,
       sendOnEnter: stored.sendOnEnter ?? defaults.sendOnEnter,
       blockTypingStatus,
+      blockReadReceipts: stored.blockReadReceipts === true,
       blockZalgoText: stored.blockZalgoText ?? defaults.blockZalgoText,
       adBlockingEnabled: stored.adBlockingEnabled ?? defaults.adBlockingEnabled,
       blockSponsoredMessages: stored.blockSponsoredMessages ?? defaults.blockSponsoredMessages,
@@ -321,6 +324,7 @@ preferencesStore.subscribe((state) => {
     deletedMessageArchiveEnabled: state.deletedMessageArchiveEnabled,
     sendOnEnter: state.sendOnEnter,
     blockTypingStatus: state.blockTypingStatus,
+    blockReadReceipts: state.blockReadReceipts,
     blockZalgoText: state.blockZalgoText,
     adBlockingEnabled: state.adBlockingEnabled,
     blockSponsoredMessages: state.blockSponsoredMessages,
