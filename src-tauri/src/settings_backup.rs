@@ -120,9 +120,25 @@ pub fn notgram_webdav_edit_settings(
 pub fn notgram_webdav_save_settings(
     app: AppHandle,
     window: WebviewWindow,
-    mut config: WebDavConfig,
+    config: WebDavConfig,
 ) -> Result<WebDavSummary, String> {
     allowed_window(&window)?;
+    write_config(&app, config)
+}
+
+#[tauri::command]
+pub fn notgram_webdav_set_enabled(
+    app: AppHandle,
+    window: WebviewWindow,
+    enabled: bool,
+) -> Result<WebDavSummary, String> {
+    allowed_window(&window)?;
+    let mut config = read_config(&app)?.config;
+    config.enabled = enabled;
+    write_config(&app, config)
+}
+
+fn write_config(app: &AppHandle, mut config: WebDavConfig) -> Result<WebDavSummary, String> {
     config.url = config.url.trim().to_string();
     validate_config(&config)?;
     let mut random = [0u8; 16];
@@ -131,7 +147,7 @@ pub fn notgram_webdav_save_settings(
         config,
         generation: STANDARD.encode(random),
     };
-    crate::storage::persistence::write_json(&config_path(&app)?, &stored, true)
+    crate::storage::persistence::write_json(&config_path(app)?, &stored, true)
         .map_err(|_| "storage")?;
     Ok(stored.summary())
 }

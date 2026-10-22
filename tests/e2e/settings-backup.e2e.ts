@@ -8,6 +8,7 @@ async function openBackup(page: Page) {
   const backup = page.locator(".backup-settings");
   await backup.scrollIntoViewIfNeeded();
   await expect(backup.getByRole("heading", { name: "备份与恢复" })).toBeVisible();
+  await expect(backup.locator(".settings-section-heading > div > span")).toHaveText("备份、恢复和同步基础设置");
   return backup;
 }
 
@@ -60,23 +61,27 @@ test("invalid and unsupported backup files do not change preferences", async ({ 
   }
 });
 
-async function installDavFixture(page: Page, failure: boolean | "stall" = false) {
-  await page.evaluate(async failure => {
+async function installDavFixture(page: Page, failure: boolean | "stall" | 401 | 403 = false, configured = true) {
+  await page.evaluate(async ({ failure, configured }) => {
     const bridge = await import("/src/backup/webdavBridge.ts" as string) as typeof import("../../src/backup/webdavBridge");
     bridge.webdavBridge.available = () => true;
-    let config = { enabled: false, url: "https://dav.example.test/backups/", username: "private-dav-user", password: "private-dav-password" };
+    let config = { enabled: false, url: configured ? "https://dav.example.test/backups/" : "", username: "private-dav-user", password: "private-dav-password" };
     let body = "";
     let version = 0;
     const calls: Array<{ method: string; body?: string }> = [];
+    const commands: string[] = [];
     const summary = () => ({ enabled: config.enabled, url: config.url, hasUsername: !!config.username, hasPassword: !!config.password, generation: "one" });
-    Object.assign(window, { backupDavCalls: calls, __TAURI_INTERNALS__: {
-      invoke: async (command: string, args: { config?: typeof config; method?: string; body?: string }) => {
+    Object.assign(window, { backupDavCalls: calls, backupDavCommands: commands, __TAURI_INTERNALS__: {
+      invoke: async (command: string, args: { config?: typeof config; enabled?: boolean; method?: string; body?: string }) => {
+        commands.push(command);
         if (command === "notgram_webdav_settings") return summary();
         if (command === "notgram_webdav_edit_settings") return { ...config };
         if (command === "notgram_webdav_save_settings") { config = args.config!; return summary(); }
+        if (command === "notgram_webdav_set_enabled") { config.enabled = args.enabled!; return summary(); }
         if (command === "notgram_webdav_request") {
           calls.push({ method: args.method!, body: args.body });
           if (failure === "stall") return new Promise(() => {});
+          if (typeof failure === "number") return { status: failure, body: "", etag: null };
           if (failure) throw new Error("network");
           if (args.method === "PUT") { body = args.body!; version += 1; return { status: 204, body: "", etag: `"${version}"` }; }
           return { status: body ? 200 : 404, body, etag: body ? `"${version}"` : null };
@@ -84,7 +89,7 @@ async function installDavFixture(page: Page, failure: boolean | "stall" = false)
         return null;
       },
     } });
-  }, failure);
+  }, { failure, configured });
 }
 
 for (const width of [1366, 390]) {
@@ -112,6 +117,14 @@ test(`WebDAV masks both credentials outside editing and only uploads changed set
   await expect.poll(() => page.evaluate(() => (window as unknown as { backupDavCalls: unknown[] }).backupDavCalls.length)).toBe(1);
   await expect(backup.getByText("已同步", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { backupDavCalls: { method: string }[] }).backupDavCalls.map(call => call.method))).toEqual(["GET"]);
+  const editReads = await page.evaluate(() => (window as unknown as { backupDavCommands: string[] }).backupDavCommands.filter(command => command === "notgram_webdav_edit_settings").length);
+  await backup.getByRole("switch", { name: "WebDAV 自动同步" }).uncheck();
+  await expect(backup.getByText("未启用", { exact: true })).toBeVisible();
+  await backup.getByRole("switch", { name: "WebDAV 自动同步" }).check();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { backupDavCalls: unknown[] }).backupDavCalls.length)).toBe(2);
+  await expect(backup.getByText("已同步", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { backupDavCommands: string[] }).backupDavCommands.filter(command => command === "notgram_webdav_edit_settings").length)).toBe(editReads);
+  expect(await backup.innerHTML()).not.toMatch(/private-dav-user|private-dav-password/);
   await page.evaluate(async () => {
     const { preferencesStore } = await import("/src/store/preferencesStore.ts" as string) as typeof import("../../src/store/preferencesStore");
     for (const value of [16, 17, 18]) preferencesStore.getState().setPreference("chatFontSize", value);
@@ -125,6 +138,40 @@ test(`WebDAV masks both credentials outside editing and only uploads changed set
   await backup.screenshot({ path: testInfo.outputPath("backup-webdav-masked.png") });
 });
 }
+
+for (const status of [401, 403] as const) {
+  test(`WebDAV reports HTTP ${status} without exposing credentials`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: status === 401 ? 390 : 1366, height: 900 });
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toBeVisible();
+    await installDavFixture(page, status);
+    const backup = await openBackup(page);
+    await backup.getByRole("switch", { name: "WebDAV 自动同步" }).check();
+    await expect(backup.getByText(status === 401 ? "认证失败（401）" : "访问被拒绝（403）", { exact: true })).toBeVisible();
+    expect(await backup.innerHTML()).not.toMatch(/private-dav-user|private-dav-password/);
+    expect(await page.evaluate(() => (window as unknown as { backupDavCommands: string[] }).backupDavCommands.includes("notgram_webdav_edit_settings"))).toBe(false);
+    expect(await horizontalOverflow(page)).toBe(false);
+    await backup.screenshot({ path: testInfo.outputPath(`backup-http-${status}.png`) });
+    await backup.getByRole("switch", { name: "WebDAV 自动同步" }).uncheck();
+    await expect(backup.getByText("未启用", { exact: true })).toBeVisible();
+  });
+}
+
+test("enabling unconfigured WebDAV opens an unsaved editor and can be cancelled", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".app-shell")).toBeVisible();
+  await installDavFixture(page, false, false);
+  const backup = await openBackup(page);
+  await backup.getByRole("switch", { name: "WebDAV 自动同步" }).check();
+  await expect(backup.getByLabel("WebDAV 目录地址", { exact: true })).toHaveValue("");
+  await expect(backup.getByRole("switch", { name: "WebDAV 自动同步" })).toBeChecked();
+  expect(await page.evaluate(() => (window as unknown as { backupDavCalls: unknown[] }).backupDavCalls.length)).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { backupDavCommands: string[] }).backupDavCommands.some(command => /save_settings|set_enabled/.test(command)))).toBe(false);
+  await backup.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(backup.getByRole("switch", { name: "WebDAV 自动同步" })).not.toBeChecked();
+  await expect(backup.getByText("未启用", { exact: true })).toBeVisible();
+  expect(await backup.innerHTML()).not.toMatch(/private-dav-user|private-dav-password/);
+});
 
 test("WebDAV failure leaves the app interactive and retries after another settings edit", async ({ page }) => {
   await page.goto("/");

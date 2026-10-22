@@ -13,7 +13,8 @@ function syncMessage(state?: string, error?: string) {
   if (state === "syncing") return translate("同步中");
   if (state === "synced") return translate("已同步");
   if (state === "disabled") return translate("未启用");
-  if (error === "http-401" || error === "http-403") return translate("认证失败");
+  if (error === "http-401") return translate("认证失败（401）");
+  if (error === "http-403") return translate("访问被拒绝（403）");
   if (error === "missing-etag") return translate("服务器不支持安全同步");
   if (error === "invalid-backup") return translate("云端备份无效");
   if (error === "conflict") return translate("同步冲突");
@@ -84,10 +85,29 @@ export function BackupSettings() {
     finally { setPending(false); if (fileInput.current) fileInput.current.value = ""; }
   };
 
-  const editWebDav = async () => {
+  const editWebDav = async (enable = false) => {
     setError(""); setPending(true);
-    try { setDraft(await webdavBridge.edit()); }
+    try {
+      const config = await webdavBridge.edit();
+      setDraft({ ...config, enabled: enable || config.enabled });
+    }
     catch { setError(translate("无法读取 WebDAV 配置。")); }
+    finally { setPending(false); }
+  };
+
+  const updateConfig = (value: WebDavSummary) => {
+    setSummary(value);
+    setSync(undefined);
+    localStorage.setItem(WEBDAV_CONFIG_EVENT, `${Date.now()}:${Math.random()}`);
+    window.dispatchEvent(new Event(WEBDAV_CONFIG_EVENT));
+  };
+
+  const toggleWebDav = async (enabled: boolean) => {
+    if (draft) { setDraft({ ...draft, enabled }); return; }
+    if (enabled && !summary?.url) { await editWebDav(true); return; }
+    setError(""); setMessage(""); setPending(true);
+    try { updateConfig(await webdavBridge.setEnabled(enabled)); }
+    catch { setError(translate("无法更改 WebDAV 同步状态。")); }
     finally { setPending(false); }
   };
 
@@ -95,11 +115,8 @@ export function BackupSettings() {
     if (!draft) return;
     setError(""); setMessage(""); setPending(true);
     try {
-      setSummary(await webdavBridge.save(draft));
+      updateConfig(await webdavBridge.save(draft));
       setDraft(undefined);
-      setSync(undefined);
-      localStorage.setItem(WEBDAV_CONFIG_EVENT, `${Date.now()}:${Math.random()}`);
-      window.dispatchEvent(new Event(WEBDAV_CONFIG_EVENT));
       setMessage(translate("WebDAV 配置已保存。"));
     } catch { setError(translate("WebDAV 配置无效")); }
     finally { setPending(false); }
@@ -109,7 +126,10 @@ export function BackupSettings() {
     <section className="settings-section backup-settings" aria-labelledby="backup-settings-heading">
       <div className="settings-section-heading">
         <ArchiveRestore size={18} strokeWidth={1.8} />
-        <div><h4 id="backup-settings-heading">{translate("备份与恢复")}</h4></div>
+        <div>
+          <h4 id="backup-settings-heading">{translate("备份与恢复")}</h4>
+          <span>{translate("备份、恢复和同步基础设置")}</span>
+        </div>
       </div>
       <div className="backup-local">
         <strong>{translate("本地备份")}</strong>
@@ -128,7 +148,13 @@ export function BackupSettings() {
             {summary?.enabled ? sync ? syncMessage(sync.state, sync.error) : translate("已启用") : translate("未启用")}
           </span>}
         </div>
-        {!draft && <button className="backup-edit-button" type="button" aria-label={translate("编辑 WebDAV")} disabled={pending || !supported || !summary} onClick={() => void editWebDav()}><Pencil size={13} />{translate("编辑")}</button>}
+        <div className="backup-webdav-controls">
+          <label className="preference-row">
+            <span>{translate("自动同步")}</span>
+            <input type="checkbox" role="switch" aria-label={translate("WebDAV 自动同步")} checked={draft?.enabled ?? summary?.enabled ?? false} disabled={pending || !supported || !summary} onChange={event => void toggleWebDav(event.target.checked)} />
+          </label>
+          {!draft && <button className="backup-edit-button" type="button" aria-label={translate("编辑 WebDAV")} disabled={pending || !supported || !summary} onClick={() => void editWebDav()}><Pencil size={13} />{translate("编辑")}</button>}
+        </div>
       </div>
       {draft ? (
         <div className="backup-webdav-form" onKeyDown={event => {
@@ -137,7 +163,6 @@ export function BackupSettings() {
             if (!pending) void saveWebDav();
           }
         }}>
-          <label className="preference-row"><span>{translate("WebDAV 自动同步")}</span><input type="checkbox" role="switch" checked={draft.enabled} disabled={pending} onChange={event => setDraft({ ...draft, enabled: event.target.checked })} /></label>
           <label className="auth-field backup-url-field"><span>{translate("目录地址")}</span><input aria-label={translate("WebDAV 目录地址")} type="url" value={draft.url} maxLength={4096} placeholder="https://example.com/dav/" disabled={pending} required={draft.enabled} autoComplete="off" onChange={event => setDraft({ ...draft, url: event.target.value })} /></label>
           <label className="auth-field"><span>{translate("用户名")}</span><input aria-label={translate("WebDAV 用户名")} type="text" value={draft.username} maxLength={1024} autoComplete="off" spellCheck={false} disabled={pending} onChange={event => setDraft({ ...draft, username: event.target.value })} /></label>
           <label className="auth-field"><span>{translate("密码")}</span><input aria-label={translate("WebDAV 密码")} type="password" value={draft.password} maxLength={4096} autoComplete="new-password" disabled={pending} onChange={event => setDraft({ ...draft, password: event.target.value })} /></label>

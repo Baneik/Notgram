@@ -3280,7 +3280,9 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .backup-settings .dialog-save:hover:not(:disabled) { background: var(--color-accent-strong); }
 .backup-settings .dialog-save:disabled { opacity: .5; cursor: default; }
 .backup-webdav { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--color-bg-surface); }
-.backup-webdav-heading { min-height: 46px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--color-bg-surface-hover); }
+.backup-webdav-heading { min-height: 46px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; background: var(--color-bg-surface-hover); }
+.backup-webdav-controls { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.backup-webdav-controls > .preference-row { min-height: 28px; padding: 0; gap: 6px; background: transparent; font-size: 11px; }
 .backup-webdav-title { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .backup-webdav-title > svg { flex: 0 0 auto; color: var(--muted); }
 .backup-webdav-title > strong { font-size: 12px; font-weight: 600; }
@@ -3291,7 +3293,6 @@ button.message-forward-heading-icon { border: 0; cursor: pointer; }
 .backup-edit-button:hover:not(:disabled) { background: var(--accent-soft); }
 .backup-edit-button:disabled { opacity: .45; cursor: default; }
 .backup-webdav-form, .backup-webdav-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; margin: 0; padding: 12px; border-top: 1px solid var(--line); }
-.backup-webdav-form > .preference-row { grid-column: 1 / -1; min-height: 28px; padding: 0; background: transparent; }
 .backup-webdav-form > .backup-actions, .backup-url-field { grid-column: 1 / -1; }
 .backup-webdav-summary > div { min-width: 0; display: grid; gap: 5px; }
 .backup-webdav-summary dt { color: var(--muted); font-size: 10px; }

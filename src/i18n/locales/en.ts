@@ -1,5 +1,9 @@
 export const en = {
-  "认证失败": "Authentication failed",
+  "认证失败（401）": "Authentication failed (401)",
+  "访问被拒绝（403）": "Access denied (403)",
+  "备份、恢复和同步基础设置": "Back up, restore and sync basic settings",
+  "自动同步": "Auto sync",
+  "无法更改 WebDAV 同步状态。": "Unable to change WebDAV sync status.",
   "服务器不支持安全同步": "Safe sync unavailable on this server",
   "云端备份无效": "Invalid cloud backup",
   "同步冲突": "Sync conflict",

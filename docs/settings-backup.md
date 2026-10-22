@@ -66,7 +66,11 @@ fragment. No directory creation or cloud deletion is performed.
 WebDAV credentials use the existing protected durable-record helper (Windows
 DPAPI). Normal settings reads return only the URL, enable state and credential
 presence flags; both username and password display fixed dots outside editing.
-Only an explicit edit retrieves credentials. Password input stays masked during
+The WebDAV header switch enables or disables a saved configuration without
+retrieving credentials into the UI. With no configured address, enabling opens
+the editor first; saving commits that draft. HTTP 401 (authentication failed)
+and 403 (access denied) display distinct status codes.
+Only entering the editor retrieves credentials. Password input stays masked during
 editing. Neither credentials nor raw network errors enter sync status records or
 backup files. Native commands are restricted to main/settings windows; requests
 are restricted to the main window.

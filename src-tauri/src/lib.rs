@@ -95,6 +95,7 @@ pub fn run() {
             settings_backup::notgram_webdav_settings,
             settings_backup::notgram_webdav_edit_settings,
             settings_backup::notgram_webdav_save_settings,
+            settings_backup::notgram_webdav_set_enabled,
             settings_backup::notgram_webdav_request,
             settings_backup::notgram_export_settings_backup,
             memory::notgram_sync_memory_target,
