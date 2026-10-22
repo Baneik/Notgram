@@ -26,6 +26,18 @@ must reject a same-ID candidate from another chat and fall back to the embedded 
 and sender. Do not let history loading, cache eviction or a cross-chat ID collision change the
 meaning of the reply.
 
+Composer reply/edit targets belong to the account and conversation (including its forum topic or
+discussion thread), independently of the projected history window and mounted rows. Resolve their
+current content from the complete scoped cache, retaining the selected message snapshot across cache
+misses. Returning to latest, paging and retention splits must preserve the panel, selected quote and
+unsaved edit. A resumed reply draft may resolve outside the displayed window. Actual removal events,
+complete local hiding and explicit edit invalidation revoke the target; revoking a reply also clears
+its persisted target and quote without changing the draft text/entities. Cache eviction is not a
+removal event. Local selected quotes remain authoritative over normalized draft echoes. Sending must
+resolve retained deleted targets through the same context so their local quote conversion still
+works outside the timeline. Cancel/save and account, topic or discussion changes keep their existing
+scope and draft restoration behavior.
+
 Reference behavior: [reply header](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/history/view/history_view_reply.cpp),
 [composer header](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/history/view/controls/history_view_compose_controls.cpp),
 [media previews](https://github.com/telegramdesktop/tdesktop/blob/v7.3.1/Telegram/SourceFiles/data/data_media_types.cpp),

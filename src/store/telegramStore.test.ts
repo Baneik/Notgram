@@ -173,7 +173,7 @@ describe("telegram store", () => {
     expect(store.getState().activeChatId).toBe("chat-upgraded");
   });
 
-  it("publishes incremental message changes and marks only first live arrivals", async () => {
+  it("publishes incremental changes including uncached removals and marks only first live arrivals", async () => {
     class MessageChangeTransport extends MockTelegramTransport {
       private eventListener?: TelegramEventListener;
 
@@ -206,8 +206,9 @@ describe("telegram store", () => {
       messageId: live.id,
       immediate: true,
     });
+    transport.publish({ type: "message.remove", chatId: live.chatId, messageId: "evicted-message", permanent: true, source: "local" });
 
-    expect(changes).toHaveLength(5);
+    expect(changes).toHaveLength(6);
     expect(changes[0]).toMatchObject({ type: "upsert", liveMessages: [] });
     expect(changes[1]).toMatchObject({ type: "upsert", liveMessages: [] });
     expect(changes[2]).toMatchObject({
@@ -220,6 +221,7 @@ describe("telegram store", () => {
       chatId: live.chatId,
       messageIds: [live.id],
     });
+    expect(changes[5]).toEqual({ type: "remove", chatId: live.chatId, messageIds: ["evicted-message"] });
   });
 
   it("updates the username index incrementally with user changes", async () => {

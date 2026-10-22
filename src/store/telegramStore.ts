@@ -802,7 +802,12 @@ export const createTelegramStore = (
       const messages = new Map(get().messages);
       const current = messages.get(chatId) ?? [];
       const removed = current.find((message) => message.id === messageId);
-      if (!removed) return;
+      if (!removed) {
+        // A composer can still hold a snapshot after cache eviction.
+        sharedMediaIndex.remove(chatId, [messageId]);
+        publishMessageChange({ type: "remove", chatId, messageIds: [messageId] });
+        return;
+      }
       if (previous) globalThis.clearTimeout(previous);
       removalTimers.delete(key);
       messages.set(chatId, current.filter((message) => message.id !== messageId));

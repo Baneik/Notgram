@@ -111,6 +111,7 @@ import { chatPresentationStore, useMessageAvatarsHidden } from "../store/chatPre
 import { autoplayAllowed } from "../utils/motionPreference";
 import { colorThemeForThemeId } from "../theme/theme";
 import { ConversationComposer } from "./ConversationComposer";
+import { useComposerMessageContext } from "../hooks/useComposerMessageContext";
 import { captureActiveComposerFocus, focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import { ReportDialog } from "./ReportDialog";
 import { viewerMessages } from "../utils/mediaViewerModel";
@@ -624,9 +625,6 @@ export function Conversation({
   const consumeComposerTextInsertion = useCallback((id: string) => {
     setComposerTextInsertion((current) => current?.id === id ? undefined : current);
   }, []);
-  const [replyingTo, setReplyingTo] = useState<Message>();
-  const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
-  const [editingMessage, setEditingMessage] = useState<Message>();
   const { states: discussionThreads, load: loadDiscussion } = useChannelDiscussionHistory(loadMessageThreadHistory, activeAccountId);
   const chatMessagesRef = useRef(chatMessages);
   chatMessagesRef.current = chatMessages;
@@ -649,12 +647,6 @@ export function Conversation({
   const chatAdministratorLabels = useTelegramStore((state) => state.chatAdministratorLabels);
   const loadChatManagement = useTelegramStore((state) => state.loadChatManagement);
   const loadChatAdministratorLabels = useTelegramStore((state) => state.loadChatAdministratorLabels);
-  const draftReplyToMessageId = useTelegramStore((state) =>
-    chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyToMessageId : undefined,
-  );
-  const draftReplyQuote = useTelegramStore((state) =>
-    chat ? state.drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id)?.replyQuote : undefined,
-  );
   const cacheFile = useTelegramStore((state) => state.cacheFile);
   const autoplayAnimations = usePreferencesStore((state) => autoplayAllowed(
     state.autoplayAnimations,
@@ -693,6 +685,18 @@ export function Conversation({
   });
   const allPinnedMessages = useMemo(() => loadedPinnedMessages.filter((message) =>
     !isLocalHiddenMessage(message, localHiddenUserIds)), [loadedPinnedMessages, localHiddenUserIds]);
+  const composerMessages = useMemo(() => loadedPinnedMessages.length
+    ? [...chatMessages, ...loadedPinnedMessages] : chatMessages, [chatMessages, loadedPinnedMessages]);
+  const { replyingTo, replyQuote, editingMessage, setReplyingTo, setReplyQuote, setEditingMessage,
+    cancelReply, getReplyTarget } = useComposerMessageContext({
+    identity: `${activeAccountId}:${conversationIdentity}`,
+    chatId: chat?.id,
+    topicId: topic?.id,
+    draftKey: chat ? topic ? `${chat.id}:topic:${topic.id}` : chat.id : undefined,
+    messages: composerMessages,
+    hiddenUserIds: localHiddenUserIds,
+    onClearDraftReply: draft => onDraftChange(draft.chatId, draft.text, undefined, undefined, draft.entities, { topicId: topic?.id }),
+  });
   const [visiblePinnedMessageIds, setVisiblePinnedMessageIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -1617,9 +1621,7 @@ export function Conversation({
     disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
-    const localReply = replyToMessageId
-      ? messagesByIdRef.current.get(replyToMessageId)
-      : undefined;
+    const localReply = getReplyTarget(replyToMessageId);
     const localOnlyReply = localReply?.isLocallyDeleted === true;
     const localReplyAuthor = localOnlyReply && chat
       ? senderNameForMessage(localReply, users, chat, forwardTargetsById)
@@ -1635,7 +1637,7 @@ export function Conversation({
       localOnlyReply ? [...(localQuote?.entities ?? []), ...(entities ?? []).map((entity) => ({ ...entity, offset: entity.offset + localReplyPrefix.length }))] : entities,
       disableNotification,
     );
-  }, [chat, forwardTargetsById, jumpToLatest, onSendMessage, users]);
+  }, [chat, forwardTargetsById, getReplyTarget, jumpToLatest, onSendMessage, users]);
 
   const sendFilesAndFollowLatest = useCallback(async (
     attachments: import("../telegram/types").OutgoingAttachment[],
@@ -1646,9 +1648,7 @@ export function Conversation({
     disableNotification?: boolean,
   ) => {
     jumpToLatest("auto");
-    const localOnlyReply = replyToMessageId
-      ? messagesByIdRef.current.get(replyToMessageId)?.isLocallyDeleted === true
-      : false;
+    const localOnlyReply = getReplyTarget(replyToMessageId)?.isLocallyDeleted === true;
     return onSendFiles(
       attachments,
       caption,
@@ -1657,7 +1657,7 @@ export function Conversation({
       localOnlyReply ? undefined : selectedReplyQuote,
       disableNotification,
     );
-  }, [jumpToLatest, onSendFiles]);
+  }, [getReplyTarget, jumpToLatest, onSendFiles]);
 
   useEffect(() => {
     const selectionSurface = (node: Node | null) => node instanceof Element
@@ -1972,10 +1972,7 @@ export function Conversation({
     setActionMenu(undefined);
     setActionForwardTargets([]);
     setComposerTextInsertion(undefined);
-    setReplyingTo(undefined);
-    setReplyQuote(undefined);
     selectedReplyQuoteSnapshotRef.current = undefined;
-    setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setDeletePending(false);
     setDiscussionPost(undefined);
@@ -1989,37 +1986,9 @@ export function Conversation({
   }, [conversationIdentity]);
 
   useEffect(() => {
-    if (editingMessage) return;
-    const replyToMessageId = draftReplyToMessageId;
-    if (!replyToMessageId) {
-      setReplyingTo(undefined);
-      setReplyQuote(undefined);
-      return;
-    }
-    const target = messagesById.get(replyToMessageId);
-    if (target) {
-      // Once a reply is opened locally, its selected quote is authoritative.
-      // TDLib may echo a draft without the quote while it is normalizing it;
-      // replacing the local quote with that echo makes the composer fall back
-      // to the complete source message and sends a whole-message reply.
-      if (replyingTo?.id !== target.id) {
-        setReplyingTo(target);
-        setReplyQuote(draftReplyQuote);
-      }
-    }
-  }, [conversationIdentity, draftReplyQuote, draftReplyToMessageId, editingMessage, messagesById, replyingTo?.id]);
-
-  useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
-    if (replyingTo && !messagesById.has(replyingTo.id)) {
-      setReplyingTo(undefined);
-      setReplyQuote(undefined);
-    }
-    if (editingMessage && !messagesById.has(editingMessage.id)) {
-      setEditingMessage(undefined);
-    }
     if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
-  }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
+  }, [actionMenu, deleteTarget, messagesById]);
 
   useEffect(() => {
     if (!actionMenu) return;
@@ -2285,15 +2254,6 @@ export function Conversation({
     setEditingMessage(undefined);
   };
 
-  const cancelReply = () => {
-    setReplyingTo(undefined);
-    setReplyQuote(undefined);
-    const currentDraft = telegramStore.getState().drafts.get(topic ? `${chat.id}:topic:${topic.id}` : chat.id);
-    if (currentDraft?.replyToMessageId) {
-      onDraftChange(chat.id, currentDraft.text, undefined, undefined);
-    }
-  };
-
   const startReply = (message: Message, selectedReplyQuote?: MessageReplyQuote) => {
     if (editingMessage) {
       setEditingMessage(undefined);
@@ -2304,7 +2264,7 @@ export function Conversation({
     const currentDraft = telegramStore.getState().drafts.get(
       topic ? `${chat.id}:topic:${topic.id}` : chat.id,
     );
-    onDraftChange(chat.id, currentDraft?.text ?? "", message.id, selectedReplyQuote);
+    onDraftChange(chat.id, currentDraft?.text ?? "", message.id, selectedReplyQuote, currentDraft?.entities, { topicId: topic?.id });
     setReplyingTo(message);
     setReplyQuote(selectedReplyQuote);
     setActionMenu(undefined);

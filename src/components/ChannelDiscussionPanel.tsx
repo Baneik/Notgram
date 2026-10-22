@@ -29,7 +29,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
-import { useTelegramStore } from "../store/telegramStore";
+import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import type {
   Chat,
   ChatReportResult,
@@ -54,6 +54,7 @@ import { formatSelectedMessages } from "../utils/messageClipboard";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { Avatar } from "./Avatar";
 import { ConversationComposer } from "./ConversationComposer";
+import { useComposerMessageContext } from "../hooks/useComposerMessageContext";
 import { focusComposerFromPointer, useComposerFocus } from "../hooks/useComposerFocus";
 import {
   DeleteMessagesDialog,
@@ -287,9 +288,15 @@ export function ChannelDiscussionPanel({
     [administratorLabels],
   );
   const [actionMenu, setActionMenu] = useState<MessageMenuState>();
-  const [replyingTo, setReplyingTo] = useState<Message>();
-  const [replyQuote, setReplyQuote] = useState<MessageReplyQuote>();
-  const [editingMessage, setEditingMessage] = useState<Message>();
+  const { replyingTo, replyQuote, editingMessage, setReplyingTo, setReplyQuote, setEditingMessage,
+    cancelReply } = useComposerMessageContext({
+    identity: `${activeAccountId}:${draftKey}`,
+    chatId: discussionChatId,
+    draftKey,
+    messages: allComments,
+    hiddenUserIds,
+    onClearDraftReply: draft => updateThreadDraft(draftKey, discussionChatId, draft.text, undefined, undefined, draft.entities),
+  });
   const [deleteTarget, setDeleteTarget] = useState<Message>();
   const [deletePending, setDeletePending] = useState(false);
   const [reportTarget, setReportTarget] = useState<Message>();
@@ -338,9 +345,6 @@ export function ChannelDiscussionPanel({
 
   useEffect(() => {
     setActionMenu(undefined);
-    setReplyingTo(undefined);
-    setReplyQuote(undefined);
-    setEditingMessage(undefined);
     setDeleteTarget(undefined);
     setReportTarget(undefined);
     setPinTarget(undefined);
@@ -351,13 +355,8 @@ export function ChannelDiscussionPanel({
 
   useEffect(() => {
     if (actionMenu && !messagesById.has(actionMenu.messageId)) setActionMenu(undefined);
-    if (replyingTo && !messagesById.has(replyingTo.id)) {
-      setReplyingTo(undefined);
-      setReplyQuote(undefined);
-    }
-    if (editingMessage && !messagesById.has(editingMessage.id)) setEditingMessage(undefined);
     if (deleteTarget && !messagesById.has(deleteTarget.id)) setDeleteTarget(undefined);
-  }, [actionMenu, deleteTarget, editingMessage, messagesById, replyingTo]);
+  }, [actionMenu, deleteTarget, messagesById]);
 
   const closeActionMenu = useCallback(() => {
     setActionMenu(undefined);
@@ -383,12 +382,14 @@ export function ChannelDiscussionPanel({
   }, [blockedById, revealedMessages]);
 
   const startReply = useCallback((message: Message, selectedQuote?: MessageReplyQuote) => {
+    const draft = telegramStore.getState().drafts.get(draftKey);
+    updateThreadDraft(draftKey, discussionChatId, draft?.text ?? "", message.id, selectedQuote, draft?.entities);
     setEditingMessage(undefined);
     setReplyingTo(message);
     setReplyQuote(selectedQuote);
     setActionMenu(undefined);
     composerFocus.capture(true)();
-  }, [composerFocus]);
+  }, [composerFocus, discussionChatId, draftKey, updateThreadDraft]);
 
   const startEditing = useCallback((message: Message) => {
     if (!isEditableMessageContent(message.content)) return;
@@ -773,10 +774,7 @@ export function ChannelDiscussionPanel({
             onCancelEditing={() => {
               setEditingMessage(undefined);
             }}
-            onCancelReply={() => {
-              setReplyingTo(undefined);
-              setReplyQuote(undefined);
-            }}
+            onCancelReply={cancelReply}
             onGetBotCommands={(query = "", botUsername) =>
               getBotCommandSuggestions(discussionChatId, query, botUsername)}
             onGetInlineResults={(botUsername, query, offset = "") =>
