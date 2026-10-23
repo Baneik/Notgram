@@ -1,5 +1,5 @@
 import { translate } from "../i18n";
-import { LoaderCircle, Plus, Sticker, Trash2, X } from "lucide-react";
+import { Download, LoaderCircle, Plus, Sticker, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useTelegramStore } from "../store/telegramStore";
@@ -8,6 +8,7 @@ import { matchesFileIdentity } from "../telegram/messageFileState";
 import { autoplayAllowed } from "../utils/motionPreference";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { EmojiAssetVisual } from "./EmojiAssetVisual";
+import { useStickerExport } from "./StickerExportMenu";
 
 interface StickerSetPreviewProps {
   stickerSetId: string;
@@ -17,7 +18,8 @@ interface StickerSetPreviewProps {
 }
 
 export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRestoreFocus }: StickerSetPreviewProps) {
-  const dialogRef = useModalFocus<HTMLElement>(onClose, false, undefined, false, onRestoreFocus);
+  const stickerExport = useStickerExport(stickerSetId);
+  const dialogRef = useModalFocus<HTMLElement>(onClose, stickerExport.menuOpen, undefined, false, onRestoreFocus);
   const loadStickerSet = useTelegramStore((state) => state.loadStickerSet);
   const emojiRevision = useTelegramStore((state) => state.emojiRevision);
   const getCachedStickerSet = useTelegramStore((state) => state.getCachedStickerSet);
@@ -112,7 +114,8 @@ export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRes
           </div>
         ) : (
           <div className="sticker-set-body">
-            <div className="sticker-set-stage" aria-label={translate("贴纸预览")}>
+            <div className="sticker-set-stage" aria-label={translate("贴纸预览")}
+              {...(selectedSticker ? stickerExport.menuProps({ kind: "sticker", sticker: selectedSticker }) : {})}>
               {selectedSticker ? (
                 <EmojiAssetVisual
                   key={selectedSticker.id}
@@ -133,6 +136,7 @@ export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRes
                     aria-label={translate("预览贴纸 {{value0}}", { value0: sticker.emoji ?? "" }).trim()}
                     aria-pressed={selected}
                     key={sticker.id}
+                    {...stickerExport.menuProps({ kind: "sticker", sticker })}
                     onClick={() => setSelectedStickerId(sticker.id)}
                   >
                     <EmojiAssetVisual
@@ -150,16 +154,24 @@ export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRes
 
         <footer className="sticker-set-footer">
           {actionFailed && <span role="alert">{stickerSet?.isInstalled ? translate("移除贴纸包失败") : translate("添加贴纸包失败")}</span>}
+          {stickerExport.status}
+          <button className="dialog-primary" type="button"
+            disabled={loading || failed || !stickerSet?.stickers.length || addPending || stickerExport.pending}
+            onClick={() => stickerExport.exportTarget({ kind: "set", stickerSetId })}>
+            {stickerExport.pending ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}
+            {translate("导出贴纸包")}
+          </button>
           <button
             className="dialog-primary"
             type="button"
-            disabled={loading || failed || !stickerSet || addPending}
+            disabled={loading || failed || !stickerSet || addPending || stickerExport.pending}
             onClick={() => void addSet()}
           >
             {addPending ? <LoaderCircle className="spin" size={16} /> : stickerSet?.isInstalled ? <Trash2 size={16} /> : <Plus size={16} />}
             {addPending ? translate("正在处理") : stickerSet?.isInstalled ? translate("移除贴纸") : translate("添加贴纸")}
           </button>
         </footer>
+        {stickerExport.menu}
       </section>
     </div>
   );

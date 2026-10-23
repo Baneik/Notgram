@@ -219,6 +219,7 @@ export interface TelegramTransport {
   getStickerSet(stickerSetId: string): Promise<StickerSet>;
   addStickerSet(stickerSetId: string): Promise<void>;
   removeStickerSet(stickerSetId: string): Promise<void>;
+  exportStickers(assets: EmojiPickerAsset[], name: string): Promise<boolean>;
   getStickerOutline(fileId: number): Promise<string>;
   searchStickers(query: string, chatId: string): Promise<EmojiPickerAsset[]>;
   loadEmojiAsset(asset: EmojiPickerAsset, priority?: number): Promise<string | undefined>;

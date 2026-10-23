@@ -37,6 +37,7 @@ const createHarness = () => {
     getStickerSet: vi.fn(async (_id: string) => stickerSet),
     addStickerSet: vi.fn(async () => undefined),
     removeStickerSet: vi.fn(async () => undefined),
+    exportStickers: vi.fn(async (_assets: EmojiPickerAsset[], _name: string) => true),
     getStickerOutline: vi.fn(async () => "M0 0L512 512Z"),
     loadEmojiAsset: vi.fn(async () => "C:/cache/sticker.webp"),
   };
@@ -56,6 +57,77 @@ const deferred = <T>() => {
 };
 
 afterEach(() => { setMemoryBackground(false); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe("sticker exports", () => {
+  it("loads the complete pack rather than exporting its cover", async () => {
+    const { controller, transport, set } = createHarness();
+    const stickers = [asset, { ...asset, id: "sticker:2", fileId: 2 }];
+    transport.getStickerSet.mockResolvedValueOnce({ ...stickerSet, size: 2, stickers });
+    await expect(controller.exportStickers({ kind: "set", stickerSetId: "set-1" })).resolves.toBe("saved");
+    expect(transport.exportStickers).toHaveBeenCalledExactlyOnceWith(stickers, "test");
+    expect(set).toHaveBeenLastCalledWith({ stickerExportPending: false });
+  });
+
+  it("exports only the selected sticker and uses its pack position in the filename", async () => {
+    const { controller, transport } = createHarness();
+    const stickers = [asset, { ...asset, id: "sticker:2", fileId: 2, stickerSetId: "set-1" }];
+    transport.getStickerSet.mockResolvedValueOnce({ ...stickerSet, size: 2, stickers });
+    await controller.loadStickerSet("set-1");
+    await expect(controller.exportStickers({ kind: "sticker", sticker: stickers[1] })).resolves.toBe("saved");
+    expect(transport.exportStickers).toHaveBeenCalledExactlyOnceWith([stickers[1]], "test_002");
+  });
+
+  it("treats dialog cancellation as cancellation rather than an error", async () => {
+    const { controller, transport, set } = createHarness();
+    transport.exportStickers.mockResolvedValueOnce(false);
+    await expect(controller.exportStickers({ kind: "sticker", sticker: asset })).resolves.toBe("cancelled");
+    expect(set).not.toHaveBeenCalledWith(expect.objectContaining({ operationError: expect.any(String) }));
+  });
+
+  it("releases the pending state after a failed export and permits retry", async () => {
+    const { controller, transport, set } = createHarness();
+    transport.exportStickers.mockRejectedValueOnce(new Error("disk full"));
+    await expect(controller.exportStickers({ kind: "sticker", sticker: asset })).resolves.toBe("failed");
+    expect(set).toHaveBeenCalledWith({ operationError: "导出贴纸失败" });
+    expect(set).toHaveBeenLastCalledWith({ stickerExportPending: false });
+    await expect(controller.exportStickers({ kind: "sticker", sticker: asset })).resolves.toBe("saved");
+  });
+
+  it("does not open multiple simultaneous folder dialogs", async () => {
+    const { controller, transport } = createHarness();
+    const pending = deferred<boolean>();
+    transport.exportStickers.mockReturnValueOnce(pending.promise);
+    const first = controller.exportStickers({ kind: "sticker", sticker: asset });
+    await expect(controller.exportStickers({ kind: "sticker", sticker: asset })).resolves.toBe("cancelled");
+    expect(transport.exportStickers).toHaveBeenCalledTimes(1);
+    pending.resolve(true);
+    await expect(first).resolves.toBe("saved");
+  });
+
+  it("does not publish completion or clear a new export after an account reset", async () => {
+    const { controller, transport, set } = createHarness();
+    const old = deferred<boolean>();
+    const current = deferred<boolean>();
+    transport.exportStickers.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const first = controller.exportStickers({ kind: "sticker", sticker: asset });
+    controller.reset();
+    const second = controller.exportStickers({ kind: "sticker", sticker: asset });
+    set.mockClear();
+    old.resolve(true);
+    await expect(first).resolves.toBe("cancelled");
+    expect(set).not.toHaveBeenCalled();
+    current.resolve(true);
+    await expect(second).resolves.toBe("saved");
+    expect(set).toHaveBeenLastCalledWith({ stickerExportPending: false });
+  });
+
+  it("does not open the dialog if the pack is empty or unreadable", async () => {
+    const { controller, transport } = createHarness();
+    transport.getStickerSet.mockResolvedValueOnce({ ...stickerSet, stickers: [] });
+    await expect(controller.exportStickers({ kind: "set", stickerSetId: "set-1" })).resolves.toBe("failed");
+    expect(transport.exportStickers).not.toHaveBeenCalled();
+  });
+});
 
 describe("emoji picker cache", () => {
   it("publishes installed-list changes immediately and refreshes stale catalog data", async () => {

@@ -9,7 +9,7 @@ import { prepareStickerPickerPreview } from "../media/stickerPickerPreview";
 import { emojiAssetPreview } from "../media/emojiAssetPreview";
 import type { TelegramTransport } from "../telegram/transport";
 import { FILE_PREVIEW_PRIORITY } from "../telegram/fileDownloadQueue";
-import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, StickerSetSummary, TelegramEvent } from "../telegram/types";
+import type { CachedTelegramSnapshot, EmojiPickerAsset, EmojiPickerCatalog, MessageFileState, StickerSet, StickerSetSummary, StickerExportTarget, StickerExportResult, TelegramEvent } from "../telegram/types";
 import type { TelegramState } from "./telegramStore.types";
 
 const CATALOG_TTL_MS = 5 * 60_000;
@@ -57,6 +57,7 @@ const read = <K, V>(cache: Map<K, V>, key: K) => {
 export const createEmojiPickerController = ({ transport, get, set, onError, onCacheChanged,
   preparePreview = prepareStickerPickerPreview, canWarm = () => true }: EmojiPickerControllerOptions) => {
   let generation = 0;
+  let exportPending = false;
   let uiRevision = 0;
   const notify = () => { set({ emojiRevision: ++uiRevision }); onCacheChanged?.(); };
   let catalogRevision = 0;
@@ -435,6 +436,8 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       clearMediaPreviewCache();
       clearPhotoPreviewCache();
       generation += 1;
+      exportPending = false;
+      set({ stickerExportPending: false });
       catalog = undefined;
       catalogRequest = undefined;
       stickerSets.clear();
@@ -516,6 +519,42 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
 
     addStickerSet: (id: string) => setInstalled(id, true),
     removeStickerSet: (id: string) => setInstalled(id, false),
+
+    exportStickers: async (target: StickerExportTarget): Promise<StickerExportResult> => {
+      if (exportPending) return "cancelled";
+      const isCurrent = currentRequest();
+      exportPending = true;
+      set({ stickerExportPending: true, operationError: undefined });
+      try {
+        let assets: EmojiPickerAsset[];
+        let name: string;
+        if (target.kind === "set") {
+          const pack = await loadStickerSet(target.stickerSetId);
+          if (!isCurrent()) return "cancelled";
+          if (!pack?.stickers.length) throw new Error("Sticker pack is unavailable");
+          assets = pack.stickers;
+          name = pack.name || pack.title || "stickers";
+        } else {
+          assets = [target.sticker];
+          const pack = target.sticker.stickerSetId ? stickerSets.get(target.sticker.stickerSetId)?.value : undefined;
+          const index = pack?.stickers.findIndex(asset => asset.id === target.sticker.id) ?? -1;
+          name = pack && index >= 0
+            ? `${pack.name || pack.title}_${String(index + 1).padStart(3, "0")}`
+            : `sticker_${target.sticker.remoteUniqueId || target.sticker.fileId}`;
+        }
+        const saved = await transport.exportStickers(assets, name);
+        return isCurrent() && saved ? "saved" : "cancelled";
+      } catch (error) {
+        if (!isCurrent()) return "cancelled";
+        set({ operationError: onError(error, translate("导出贴纸失败")) });
+        return "failed";
+      } finally {
+        if (isCurrent()) {
+          exportPending = false;
+          set({ stickerExportPending: false });
+        }
+      }
+    },
 
     rememberSentSticker: (asset: EmojiPickerAsset) => {
       catalogRevision += 1;

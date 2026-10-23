@@ -140,6 +140,8 @@ pub fn run() {
             storage::file_actions::telegram_save_downloaded_file,
             storage::file_actions::telegram_open_cached_file,
             storage::file_actions::telegram_save_cached_file_as,
+            storage::sticker_export::telegram_choose_sticker_export_directory,
+            storage::sticker_export::telegram_export_stickers,
             storage::file_actions::telegram_open_download_directory,
             storage::telegram_cache_usage,
             storage::telegram_clear_media_cache,

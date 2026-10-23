@@ -1,4 +1,10 @@
 export const en = {
+  "导出贴纸包": "Export sticker pack",
+  "导出贴纸": "Export sticker",
+  "选择贴纸导出文件夹": "Choose sticker export folder",
+  "正在导出贴纸": "Exporting stickers",
+  "贴纸已导出": "Stickers exported",
+  "导出贴纸失败": "Unable to export stickers",
   "认证失败（401）": "Authentication failed (401)",
   "访问被拒绝（403）": "Access denied (403)",
   "备份、恢复和同步基础设置": "Back up, restore and sync basic settings",

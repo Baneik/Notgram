@@ -81,6 +81,36 @@ it from cached or asynchronously loaded pack contents. Keep manual selection
 during refresh and reset it for a new opening target. Pack links without a
 target, or targets absent from the pack, fall back to the first sticker.
 
+Sticker export is shared by the pack preview's footer, picker pack context menus,
+and individual sticker context menus in both surfaces (including the enlarged
+preview). Right-clicking exports its own target without sending it or changing
+the selected preview. Reuse the native context-menu bridge and browser menu
+surface; Escape dismisses the menu first and restores its originating control.
+
+The native folder picker starts in the Windows Downloads known folder, then
+remembers the last confirmed directory across restarts in a local protected
+record separate from synced preferences. A missing directory falls back to
+Downloads. Cancelling the picker performs no export downloads or filesystem
+writes. Only one export may own the dialog/download pipeline at a time.
+
+Export full pack contents rather than covers. Rebind persisted remote identities
+and download originals through the shared queue, with at most four active export
+reads. Preserve WEBP, TGS and WebM bytes; one sticker produces a media file and
+multiple stickers produce one ZIP, streamed from disk. Pack filenames use the
+pack name and ordered, zero-padded positions; standalone stickers use their file
+identity when pack metadata is unavailable. Sanitize Windows filenames and
+reserve collision-safe destinations without overwriting existing files. Native
+storage validates every source against the active TDLib directory and existing
+export restrictions, rejects stale account results, and removes incomplete
+outputs on failure. Failures never report a partially exported pack as success.
+
+`src/telegram/stickerExport.test.ts`, the emoji controller tests and native
+`storage::sticker_export` tests cover original formats, cancellation, directory
+persistence, ZIP bytes, collisions, restricted/untrusted sources and account
+invalidation. `tests/e2e/sticker-export.e2e.ts` covers both surfaces at desktop
+and narrow widths. Native Windows dialog appearance and real TDLib downloads
+still require desktop acceptance; mock browser tests cannot validate those.
+
 `VideoPreview` is a lightweight entry point. It renders a poster, duration and
 play action; transfer feedback stays with the existing message transfer overlay.
 It must not create a media element or own a playback lease. Removing a message

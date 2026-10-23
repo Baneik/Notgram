@@ -4753,6 +4753,8 @@ export const createTelegramStore = (
       getCachedEmojiPicker: emojiPickerController.getCachedEmojiPicker,
       getCachedStickerPickerPreview: emojiPickerController.getCachedStickerPickerPreview,
       emojiRevision: 0,
+      stickerExportPending: false,
+      exportStickers: emojiPickerController.exportStickers,
       loadEmojiPicker: emojiPickerController.loadEmojiPicker,
       getCachedStickerSet: emojiPickerController.getCachedStickerSet,
       loadStickerSet: emojiPickerController.loadStickerSet,

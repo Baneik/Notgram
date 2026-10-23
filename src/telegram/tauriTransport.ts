@@ -2284,6 +2284,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     return this.messageMediaService.removeStickerSet(stickerSetId);
   }
 
+  async exportStickers(assets: EmojiPickerAsset[], name: string) {
+    return this.messageMediaService.exportStickers(assets, name);
+  }
+
   async getStickerOutline(fileId: number) {
     return this.messageMediaService.getStickerOutline(fileId);
   }

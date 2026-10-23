@@ -2563,6 +2563,10 @@ export class MockTelegramTransport implements TelegramTransport {
     return true;
   }
 
+  async exportStickers(_assets: EmojiPickerAsset[], _name: string) {
+    return false;
+  }
+
   async openDownloadDirectory() {
     return;
   }

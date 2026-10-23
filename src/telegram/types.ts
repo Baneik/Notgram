@@ -536,6 +536,12 @@ export interface StickerSet extends StickerSetSummary {
   stickers: EmojiPickerAsset[];
 }
 
+export type StickerExportTarget =
+  | { kind: "sticker"; sticker: EmojiPickerAsset }
+  | { kind: "set"; stickerSetId: string };
+
+export type StickerExportResult = "saved" | "cancelled" | "failed";
+
 export interface EmojiPickerCatalog {
   recentStickers: EmojiPickerAsset[];
   stickerSets: StickerSetSummary[];

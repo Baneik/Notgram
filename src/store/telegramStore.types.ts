@@ -347,6 +347,8 @@ export interface TelegramState {
   getCachedEmojiPicker: () => EmojiPickerCatalog | undefined;
   getCachedStickerPickerPreview: (asset: EmojiPickerAsset) => string | undefined;
   emojiRevision: number;
+  stickerExportPending: boolean;
+  exportStickers: (target: import("../telegram/types").StickerExportTarget) => Promise<import("../telegram/types").StickerExportResult>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   getCachedStickerSet: (stickerSetId: string) => StickerSet | undefined;
   loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;

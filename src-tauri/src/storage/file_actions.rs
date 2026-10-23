@@ -268,9 +268,28 @@ pub(super) fn copy_to_available_download(
     directory: &Path,
     file_name: &str,
 ) -> Result<PathBuf, String> {
+    let (destination, mut output) = reserve_download(directory, file_name)?;
+    let result = fs::File::open(source)
+        .and_then(|mut input| io::copy(&mut input, &mut output))
+        .and_then(|_| output.sync_all());
+    if let Err(error) = result {
+        drop(output);
+        let _ = fs::remove_file(&destination);
+        return Err(format!(
+            "Unable to save downloaded file to {}: {error}",
+            destination.display()
+        ));
+    }
+    Ok(destination)
+}
+
+pub(super) fn reserve_download(
+    directory: &Path,
+    file_name: &str,
+) -> Result<(PathBuf, fs::File), String> {
     for index in 0..10_000 {
         let destination = numbered_download_path(directory, file_name, index);
-        let mut output = match OpenOptions::new()
+        let output = match OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&destination)
@@ -284,18 +303,7 @@ pub(super) fn copy_to_available_download(
                 ));
             }
         };
-        let result = fs::File::open(source)
-            .and_then(|mut input| io::copy(&mut input, &mut output))
-            .and_then(|_| output.sync_all());
-        if let Err(error) = result {
-            drop(output);
-            let _ = fs::remove_file(&destination);
-            return Err(format!(
-                "Unable to save downloaded file to {}: {error}",
-                destination.display()
-            ));
-        }
-        return Ok(destination);
+        return Ok((destination, output));
     }
     Err("Unable to choose an available download file name".to_string())
 }

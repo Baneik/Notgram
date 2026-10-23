@@ -10,6 +10,7 @@ pub(crate) mod metadata;
 pub(crate) mod paths;
 pub(crate) mod persistence;
 mod photo_preview;
+pub(crate) mod sticker_export;
 
 use account::{account_cache_directory, account_database_directory, active_account_id};
 use cache::{

@@ -32,6 +32,7 @@ import {
 } from "./tdlibRequests";
 import { hasChatDraftContent } from "./chatDraft";
 import { classifySendError } from "./sendErrors";
+import { stickerExportFileName } from "./stickerExport";
 import {
   groupOutgoingAttachments,
   inspectOutgoingAttachment,
@@ -551,19 +552,65 @@ export class TauriMessageMediaService {
       .filter((asset): asset is EmojiPickerAsset => Boolean(asset));
   }
 
-  async loadEmojiAsset(asset: EmojiPickerAsset, priority = 28) {
+  async loadEmojiAsset(asset: EmojiPickerAsset, priority = 28, verifyIdentity = false) {
+    const generation = this.context.sessionGeneration();
+    const checkSession = () => {
+      if (verifyIdentity && generation !== this.context.sessionGeneration()) throw new Error("Sticker export account changed");
+    };
     if (asset.localPath) return asset.localPath;
     // A missing frontend path does not mean the file needs downloading. Local
     // stickers must not wait behind network transfers in the shared queue.
     const cached = await this.context.request(asset.remoteId
       ? { "@type": "getRemoteFile", remote_file_id: asset.remoteId, file_type: null }
       : { "@type": "getFile", file_id: asset.fileId });
+    checkSession();
+    if (verifyIdentity && asset.remoteUniqueId && tdId(asTdObject(cached.remote)?.unique_id) !== asset.remoteUniqueId) {
+      throw new Error("Sticker file identity changed");
+    }
     const cachedPath = tdLocalFilePath(cached);
     if (cachedPath) return cachedPath;
     const fileId = tdNumber(cached.id) ?? asset.fileId;
     await this.context.fileDownloads.cache(fileId, priority);
+    checkSession();
     const file = await this.context.request({ "@type": "getFile", file_id: fileId });
+    checkSession();
     return tdLocalFilePath(file);
+  }
+
+  async exportStickers(assets: EmojiPickerAsset[], name: string) {
+    if (!assets.length || assets.length > 1_000 || assets.some(asset => asset.kind !== "sticker")) {
+      throw new Error("Invalid sticker export");
+    }
+    const generation = this.context.sessionGeneration();
+    const isCurrent = () => generation === this.context.sessionGeneration();
+    const destination = await invoke<{ directory: string; accountId: string } | null>("telegram_choose_sticker_export_directory", {
+      title: translate("选择贴纸导出文件夹"),
+    });
+    if (!destination || !isCurrent()) return false;
+    const files: { sourcePath: string; fileName: string }[] = new Array(assets.length);
+    let next = 0;
+    let failed = false;
+    const worker = async () => {
+      while (next < assets.length && !failed && isCurrent()) {
+        const index = next++;
+        try {
+          // Rebind persisted file handles and fetch originals, never thumbnails.
+          const sourcePath = await this.loadEmojiAsset({ ...assets[index], localPath: undefined }, 24, true);
+          if (!isCurrent()) return;
+          if (!sourcePath) throw new Error("Sticker original is unavailable");
+          files[index] = { sourcePath, fileName: stickerExportFileName(assets[index], name, index, assets.length) };
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+      }
+    };
+    const results = await Promise.allSettled(Array.from({ length: Math.min(4, assets.length) }, worker));
+    if (!isCurrent()) return false;
+    const failure = results.find(result => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+    await invoke("telegram_export_stickers", { ...destination, name, files });
+    return true;
   }
 
   async sendSticker(input: SendEmojiAssetInput) {

@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type PointerEventHandler,
+  type HTMLAttributes,
 } from "react";
 import { useTelegramStore } from "../store/telegramStore";
 import { autoplayAllowed } from "../utils/motionPreference";
@@ -21,6 +22,7 @@ import type {
 import { EmojiAssetVisual } from "./EmojiAssetVisual";
 import { MotionSelectionIndicator } from "./MotionSelectionIndicator";
 import { useContentMotion } from "../hooks/useContentMotion";
+import { useStickerExport } from "./StickerExportMenu";
 
 type PickerTab = "emoji" | "sticker" | "animation";
 
@@ -90,11 +92,13 @@ function LazyEmojiAsset({
   onSelect,
   autoplay,
   sending,
+  exportMenuProps,
 }: {
   asset: EmojiPickerAsset;
   onSelect: (asset: EmojiPickerAsset) => void;
   autoplay: boolean;
   sending: boolean;
+  exportMenuProps?: Pick<HTMLAttributes<HTMLElement>, "onContextMenu" | "onKeyDown">;
 }) {
   const label = asset.kind === "animation" ? translate("发送 GIF") : translate("发送贴纸 {{value0}}", { value0: asset.emoji ?? "" }).trim();
   const [hovered, setHovered] = useState(false);
@@ -114,6 +118,7 @@ function LazyEmojiAsset({
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       onClick={() => onSelect(asset)}
+      {...exportMenuProps}
     >
       <EmojiAssetVisual asset={asset} autoplay={autoplay && (asset.kind === "animation" || active)}
         previewOnly={asset.kind === "sticker" && !active} label={label} />
@@ -149,6 +154,7 @@ export function EmojiPicker({
     state,
   ));
   const panelRef = useRef<HTMLElement>(null);
+  const stickerExport = useStickerExport(chatId);
   const searchRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<PickerTab>("sticker");
   const contentRef = useRef<HTMLDivElement>(null);
@@ -191,11 +197,12 @@ export function EmojiPicker({
   useEffect(() => {
     const closeFromOutside = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Element && target.closest(".emoji-picker, .emoji-trigger")) return;
+      if (target instanceof Element && target.closest(".emoji-picker, .emoji-trigger, .sticker-export-menu")) return;
       onClose();
     };
     const closeFromKeyboard = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (stickerExport.menuOpen) return;
       event.preventDefault();
       onClose(true);
     };
@@ -205,7 +212,9 @@ export function EmojiPicker({
       document.removeEventListener("pointerdown", closeFromOutside);
       document.removeEventListener("keydown", closeFromKeyboard);
     };
-  }, [onClose]);
+  }, [onClose, stickerExport.menuOpen]);
+
+  useEffect(() => { stickerExport.closeMenu(); }, [query, selectedStickerSetId, stickerExport.closeMenu, tab]);
 
   useEffect(() => {
     if (tab !== "sticker" || selectedStickerSetId === RECENT_STICKERS) return;
@@ -307,7 +316,7 @@ export function EmojiPicker({
       role="dialog"
       aria-label={translate("表情、贴纸与 GIF")}
       onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
+      onPointerLeave={(event) => { if (!stickerExport.menuOpen && !stickerExport.pending) onPointerLeave?.(event); }}
     >
       <header className="emoji-picker-tabs" role="tablist" aria-label={translate("内容类型")}>
         <button className={tab === "emoji" ? "is-active" : ""} type="button" role="tab" aria-selected={tab === "emoji"} onClick={() => { setTab("emoji"); setQuery(""); }}>
@@ -367,7 +376,7 @@ export function EmojiPicker({
               </div>
             ) : stickerAssets.length > 0 ? (
               <div className="emoji-asset-grid">
-                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} sending={sendingAssetIds.has(asset.fileId)} onSelect={(value) => void sendAsset(value)} />)}
+                {stickerAssets.map((asset) => <LazyEmojiAsset key={asset.id} asset={asset} autoplay={autoplayAnimations} sending={sendingAssetIds.has(asset.fileId)} onSelect={(value) => void sendAsset(value)} exportMenuProps={stickerExport.menuProps({ kind: "sticker", sticker: asset })} />)}
               </div>
             ) : <div className="emoji-picker-empty">{translate("没有可用的贴纸")}</div>}
           </section>
@@ -385,6 +394,8 @@ export function EmojiPicker({
         )}
       </div>
 
+      {stickerExport.status}
+
       <footer className="emoji-picker-packs" aria-label={translate("快捷分类")}>
         {tab === "emoji" ? (
           <>
@@ -399,7 +410,8 @@ export function EmojiPicker({
           <>
             <button className={selectedStickerSetId === RECENT_STICKERS ? "is-active" : ""} type="button" title={translate("最近使用")} onClick={() => { setQuery(""); setSelectedStickerSetId(RECENT_STICKERS); }}><Clock3 size={18} /></button>
             {(catalog?.stickerSets ?? []).map((stickerSet) => (
-              <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}>
+              <button className={selectedStickerSetId === stickerSet.id ? "is-active" : ""} type="button" key={stickerSet.id} title={stickerSet.title} onClick={() => { setQuery(""); setSelectedStickerSetId(stickerSet.id); }}
+                {...stickerExport.menuProps({ kind: "set", stickerSetId: stickerSet.id })}>
                 {stickerSet.covers[0]
                   ? <EmojiAssetVisual asset={stickerSet.covers[0]} autoplay={false} previewOnly label={stickerSet.title} className="sticker-pack-cover" />
                   : <Sticker size={18} />}
@@ -410,6 +422,7 @@ export function EmojiPicker({
           <button className="is-active" type="button" title={translate("已保存的 GIF")}><Images size={18} /></button>
         )}
       </footer>
+      {stickerExport.menu}
     </section>
   );
 }
