@@ -104,6 +104,17 @@ test("member search with two native results stops loading at the TDLib zero curs
 });
 
 for (const scope of ["global", "chat"] as const) {
+  test(`${scope} search loads after entering the sentinel margin before reaching the bottom`, async ({ page }) => {
+    const { list, results } = await fixture(page, scope);
+    await expect(results).toHaveCount(30);
+    await list.evaluate(element => { element.scrollTop = element.scrollHeight - element.clientHeight - 104; });
+    // The sentinel is inside its 96px margin because the list has bottom padding.
+    await page.waitForTimeout(200);
+    await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(results).toHaveCount(60);
+    expect(await calls(page)).toHaveLength(2);
+  });
+
   test(`${scope} search loads at the bottom once, retains the reading position, and stops at the last page`, async ({ page }, testInfo) => {
     if (scope === "chat") {
       await page.setViewportSize({ width: 390, height: 844 });

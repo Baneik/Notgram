@@ -81,6 +81,7 @@ import {
 } from "../hooks/useConversationScroll";
 import { useSidebarSearch } from "../hooks/useSidebarSearch";
 import { useDocumentVisibility } from "../hooks/useDocumentVisibility";
+import { activeModal, isAvailableFocusTarget } from "../utils/focusPolicy";
 import type { SidebarSearchSenderOption } from "../components/GlobalSearchView";
 import {
   beginConversationSwitch,
@@ -1344,7 +1345,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const openSearch = (event: globalThis.KeyboardEvent) => {
+    const routeWorkspaceKeys = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat ||
+          event.ctrlKey || event.altKey || event.shiftKey || event.metaKey || document.hidden || activeModal() ||
+          [...document.querySelectorAll<HTMLElement>('[role="menu"], [role="dialog"]')].some(isAvailableFocusTarget)) return;
+        // Child controls consume Escape first; the workspace handles the remaining
+        // search/discussion surface even after focus has moved away from its input.
+        const sidebar = searchInputRef.current?.closest<HTMLElement>(".chat-sidebar");
+        if (isAvailableFocusTarget(sidebar) && (sidebarSearchChatId || searchQuery.trim())) {
+          event.preventDefault();
+          closeSearch(true);
+        } else if (activeDiscussionPostId && (!mobileViewport || mobileChatOpen)) {
+          event.preventDefault();
+          closeChannelDiscussion();
+        }
+        return;
+      }
       if (
         (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
         !event.repeat && event.key.toLocaleLowerCase() === "j"
@@ -1374,9 +1391,10 @@ export function App() {
       event.preventDefault();
       openChatSearch(activeChatId);
     };
-    window.addEventListener("keydown", openSearch);
-    return () => window.removeEventListener("keydown", openSearch);
-  }, [activeChatId, clearProfile, openChatSearch]);
+    window.addEventListener("keydown", routeWorkspaceKeys);
+    return () => window.removeEventListener("keydown", routeWorkspaceKeys);
+  }, [activeChatId, activeDiscussionPostId, clearProfile, closeChannelDiscussion, closeSearch,
+    mobileChatOpen, mobileViewport, openChatSearch, searchQuery, sidebarSearchChatId]);
 
   const openNotificationRoute = useCallback(async (route: DesktopNotificationRoute) => {
     const state = telegramStore.getState();

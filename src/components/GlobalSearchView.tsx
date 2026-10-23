@@ -22,6 +22,7 @@ import { messageSearchSender, messageSearchSource } from "./searchMessagePresent
 import { useTelegramStore } from "../store/telegramStore";
 import { useLocalHiddenUserIds } from "../store/localUserBlocks";
 import { isLocalHiddenMessage } from "../utils/localBlockedMessages";
+import { isAvailableFocusTarget } from "../utils/focusPolicy";
 
 interface GlobalSearchResultsProps {
   query: string;
@@ -68,15 +69,35 @@ function SearchPagination({
   const requestedCursor = useRef<string | undefined>(undefined);
   const showLoading = useStableVisibility(loading, { minimumVisible: 220 });
 
-  useEffect(() => {
-    if (!nearEnd || !nextCursor || loading || error || requestedCursor.current === nextCursor) return;
-    const list = sentinelElement.current?.closest(".global-search-results");
+  const loadNearEnd = useCallback(() => {
+    if (!nextCursor || loading || error || requestedCursor.current === nextCursor) return;
+    const list = sentinelElement.current?.closest<HTMLElement>(".global-search-results");
     // Intersection callbacks can lag behind appended rows; check the current scroll geometry.
-    if (!list || list.scrollHeight - list.clientHeight - list.scrollTop > 96) return;
+    if (!isAvailableFocusTarget(list) || document.hidden || list.scrollHeight - list.clientHeight - list.scrollTop > 96) return;
     // A repeated cursor must not create an automatic request loop; failures use explicit retry.
     requestedCursor.current = nextCursor;
     void onLoadMore();
-  }, [error, loading, nearEnd, nextCursor, onLoadMore]);
+  }, [error, loading, nextCursor, onLoadMore]);
+
+  useEffect(() => {
+    loadNearEnd();
+  }, [loadNearEnd, nearEnd]);
+
+  useEffect(() => {
+    const sentinel = sentinelElement.current;
+    const list = sentinel?.closest<HTMLElement>(".global-search-results");
+    if (!list || !sentinel) return;
+    // The sentinel can stay intersecting while bottom padding crosses the load
+    // threshold. Recheck scrolls and viewport changes without requiring re-entry.
+    list.addEventListener("scroll", loadNearEnd, { passive: true });
+    const observer = new ResizeObserver(loadNearEnd);
+    observer.observe(list);
+    observer.observe(sentinel);
+    return () => {
+      list.removeEventListener("scroll", loadNearEnd);
+      observer.disconnect();
+    };
+  }, [loadNearEnd]);
 
   const showError = Boolean(error && nextCursor);
   return (
@@ -131,7 +152,7 @@ function ChatSearchSenderPicker({
       setMemberQuery("");
     };
     const dismissWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       event.stopPropagation();
       setOpen(false);

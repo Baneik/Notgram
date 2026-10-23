@@ -114,11 +114,13 @@ export const useMessageForwarding = ({
     const closeWithKeyboard = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (dialogOpen && !pending) {
+        event.preventDefault();
         setDialogOpen(false);
         setForwardMessageIds([]);
         setInitialTargetId(undefined);
         setQuery("");
       } else if (!pending) {
+        event.preventDefault();
         cancelSelection();
       }
     };

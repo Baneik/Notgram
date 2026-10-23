@@ -195,7 +195,9 @@ export function EmojiPicker({
       onClose();
     };
     const closeFromKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose(true);
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
+      onClose(true);
     };
     document.addEventListener("pointerdown", closeFromOutside);
     document.addEventListener("keydown", closeFromKeyboard);

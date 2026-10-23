@@ -275,11 +275,6 @@ export function ChatSidebar({
           ref={searchInputRef}
           value={searchQuery}
           onChange={(event) => onSearchChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            if (scopedSearch) onExitSearchScope(false);
-            else onSearchChange("");
-          }}
           placeholder={translate("搜索会话和消息")}
           type="search"
         />

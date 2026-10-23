@@ -263,6 +263,15 @@ including newly mounted background content. Nested
 dialogs isolate siblings rather than their own ancestors. Portaled context menus
 retain their keyboard interaction. Standalone settings retain their window chrome.
 
+Workspace Escape runs after local controls: member/emoji pickers, context menus,
+dialogs, attachment staging, reply/edit context and message selection consume their
+own dismissal. Cancelling a reply uses the same draft cleanup as its close button,
+retaining text and entities. Unclaimed Escape closes visible sidebar search,
+including after selecting a member or opening a result; otherwise it returns from
+an open channel discussion. Hidden mobile surfaces do not claim the key. Modified,
+repeated and composing Escape do not dismiss workspace panels. The editor forwards
+unclaimed Escape instead of allowing ProseMirror's built-in capture to suppress it.
+
 Isolation is released when the exit begins. A delayed unmount cannot move focus
 over a newer user operation. Temporarily suspending/hiding a parent for a nested
 dialog does not consume that parent's eventual return. Prefer the invoking control;

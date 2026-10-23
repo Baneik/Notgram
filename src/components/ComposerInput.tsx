@@ -134,6 +134,9 @@ export function ComposerInput(props: Props) {
           keydown: (view, event) => {
             // Let the IME and editor see the key without triggering app shortcuts.
             if (view.composing || event.isComposing || event.keyCode === 229) event.stopPropagation();
+            // Unclaimed Escape belongs to surrounding panels. ProseMirror's
+            // built-in key capture otherwise prevents its default unconditionally.
+            else if (event.key === "Escape") return true;
             return false;
           },
           beforeinput: (_view, event) => {

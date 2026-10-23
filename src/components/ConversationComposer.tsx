@@ -1268,6 +1268,17 @@ export const ConversationComposer = memo(function ConversationComposer({
       className={`composer-wrap ${pendingAttachments.length > 0 && !editingMessage ? "has-attachments" : ""} ${previewingFiles ? "is-file-dragging" : ""} ${draggingFiles ? "is-file-drop-target" : ""}`}
       onKeyDownCapture={(event) => {
         const native = event.nativeEvent;
+        // ProseMirror can consume Escape, so handle reply cancellation alongside
+        // attachment cancellation before the editor's own key handlers.
+        if (event.key === "Escape" && !event.defaultPrevented && !event.ctrlKey && !event.altKey &&
+          !event.shiftKey && !event.metaKey && !native.isComposing && native.keyCode !== 229 && !composingRef.current &&
+          !inert && !editingMessage && replyingTo && pendingAttachments.length === 0 && !emojiPickerOpen && !activeModal() &&
+          ![...document.querySelectorAll<HTMLElement>('[role="menu"]')].some(isAvailableFocusTarget)) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat && !sending) cancelReply();
+          return;
+        }
         if (inert || editingMessage || sending || attachmentPending || pendingAttachments.length === 0 ||
           native.isComposing || native.keyCode === 229 || composingRef.current || activeModal() ||
           [...document.querySelectorAll<HTMLElement>('[role="menu"]')].some(isAvailableFocusTarget)) return;
