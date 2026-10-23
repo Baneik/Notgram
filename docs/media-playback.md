@@ -100,14 +100,18 @@ multiple stickers produce one ZIP, streamed from disk. Pack filenames use the
 pack name and ordered, zero-padded positions; standalone stickers use their file
 identity when pack metadata is unavailable. Sanitize Windows filenames and
 reserve collision-safe destinations without overwriting existing files. Native
-storage validates every source against the active TDLib directory and existing
-export restrictions, rejects stale account results, and removes incomplete
-outputs on failure. Failures never report a partially exported pack as success.
+storage validates every source against the active account's TDLib files directory
+or the `stickers` subdirectory of its database directory (TDLib's default sticker
+location). The database itself, sibling directories and other accounts remain
+excluded. Each source still undergoes account and export-restriction checks;
+incomplete outputs are removed on failure. Failures never report a partially
+exported pack as success.
 
 `src/telegram/stickerExport.test.ts`, the emoji controller tests and native
 `storage::sticker_export` tests cover original formats, cancellation, directory
-persistence, ZIP bytes, collisions, restricted/untrusted sources and account
-invalidation. `tests/e2e/sticker-export.e2e.ts` covers both surfaces at desktop
+persistence, ZIP bytes, collisions, separate database/files storage,
+restricted/untrusted sources and account invalidation.
+`tests/e2e/sticker-export.e2e.ts` covers both surfaces at desktop
 and narrow widths. Native Windows dialog appearance and real TDLib downloads
 still require desktop acceptance; mock browser tests cannot validate those.
 

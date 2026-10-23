@@ -1,4 +1,7 @@
-use super::{account::active_account_id, file_actions, persistence, trusted_tdlib_files_directory};
+use super::{
+    account::active_account_id, file_actions, persistence, tdlib_database_directory,
+    trusted_tdlib_files_directory,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -84,14 +87,15 @@ pub async fn telegram_export_stickers(
     files: Vec<StickerExportFile>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let roots = sticker_export_roots(
+            trusted_tdlib_files_directory(&app)?,
+            tdlib_database_directory(&app)?,
+        )?;
         let validate = |source: &Path| {
             if account_id != active_account_id(&app)? {
                 return Err("Sticker export account changed".to_string());
             }
-            let source = file_actions::canonical_file_within_roots(
-                source,
-                &[trusted_tdlib_files_directory(&app)?],
-            )?;
+            let source = file_actions::canonical_file_within_roots(source, &roots)?;
             app.state::<crate::telegram::media_stream::MediaStreamRegistry>()
                 .check_export(&source)?;
             Ok(source)
@@ -100,6 +104,18 @@ pub async fn telegram_export_stickers(
     })
     .await
     .map_err(|error| format!("Unable to join sticker export worker: {error}"))?
+}
+
+fn sticker_export_roots(
+    files_directory: PathBuf,
+    database_directory: PathBuf,
+) -> Result<[PathBuf; 2], String> {
+    let database_directory = database_directory
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve TDLib database directory: {error}"))?;
+    // TDLib stores stickers beside its database by default. Trust only that media
+    // subdirectory; canonicalizing its parent also rejects links escaping it.
+    Ok([files_directory, database_directory.join("stickers")])
 }
 
 fn safe_export_name(value: &str) -> String {
@@ -216,6 +232,7 @@ mod tests {
     struct Fixture {
         directory: PathBuf,
         sources: PathBuf,
+        database: PathBuf,
         output: PathBuf,
     }
     impl Fixture {
@@ -225,13 +242,16 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let directory = std::env::temp_dir().join(format!("notgram-sticker-export-{suffix}"));
-            let sources = directory.join("sources");
+            let sources = directory.join("cache/files");
+            let database = directory.join("data/tdlib/database");
             let output = directory.join("output");
             fs::create_dir_all(&sources).unwrap();
+            fs::create_dir_all(&database).unwrap();
             fs::create_dir_all(&output).unwrap();
             Self {
                 directory,
                 sources,
+                database,
                 output,
             }
         }
@@ -246,7 +266,7 @@ mod tests {
         fn validate(&self, source: &Path) -> Result<PathBuf, String> {
             file_actions::canonical_file_within_roots(
                 source,
-                &[self.sources.canonicalize().unwrap()],
+                &sticker_export_roots(self.sources.canonicalize().unwrap(), self.database.clone())?,
             )
         }
     }
@@ -296,6 +316,75 @@ mod tests {
             entry.read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, fs::read(&file.source_path).unwrap());
         }
+    }
+
+    #[test]
+    fn exports_database_stickers_as_original_media_and_with_files_directory_in_zip() {
+        let fixture = Fixture::new();
+        let stickers = fixture.database.join("stickers");
+        fs::create_dir(&stickers).unwrap();
+        let mut files = Vec::new();
+        for (name, bytes) in [
+            ("pack_001.webp", b"webp original".as_slice()),
+            ("pack_002.tgs", b"gzip original".as_slice()),
+            ("pack_003.webm", b"webm original".as_slice()),
+        ] {
+            let source = stickers.join(name);
+            fs::write(&source, bytes).unwrap();
+            let file = StickerExportFile {
+                source_path: source.to_string_lossy().into_owned(),
+                file_name: name.to_string(),
+            };
+            let exported =
+                write_export(&fixture.output, "pack", std::slice::from_ref(&file), |p| {
+                    fixture.validate(p)
+                })
+                .unwrap();
+            assert_eq!(fs::read(exported).unwrap(), bytes);
+            files.push(file);
+        }
+        files.push(fixture.file("pack_004.webp", b"files directory original"));
+        let exported =
+            write_export(&fixture.output, "pack", &files, |p| fixture.validate(p)).unwrap();
+        let mut archive = zip::ZipArchive::new(fs::File::open(exported).unwrap()).unwrap();
+        assert_eq!(archive.len(), files.len());
+        for (index, file) in files.iter().enumerate() {
+            let mut entry = archive.by_index(index).unwrap();
+            assert_eq!(entry.name(), file.file_name);
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            assert_eq!(bytes, fs::read(&file.source_path).unwrap());
+        }
+    }
+
+    #[test]
+    fn rejects_database_files_sibling_directories_and_other_accounts() {
+        let fixture = Fixture::new();
+        fs::create_dir(fixture.database.join("stickers")).unwrap();
+        for source in [
+            fixture.database.join("td.binlog"),
+            fixture.database.join("temp/private.webp"),
+            fixture.database.join("stickers-backup/private.webp"),
+            fixture.database.join("stickers/../private.webp"),
+            fixture
+                .directory
+                .join("data/tdlib/accounts/other/database/stickers/private.webp"),
+            fixture
+                .directory
+                .join("cache/accounts/other/files/stickers/private.webp"),
+        ] {
+            fs::create_dir_all(source.parent().unwrap()).unwrap();
+            fs::write(&source, b"private").unwrap();
+            let files = [StickerExportFile {
+                source_path: source.to_string_lossy().into_owned(),
+                file_name: "sticker.webp".to_string(),
+            }];
+            assert_eq!(
+                write_export(&fixture.output, "pack", &files, |p| fixture.validate(p)).unwrap_err(),
+                "Cached file is outside trusted storage directories"
+            );
+        }
+        assert_eq!(fs::read_dir(&fixture.output).unwrap().count(), 0);
     }
 
     #[test]
