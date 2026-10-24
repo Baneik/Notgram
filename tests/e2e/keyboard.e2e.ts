@@ -58,6 +58,76 @@ test("plain Tab explicitly completes mentions and commands without sending", asy
   }
 });
 
+for (const command of ["/help", "/he"]) {
+  test(`Enter sends ${command} unchanged while bot commands are visible`, async ({ page }) => {
+    const input = await openReady(page);
+    await input.fill(command);
+    await expect(page.locator(".bot-suggestion-panel")).toBeVisible();
+    await input.press("Enter");
+    await expect(input).toHaveJSProperty("value", "");
+    await expect(page.locator(".message-row.is-outgoing").getByText(command, { exact: true })).toBeVisible();
+    await expect(page.locator(".bot-suggestion-panel")).toHaveCount(0);
+    await expect(input).toBeFocused();
+  });
+}
+
+test("bot commands preserve newline and IME handling for Enter", async ({ page }) => {
+  const input = await openReady(page);
+  const outgoing = page.locator(".message-row.is-outgoing");
+  const count = await outgoing.count();
+  await input.fill("/help");
+  await expect(page.locator(".bot-suggestion-panel")).toBeVisible();
+  await input.press("Shift+Enter");
+  await expect(input).toHaveJSProperty("value", "/help\n");
+  await expect(outgoing).toHaveCount(count);
+
+  await input.fill("/help");
+  await expect(page.locator(".bot-suggestion-panel")).toBeVisible();
+  await input.dispatchEvent("compositionstart");
+  await input.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+  await expect(input).toHaveJSProperty("value", "/help");
+  await expect(outgoing).toHaveCount(count);
+  await input.dispatchEvent("compositionend");
+  await input.press("Enter");
+  await expect(input).toHaveJSProperty("value", "");
+  await expect(outgoing.getByText("/help", { exact: true })).toBeVisible();
+});
+
+test("bot commands respect the Ctrl+Enter send preference", async ({ page }) => {
+  const input = await openReady(page);
+  await page.evaluate(async () => {
+    const { preferencesStore } = await (0, eval)('import("/src/store/preferencesStore.ts")') as typeof import("../../src/store/preferencesStore");
+    preferencesStore.getState().setPreference("sendOnEnter", false);
+  });
+  const outgoing = page.locator(".message-row.is-outgoing");
+  const count = await outgoing.count();
+  await input.fill("/help");
+  await expect(page.locator(".bot-suggestion-panel")).toBeVisible();
+  await input.press("Enter");
+  await expect(input).toHaveJSProperty("value", "/help\n");
+  await expect(outgoing).toHaveCount(count);
+
+  await input.fill("/help");
+  await expect(page.locator(".bot-suggestion-panel")).toBeVisible();
+  await input.press("Control+Enter");
+  await expect(input).toHaveJSProperty("value", "");
+  await expect(outgoing.getByText("/help", { exact: true })).toBeVisible();
+});
+
+test("discussion Enter sends the typed command without completing it", async ({ page }) => {
+  await openReady(page);
+  await page.locator('.chat-list[data-active=true] [data-chat-id="chat-release"]').click();
+  await page.locator('[data-message-id="release-post-1"] .channel-post-discussion').click();
+  const panel = page.locator(".channel-discussion-panel");
+  const input = panel.getByRole("textbox", { name: "消息内容" });
+  await input.fill("/help");
+  await expect(panel.locator(".bot-suggestion-panel")).toBeVisible();
+  await input.press("Enter");
+  await expect(input).toHaveJSProperty("value", "");
+  await expect(panel.locator(".message-row.is-outgoing").getByText("/help", { exact: true })).toBeVisible();
+  await expect(input).toBeFocused();
+});
+
 test("Tab during an empty pending mention query does not queue a late completion", async ({ page }) => {
   const input = await openReady(page);
   await page.evaluate(async () => {

@@ -1687,7 +1687,7 @@ export const ConversationComposer = memo(function ConversationComposer({
                 return;
               }
               if (
-                (event.key === "Enter" || event.key === "Tab") &&
+                event.key === "Tab" &&
                 !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
               ) {
                 event.preventDefault();

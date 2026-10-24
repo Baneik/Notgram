@@ -225,7 +225,7 @@ test("suggests bot commands and sends paginated inline results", { tag: "@smoke"
   })).toBe(true);
   await composer.fill("/he");
   await expect(suggestions.getByRole("option")).toHaveCount(1);
-  await composer.press("Enter");
+  await composer.press("Tab");
   await expect(composer).toHaveJSProperty("value", "/help@notgram_bot ");
   await composer.fill("/st");
   await expect(suggestions.getByRole("option")).toHaveCount(1);

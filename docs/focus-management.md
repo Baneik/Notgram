@@ -14,6 +14,10 @@ and focus unchanged. Completion must not depend on `defaultPrevented` being fals
 the guard has already canceled browser traversal. Existing IME checks still prevent
 completion during composition.
 
+Bot-command suggestions accept only plain Tab for keyboard completion. Enter
+follows the composer's send/newline preference and IME checks, sending the edited
+command without accepting a suggestion or appending a bot username.
+
 Tab does not traverse settings, forms, dialogs, menus, or media controls. Dialogs
 do not cycle focus with Tab, and menus do not dismiss on Tab. Pointer interactions,
 explicit focus requests, menu arrow navigation, and Escape retain their behavior.
