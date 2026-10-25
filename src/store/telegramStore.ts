@@ -420,10 +420,11 @@ export const createTelegramStore = (
     const deleteScopeAllowed = (permissions: MessagePermissions, revoke: boolean) => revoke
       ? permissions.canDeleteForAllUsers
       : permissions.canDeleteOnlyForSelf;
-    const verifyDeleteScope = async (chatId: string, messageIds: string[], revoke: boolean) => {
+    const verifyDeleteScope = async (chatId: string, messageIds: string[], revoke: boolean, isCurrent = () => true) => {
       const permissions = await Promise.all(
         messageIds.map((messageId) => transport.getMessageProperties(chatId, messageId)),
       );
+      if (!isCurrent()) return false;
       if (permissions.every((value) => deleteScopeAllowed(value, revoke))) return true;
       set({
         operationError: revoke
@@ -4716,19 +4717,29 @@ export const createTelegramStore = (
       },
 
       deleteMessagesFromChat: async (chatId, messageIds, revoke) => {
+        if (accountTransition) return false;
+        const generation = accountGeneration;
+        const isCurrent = () => generation === accountGeneration && !accountTransition;
         const uniqueIds = [...new Set(messageIds)];
         if (!get().chats.has(chatId) || uniqueIds.length === 0 || uniqueIds.length > 100) {
           return false;
         }
+        const archivedIds = new Set((get().messages.get(chatId) ?? [])
+          .filter(message => message.isLocallyDeleted && uniqueIds.includes(message.id)).map(message => message.id));
+        if (revoke && archivedIds.size > 0) return false;
+        const remoteIds = uniqueIds.filter(id => !archivedIds.has(id));
         try {
-          if (!await verifyDeleteScope(chatId, uniqueIds, revoke)) return false;
+          if (remoteIds.length && !await verifyDeleteScope(chatId, remoteIds, revoke, isCurrent)) return false;
+          if (!isCurrent()) return false;
         } catch (error) {
+          if (!isCurrent()) return false;
           set({ operationError: errorMessage(error, translate("无法确认消息删除权限")) });
           return false;
         }
         const deletedIds: string[] = [];
         let failure: unknown;
-        for (const messageId of uniqueIds) {
+        for (const messageId of remoteIds) {
+          if (!isCurrent()) return false;
           try {
             await transport.deleteMessage({ chatId, messageId, revoke });
             deletedIds.push(messageId);
@@ -4736,6 +4747,9 @@ export const createTelegramStore = (
             failure ??= error;
           }
         }
+        if (!isCurrent()) return false;
+        for (const messageId of archivedIds) removeMessageImmediately(chatId, messageId);
+        if (archivedIds.size > 0) scheduleCacheWrite();
         if (deletedIds.length > 0) {
           for (const messageId of deletedIds) {
             removedMessageIds.add(`${chatId}:${messageId}`);

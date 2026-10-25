@@ -2014,6 +2014,7 @@ export function App() {
             : false}
           onSendMessage={sendMessage}
           onEditMessage={editMessage}
+          onDeleteMessages={deleteMessagesFromChat}
           onDeleteMessage={deleteMessage}
           onDraftChange={updateChatDraft}
           onTypingChange={setChatTyping}

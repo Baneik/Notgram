@@ -70,6 +70,8 @@ import {
   type ConversationScrollRequest,
   type MessageConversationScrollRequest,
 } from "../hooks/useConversationScroll";
+import { useMessageDragSelection } from "../hooks/useMessageDragSelection";
+import { MessageSelectionDeleteAction } from "./MessageSelectionDeleteAction";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { useConversationActivityTracker } from "../hooks/useConversationActivityTracker";
 import { ConversationViewportBoundary } from "./ConversationViewportBoundary";
@@ -325,6 +327,7 @@ interface ConversationProps {
     entities?: MessageTextEntity[],
     chatId?: string,
   ) => Promise<boolean>;
+  onDeleteMessages: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   onDraftChange: (
     chatId: string,
@@ -456,6 +459,7 @@ export function Conversation({
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
+  onDeleteMessages,
   onDraftChange,
   onTypingChange,
   onForwardMessages,
@@ -730,17 +734,6 @@ export function Conversation({
   const selectionMessageRef = useRef<HTMLElement | null>(null);
   const selectionPointerRef = useRef<SelectionPointerPosition | undefined>(undefined);
   const selectionClampActiveRef = useRef(false);
-  const selectionDragRef = useRef<{
-    anchorIndex: number;
-    pointerId: number;
-    moved: boolean;
-    startX: number;
-    startY: number;
-    lastX: number;
-    lastY: number;
-  } | undefined>(undefined);
-  const suppressSelectionClickRef = useRef(false);
-  const selectionAutoScrollFrameRef = useRef<number | undefined>(undefined);
   const selectionCopyResetTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const [selectionCopying, setSelectionCopying] = useState(false);
   const [selectionCopied, setSelectionCopied] = useState(false);
@@ -1161,11 +1154,8 @@ export function Conversation({
     pending: forwardPending,
     pendingTargetId: forwardPendingTargetId,
     filteredTargets: filteredForwardTargets,
-    selectMessages,
     clearSelection,
   } = forwarding;
-  const selectMessagesRef = useRef(selectMessages);
-  selectMessagesRef.current = selectMessages;
   const pinnedBannerVisible = !pinnedViewOpen && !selectionMode &&
     (chat?.kind === "group" || chat?.kind === "channel") &&
     allPinnedMessages.length > 0;
@@ -1771,122 +1761,16 @@ export function Conversation({
     };
   }, [selectionMode]);
 
-  useEffect(() => {
-    if (!selectionMode || pinnedViewOpen || !messageListElement) return;
-    const list = messageListElement;
-    const drag = selectionDragRef;
-    const findMessageIndex = (target: EventTarget | null) => {
-      const element = target instanceof Element
-        ? target.closest<HTMLElement>("[data-message-id]")
-        : null;
-      const id = element?.dataset.messageId;
-      if (!id) return undefined;
-      const message = messagesByIdRef.current.get(id);
-      if (!message || message.content.kind === "service" || message.content.kind === "unsupported") return undefined;
-      const index = renderedMessagesRef.current.findIndex((candidate) => candidate.id === id);
-      return index >= 0 ? index : undefined;
-    };
-    const selectBetween = (index: number) => {
-      const anchor = drag.current;
-      if (!anchor) return;
-      const start = Math.min(anchor.anchorIndex, index);
-      const end = Math.max(anchor.anchorIndex, index);
-      void selectMessagesRef.current(renderedMessagesRef.current.slice(start, end + 1));
-    };
-    const updateFromPoint = (x: number, y: number) => {
-      const target = document.elementFromPoint(x, y);
-      const index = findMessageIndex(target);
-      if (index !== undefined) selectBetween(index);
-    };
-    const stopAutoScroll = () => {
-      if (selectionAutoScrollFrameRef.current !== undefined) {
-        cancelAnimationFrame(selectionAutoScrollFrameRef.current);
-        selectionAutoScrollFrameRef.current = undefined;
-      }
-    };
-    const scheduleAutoScroll = () => {
-      if (selectionAutoScrollFrameRef.current !== undefined) return;
-      const tick = () => {
-        selectionAutoScrollFrameRef.current = undefined;
-        const active = drag.current;
-        if (!active) return;
-        const bounds = list.getBoundingClientRect();
-        const outsideTop = Math.max(0, bounds.top - active.lastY);
-        const outsideBottom = Math.max(0, active.lastY - bounds.bottom);
-        const distance = Math.max(outsideTop, outsideBottom);
-        if (distance <= 0) return;
-        const direction = outsideTop > 0 ? -1 : 1;
-        const speed = Math.min(28, Math.max(2, distance * 0.28));
-        writeConversationScrollTop(list, list.scrollTop + direction * speed, conversationScrollWriter.selection);
-        updateFromPoint(active.lastX, Math.min(bounds.bottom - 2, Math.max(bounds.top + 2, active.lastY)));
-        selectionAutoScrollFrameRef.current = requestAnimationFrame(tick);
-      };
-      selectionAutoScrollFrameRef.current = requestAnimationFrame(tick);
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0 || event.pointerType === "touch") return;
-      const index = findMessageIndex(event.target);
-      if (index === undefined) return;
-      const element = event.target instanceof Element
-        ? event.target.closest<HTMLElement>("[data-message-id]")
-        : null;
-      if (element?.closest("button, a, input, textarea, select, video, audio, [role='button']")) return;
-      drag.current = {
-        anchorIndex: index,
-        pointerId: event.pointerId,
-        moved: false,
-        startX: event.clientX,
-        startY: event.clientY,
-        lastX: event.clientX,
-        lastY: event.clientY,
-      };
-    };
-    const onPointerMove = (event: PointerEvent) => {
-      const active = drag.current;
-      if (!active || active.pointerId !== event.pointerId || (event.buttons & 1) === 0) return;
-      active.lastX = event.clientX;
-      active.lastY = event.clientY;
-      active.moved = active.moved || Math.hypot(
-        event.clientX - active.startX,
-        event.clientY - active.startY,
-      ) > 3;
-      if (active.moved) event.preventDefault();
-      if (!active.moved) return;
-      const index = findMessageIndex(event.target);
-      if (index !== undefined) selectBetween(index);
-      scheduleAutoScroll();
-    };
-    const onPointerUp = (event: PointerEvent) => {
-      const active = drag.current;
-      if (!active || active.pointerId !== event.pointerId) return;
-      if (active.moved) {
-        suppressSelectionClickRef.current = true;
-      }
-      drag.current = undefined;
-      stopAutoScroll();
-    };
-    const onClick = (event: MouseEvent) => {
-      if (!suppressSelectionClickRef.current) return;
-      suppressSelectionClickRef.current = false;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("pointermove", onPointerMove, true);
-    document.addEventListener("pointerup", onPointerUp, true);
-    document.addEventListener("pointercancel", onPointerUp, true);
-    document.addEventListener("click", onClick, true);
-    return () => {
-      drag.current = undefined;
-      suppressSelectionClickRef.current = false;
-      stopAutoScroll();
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("pointermove", onPointerMove, true);
-      document.removeEventListener("pointerup", onPointerUp, true);
-      document.removeEventListener("pointercancel", onPointerUp, true);
-      document.removeEventListener("click", onClick, true);
-    };
-  }, [messageListElement, pinnedViewOpen, selectionMode]);
+  useMessageDragSelection({
+    identity: conversationIdentity,
+    list: messageListElement,
+    enabled: !pinnedViewOpen && !discussionPost && !positioning,
+    messages: renderedMessages,
+    selectedIds: selectedMessageIds,
+    selectionMode,
+    startSelection: forwarding.startSelection,
+    selectMessages: forwarding.selectMessages,
+  });
 
   useLayoutEffect(() => {
     if (
@@ -2216,7 +2100,7 @@ export function Conversation({
   };
 
   const copySelectedMessages = useCallback(async () => {
-    if (!chat || selectedMessageIds.size === 0 || selectionCopying) return;
+    if (!chat || !forwarding.canCopySelection || selectionCopying) return;
     const ordered = renderedMessages.filter((message) => selectedMessageIds.has(message.id));
     if (ordered.length === 0) return;
     setSelectionCopying(true);
@@ -2237,7 +2121,7 @@ export function Conversation({
     } finally {
       setSelectionCopying(false);
     }
-  }, [chat, clearSelection, forwardTargetsById, messagesById, renderedMessages, selectedMessageIds, selectionCopying, users]);
+  }, [chat, clearSelection, forwardTargetsById, forwarding.canCopySelection, messagesById, renderedMessages, selectedMessageIds, selectionCopying, users]);
 
   useEffect(() => {
     if (!selectionMode) return;
@@ -2416,7 +2300,7 @@ export function Conversation({
             </button>
             <div className="message-selection-title">
               <strong>{translate("已选择 {{value0}} 条", { value0: selectedMessageIds.size })}</strong>
-              <span>{translate("最多可同时转发 100 条消息")}</span>
+              <span>{translate("最多选择 100 条 · Esc 取消")}</span>
             </div>
             <div className="conversation-actions">
               <button
@@ -3113,6 +2997,7 @@ export function Conversation({
           onSend={sendDiscussionComment}
           onSendFiles={sendDiscussionFiles}
           onEditMessage={onEditMessage}
+          onDeleteMessages={onDeleteMessages}
           onDeleteMessage={onDeleteMessage}
           onForwardMessages={onForwardMessages}
           onLoadMessageProperties={onLoadMessageProperties}
@@ -3247,14 +3132,14 @@ export function Conversation({
 
       {pinnedViewOpen ? null : selectionMode ? (
         <div className="message-selection-bar" role="toolbar" aria-label={translate("消息选择操作")}>
-          <span>{selectedMessageIds.size > 0 ? translate("复制或转发所选消息") : translate("点击或拖动选择消息")}</span>
+          <span>{selectedMessageIds.size > 0 ? translate("复制、转发或删除所选消息") : translate("点击或拖动选择消息")}</span>
           <div className="message-selection-actions">
             <button
               className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
               type="button"
               aria-label={translate("复制已选消息")}
               title={selectionCopied ? translate("已复制") : translate("复制文本")}
-              disabled={selectedMessageIds.size === 0 || selectionCopying}
+              disabled={!forwarding.canCopySelection || selectionCopying}
               onClick={() => void copySelectedMessages()}
             >
               {selectionCopied ? <Check size={18} strokeWidth={2.2} /> : <Copy size={18} strokeWidth={1.9} />}
@@ -3264,11 +3149,18 @@ export function Conversation({
               type="button"
               aria-label={translate("转发已选消息")}
               title={translate("转发")}
-              disabled={selectedMessageIds.size === 0}
+              disabled={!forwarding.canForwardSelection}
               onClick={forwarding.openSelectedDialog}
             >
               <Forward size={19} strokeWidth={1.9} />
             </button>
+            <MessageSelectionDeleteAction
+              key={conversationIdentity}
+              messages={forwarding.selectedMessages}
+              permissionsLoading={selectionLoadingIds.size > 0}
+              onRetryPermissions={forwarding.retrySelectionPermissions}
+              onDelete={onDeleteMessages}
+            />
           </div>
         </div>
       ) : needsMembershipBar(chat) ? <ChatMembershipBar chat={chat} /> : botStartPending ? (

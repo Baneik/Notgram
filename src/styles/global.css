@@ -1191,8 +1191,8 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 }
 .message-row.is-selected::after,
 .message-row.is-selection-pending::after { top: 0; bottom: 0; }
-.message-row.is-selected::after { background: color-mix(in srgb, var(--accent) 13%, transparent); }
-.message-row.is-selection-pending::after { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.message-row.is-selected::after { background: color-mix(in srgb, var(--accent) 27%, transparent); }
+.message-row.is-selection-pending::after { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .message-row.joins-selection-before::after {
   top: calc(-1 * (var(--message-group-spacing) + var(--message-row-spacing)));
 }
@@ -1200,8 +1200,16 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .message-group.continues-before .message-row.joins-selection-before:first-child::after {
   top: calc(-2 * var(--message-row-spacing));
 }
-.conversation.is-selecting-messages .message-row:not(.is-service) { cursor: pointer; }
-.conversation.is-selecting-messages .message-rich-text { user-select: none; -webkit-user-select: none; }
+:is(.conversation, .channel-discussion-panel).is-selecting-messages .message-row:not(.is-service) { cursor: pointer; }
+:is(.conversation, .channel-discussion-panel).is-selecting-messages .message-rich-text { user-select: none; -webkit-user-select: none; }
+.is-drag-selecting-messages, .is-drag-selecting-messages * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing !important; }
+.message-row.is-selected .message-bubble {
+  background-color: color-mix(in srgb, var(--accent) 20%, var(--color-bg-elevated));
+}
+@media (forced-colors: active) {
+  .message-row.is-selected::after { background: Highlight; opacity: 0.35; }
+  .message-row.is-selected .message-bubble { border-color: Highlight; }
+}
 .message-search-highlight {
   padding: 0 1px; color: inherit; background: color-mix(in srgb, var(--accent) 22%, var(--color-bg-elevated));
   border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone;
@@ -2416,11 +2424,14 @@ html.reduce-motion .audio-disc { animation: none; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .message-selection-actions {
-  min-width: 0; display: flex; align-items: center; gap: 2px;
+  flex-shrink: 0; min-width: 0; display: flex; align-items: center; gap: 4px;
 }
 .message-selection-actions .icon-button {
   width: 38px; height: 38px;
 }
+.message-selection-actions .icon-button.is-danger { color: var(--color-status-danger); }
+.message-selection-actions .icon-button.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-status-danger) 12%, transparent); }
+.message-delete-count { margin-left: 8px; font-variant-numeric: tabular-nums; }
 .message-selection-actions .icon-button.is-confirmed {
   color: var(--color-status-success); background: color-mix(in srgb, var(--color-status-success) 12%, transparent);
 }

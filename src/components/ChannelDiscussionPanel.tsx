@@ -28,6 +28,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useMessageDragSelection } from "../hooks/useMessageDragSelection";
+import { MessageSelectionDeleteAction } from "./MessageSelectionDeleteAction";
 import { useMessageForwarding } from "../hooks/useMessageForwarding";
 import { telegramStore, useTelegramStore } from "../store/telegramStore";
 import type {
@@ -114,6 +116,7 @@ interface ChannelDiscussionPanelProps {
     entities?: MessageTextEntity[],
     chatId?: string,
   ) => Promise<boolean>;
+  onDeleteMessages: (chatId: string, messageIds: string[], revoke: boolean) => Promise<boolean>;
   onDeleteMessage: (messageId: string, revoke: boolean, chatId?: string) => Promise<boolean>;
   onForwardMessages: (
     fromChatId: string,
@@ -205,6 +208,7 @@ export function ChannelDiscussionPanel({
   onSendFiles,
   onEditMessage,
   onDeleteMessage,
+  onDeleteMessages,
   onForwardMessages,
   onLoadMessageProperties,
   onLoadForumTopics,
@@ -315,12 +319,22 @@ export function ChannelDiscussionPanel({
 
   const forwarding = useMessageForwarding({
     chatId: discussionChatId,
-    conversationIdentity: draftKey,
+    conversationIdentity: `${activeAccountId}:${draftKey}`,
     messages: comments,
     messagesById,
     targets: forwardTargets,
     onLoadMessageProperties,
     onForwardMessages,
+  });
+  useMessageDragSelection({
+    identity: activeAccountId + ":" + draftKey,
+    list: scrollerRef.current,
+    enabled: true,
+    messages: comments,
+    selectedIds: forwarding.selectedIds,
+    selectionMode: forwarding.selectionMode,
+    startSelection: forwarding.startSelection,
+    selectMessages: forwarding.selectMessages,
   });
   const actionMessage = actionMenu ? messagesById.get(actionMenu.messageId) : undefined;
   const actionAlbumMessageIds = actionMessage?.mediaAlbumId
@@ -491,7 +505,7 @@ export function ChannelDiscussionPanel({
   }, []);
 
   const copySelectedMessages = useCallback(async () => {
-    if (forwarding.selectedIds.size === 0 || selectionCopying) return;
+    if (!forwarding.canCopySelection || selectionCopying) return;
     const ordered = comments.filter((message) => forwarding.selectedIds.has(message.id));
     if (ordered.length === 0) return;
     setSelectionCopying(true);
@@ -545,7 +559,7 @@ export function ChannelDiscussionPanel({
           <ChevronLeft size={21} strokeWidth={2} />
         </button>
         <div className="channel-discussion-heading">
-          <strong>{channel.title}</strong>
+          <strong>{forwarding.selectionMode ? translate("已选择 {{value0}} 条", { value0: forwarding.selectedIds.size }) : channel.title}</strong>
         </div>
       </header>
 
@@ -681,14 +695,14 @@ export function ChannelDiscussionPanel({
 
       {forwarding.selectionMode ? (
         <div className="message-selection-bar" role="toolbar" aria-label={translate("消息选择操作")}>
-          <span>{forwarding.selectedIds.size > 0 ? translate("复制或转发所选消息") : translate("点击消息进行选择")}</span>
+          <span>{forwarding.selectedIds.size > 0 ? translate("复制、转发或删除所选消息") : translate("点击或拖动选择消息")}</span>
           <div className="message-selection-actions">
             <button
               className={`icon-button ${selectionCopied ? "is-confirmed" : ""}`}
               type="button"
               aria-label={translate("复制所选消息")}
               title={translate("复制")}
-              disabled={forwarding.selectedIds.size === 0 || selectionCopying}
+              disabled={!forwarding.canCopySelection || selectionCopying}
               onClick={() => void copySelectedMessages()}
             >
               {selectionCopied ? <Check size={19} /> : selectionCopying ? <LoaderCircle className="spin" size={18} /> : <Copy size={18} />}
@@ -698,11 +712,18 @@ export function ChannelDiscussionPanel({
               type="button"
               aria-label={translate("转发所选消息")}
               title={translate("转发")}
-              disabled={forwarding.selectedIds.size === 0}
+              disabled={!forwarding.canForwardSelection}
               onClick={forwarding.openSelectedDialog}
             >
               <Forward size={19} />
             </button>
+            <MessageSelectionDeleteAction
+              key={`${activeAccountId}:${draftKey}`}
+              messages={forwarding.selectedMessages}
+              permissionsLoading={forwarding.loadingIds.size > 0}
+              onRetryPermissions={forwarding.retrySelectionPermissions}
+              onDelete={onDeleteMessages}
+            />
             <button
               className="icon-button"
               type="button"

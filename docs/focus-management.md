@@ -281,6 +281,32 @@ over a newer user operation. Temporarily suspending/hiding a parent for a nested
 dialog does not consume that parent's eventual return. Prefer the invoking control;
 an editor-related modal can supply a return bound to its originating editor.
 
+## Message multi-selection
+
+Mouse selection begins only in timeline whitespace outside message shells,
+avatars and interactive controls. Text padding, captions, images and native media
+drags retain their content gesture. A movement of at least 6 px must span two
+selectable messages before ordinary viewing enters selection mode. Touch scrolling,
+service notices, unsupported rows and the source post in a discussion do not count.
+Ordinary conversations and discussion comments share the same gesture owner.
+
+An active drag previews the range relative to the selection at pointer down, so
+reversing contracts the new range and preserves earlier selections. Edge scrolling
+uses the existing selection scroll writer. Selection stops on pointer release,
+cancellation, window blur, Escape or scope change, and consumes the release click.
+Selection is capped at 100, independently of forwarding permission. Copy and
+forward stay disabled while capabilities are unresolved or protected; failed
+permission reads expose a retry without losing the selection.
+
+Batch deletion confirms each scope's permitted count. Only messages authorized
+for the chosen scope are submitted; other selected messages remain selected.
+TDLib capabilities decide eligibility, including administrators deleting other
+members' messages. The store revalidates all submitted remote permissions before
+the first deletion and stops across account generations. Retained local copies
+can only be removed locally. Successful removals leave the selection while failed
+and ineligible messages remain available. Escape closes the confirmation before
+clearing selection. Selection uses theme colors without checkbox or dot controls.
+
 ## Verification
 
 `tests/e2e/focus.e2e.ts` and `tests/e2e/focus-actions.e2e.ts` cover typing destination,

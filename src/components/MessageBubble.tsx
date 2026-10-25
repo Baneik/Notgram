@@ -116,7 +116,7 @@ export interface MessageBubbleProps {
   selectionPending: boolean;
   joinsSelectionBefore: boolean;
   selectionLimitReached: boolean;
-  onToggleSelection: (message: Message) => Promise<void>;
+  onToggleSelection: (message: Message) => void;
   onOpenActions: (
     message: Message,
     left: number,
@@ -684,9 +684,7 @@ function MessageBubbleComponent({
     onMount,
   ]);
 
-  const selectionDisabled = selectionPending ||
-    message.permissions?.canForward === false ||
-    (selectionLimitReached && !selected);
+  const selectionDisabled = selectionLimitReached && !selected;
 
   const messageMeta = isService ? null : albumItem && (channelPost || sharedAlbumMetadata) ? (
     (message.delivery === "failed" || message.delivery === "sending") ? (

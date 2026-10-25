@@ -367,6 +367,8 @@ export function MessageActionMenu({
 }
 interface DeleteMessagesDialogProps {
   count: number;
+  selfCount?: number;
+  allCount?: number;
   batch?: boolean;
   preview?: string;
   canDeleteOnlyForSelf: boolean;
@@ -377,6 +379,8 @@ interface DeleteMessagesDialogProps {
 }
 export function DeleteMessagesDialog({
   count,
+  selfCount = count,
+  allCount = count,
   batch = false,
   preview,
   canDeleteOnlyForSelf,
@@ -427,7 +431,7 @@ export function DeleteMessagesDialog({
               <span className="message-delete-option-icon">
                 {pending && pendingScope === "self" ? <LoaderCircle className="spin" size={18} /> : <UserRoundX size={18} />}
               </span>
-              <span><strong>{translate("仅对我删除")}</strong><small>{translate("其他成员仍能看到")}{count > 1 ? translate("这些消息") : translate("这条消息")}</small></span>
+              <span><strong>{translate("仅对我删除")}{batch && <span className="message-delete-count">{selfCount}</span>}</strong><small>{selfCount < count ? translate("仅删除有权限的 {{value0}} 条，其余保留", { value0: selfCount }) : <>{translate("其他成员仍能看到")}{count > 1 ? translate("这些消息") : translate("这条消息")}</>}</small></span>
             </button>
           )}
           {canDeleteForAllUsers && (
@@ -441,7 +445,7 @@ export function DeleteMessagesDialog({
               <span className="message-delete-option-icon">
                 {pending && pendingScope === "all" ? <LoaderCircle className="spin" size={18} /> : <UsersRound size={18} />}
               </span>
-              <span><strong>{translate("为所有人删除")}</strong><small>{translate("从所有成员的聊天记录中移除")}</small></span>
+              <span><strong>{translate("为所有人删除")}{batch && <span className="message-delete-count">{allCount}</span>}</strong><small>{allCount < count ? translate("仅删除有权限的 {{value0}} 条，其余保留", { value0: allCount }) : translate("从所有成员的聊天记录中移除")}</small></span>
             </button>
           )}
         </div>

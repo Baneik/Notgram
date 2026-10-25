@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { isSelectableMessage } from "../utils/messageSelection";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import type {
   Chat,
   ForwardMessagesResult,
@@ -50,6 +52,7 @@ export const useMessageForwarding = ({
   const [selectionActive, setSelectionActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const [permissionRetry, setPermissionRetry] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [forwardMessageIds, setForwardMessageIds] = useState<string[]>([]);
   const [initialTargetId, setInitialTargetId] = useState<string>();
@@ -89,7 +92,7 @@ export const useMessageForwarding = ({
 
   useEffect(() => {
     setSelectedIds((current) => {
-      const available = new Set([...current].filter((messageId) => messagesById.has(messageId)));
+      const available = new Set([...current].filter((messageId) => messagesById.has(messageId) && !messagesById.get(messageId)?.isRemoving));
       return available.size === current.size ? current : available;
     });
     setForwardMessageIds((current) => {
@@ -112,7 +115,8 @@ export const useMessageForwarding = ({
   useEffect(() => {
     if (!selectionActive) return;
     const closeWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (!dialogOpen && document.activeElement?.closest('[role="dialog"], [inert]')) return;
       if (dialogOpen && !pending) {
         event.preventDefault();
         setDialogOpen(false);
@@ -134,83 +138,65 @@ export const useMessageForwarding = ({
     setForwardMessageIds([]);
     setInitialTargetId(undefined);
     setQuery("");
+    selectionPermissionRequestsRef.current.clear();
     setSelectionActive(true);
     setSelectedIds(message ? new Set([message.id]) : new Set());
   }, [captureTargets]);
 
-  const toggleSelection = useCallback(async (message: Message) => {
-    if (selectedIds.has(message.id)) {
-      setSelectedIds((current) => {
-        const next = new Set(current);
-        next.delete(message.id);
-        return next;
-      });
-      return;
-    }
-    if (selectedIds.size >= 100 || loadingIds.has(message.id)) return;
-
-    // A locally archived deletion no longer exists in TDLib, so asking for
-    // operation properties would return 400. It remains selectable because
-    // the local copy is still valid input for text copy/forward fallback.
-    let permissions = message.isLocallyDeleted
-      ? { canForward: true } as MessagePermissions
-      : message.permissions;
-    if (!permissions) {
-      setLoadingIds((current) => new Set(current).add(message.id));
-      permissions = await onLoadMessageProperties(message.chatId, message.id);
-      setLoadingIds((current) => {
-        const next = new Set(current);
-        next.delete(message.id);
-        return next;
-      });
-    }
-    if (!permissions?.canForward) return;
-    setSelectedIds((current) => current.size >= 100
-      ? current
-      : new Set(current).add(message.id));
-  }, [loadingIds, onLoadMessageProperties, selectedIds]);
-
-  const selectMessages = useCallback(async (range: Message[]) => {
-    if (range.length === 0) return;
-    const candidates = range.filter((message) => message.content.kind !== "service" &&
-      message.content.kind !== "unsupported" &&
-      !message.isRemoving &&
-      message.permissions?.canForward !== false);
-    if (candidates.length === 0) return;
-
-    const unresolved = candidates.filter((message) => !message.isLocallyDeleted && !message.permissions &&
-      !selectionPermissionRequestsRef.current.has(message.id));
-    const resolvedPermissions = new Map<string, MessagePermissions | undefined>();
-    if (unresolved.length > 0) {
-      unresolved.forEach((message) => selectionPermissionRequestsRef.current.add(message.id));
-      setLoadingIds((current) => new Set([...current, ...unresolved.map((message) => message.id)]));
-      const permissions = await Promise.all(unresolved.map(async (message) => ({
-        message,
-        permissions: await onLoadMessageProperties(message.chatId, message.id),
-      })));
-      setLoadingIds((current) => {
-        const next = new Set(current);
-        unresolved.forEach((message) => next.delete(message.id));
-        return next;
-      });
-      permissions.forEach(({ message, permissions }) => {
-        selectionPermissionRequestsRef.current.delete(message.id);
-        resolvedPermissions.set(message.id, permissions);
-      });
-    }
-    const permitted = candidates.filter((message) =>
-      message.isLocallyDeleted || (message.permissions ?? resolvedPermissions.get(message.id))?.canForward === true
-    );
-    if (permitted.length === 0) return;
-    setSelectedIds((current) => {
+  const toggleSelection = useCallback((message: Message) => {
+    if (!isSelectableMessage(message)) return;
+    setSelectedIds(current => {
       const next = new Set(current);
-      for (const message of permitted) {
-        if (next.size >= 100) break;
-        next.add(message.id);
-      }
+      if (next.has(message.id)) next.delete(message.id);
+      else if (next.size < 100) next.add(message.id);
       return next;
     });
-  }, [onLoadMessageProperties]);
+  }, []);
+
+  const selectMessages = useCallback((range: Message[], baseIds?: ReadonlySet<string>) => {
+    setSelectedIds(current => {
+      const next = new Set(baseIds ?? current);
+      for (const message of range) {
+        if (next.size >= 100) break;
+        if (isSelectableMessage(message)) next.add(message.id);
+      }
+      return next.size === current.size && [...next].every(id => current.has(id)) ? current : next;
+    });
+  }, []);
+
+  // Selection is independent of forwarding permission: protected messages can
+  // still be deleted by their author or a group administrator.
+  useEffect(() => {
+    if (!selectionActive) return;
+    const generation = operationGenerationRef.current;
+    const unresolved = [...selectedIds].map(id => messagesById.get(id)).filter((message): message is Message =>
+      Boolean(message && !message.isLocallyDeleted && !message.permissions &&
+        !selectionPermissionRequestsRef.current.has(message.id)));
+    if (!unresolved.length) return;
+    unresolved.forEach(message => selectionPermissionRequestsRef.current.add(message.id));
+    setLoadingIds(current => new Set([...current, ...unresolved.map(message => message.id)]));
+    void Promise.allSettled(unresolved.map(message => onLoadMessageProperties(message.chatId, message.id)))
+      .then(() => {
+        if (generation !== operationGenerationRef.current) return;
+        setLoadingIds(current => {
+          const next = new Set(current);
+          unresolved.forEach(message => next.delete(message.id));
+          return next;
+        });
+      });
+  }, [selectedIds, messagesById, onLoadMessageProperties, selectionActive, permissionRetry]);
+
+  const retrySelectionPermissions = useCallback(() => {
+    selectionPermissionRequestsRef.current.clear();
+    setPermissionRetry(value => value + 1);
+  }, []);
+
+  const selectedMessages = messages.filter(message => selectedIds.has(message.id));
+  const selectionReady = selectedMessages.length > 0 && selectedMessages.every(message =>
+    message.isLocallyDeleted || Boolean(message.permissions));
+  const canCopySelection = selectionReady && selectedMessages.every(messageCanBeSaved);
+  const canForwardSelection = selectionReady && selectedMessages.every(message =>
+    message.isLocallyDeleted || message.permissions?.canForward === true);
 
   const orderedMessageIds = useCallback((messageIds: Iterable<string>) => {
     const requested = new Set(messageIds);
@@ -234,8 +220,8 @@ export const useMessageForwarding = ({
   }, [captureTargets, orderedMessageIds, pending]);
 
   const openSelectedDialog = useCallback(() => {
-    openDialogForMessages(selectedIds);
-  }, [openDialogForMessages, selectedIds]);
+    if (canForwardSelection) openDialogForMessages(selectedIds);
+  }, [canForwardSelection, openDialogForMessages, selectedIds]);
 
   const quickForward = useCallback(async (
     messageIds: Iterable<string>,
@@ -306,6 +292,10 @@ export const useMessageForwarding = ({
 
   return {
     selectedIds,
+    selectedMessages,
+    canCopySelection,
+    canForwardSelection,
+    retrySelectionPermissions,
     loadingIds,
     selectionMode: selectionActive,
     dialogOpen,
