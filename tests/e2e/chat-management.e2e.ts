@@ -257,6 +257,16 @@ test("renders and activates TDLib inline bot keyboards", async ({ page }) => {
     .toHaveCount(8);
   await expect(keyboard.locator(".message-inline-keyboard-row").nth(1).getByRole("button"))
     .toHaveCount(3);
+  const primaryButton = keyboard.getByRole("button", { name: "下一页" });
+  const restingColors = await primaryButton.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return { color: style.color, backgroundColor: style.backgroundColor, borderColor: style.borderColor };
+  });
+  await primaryButton.hover();
+  await expect.poll(() => primaryButton.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return { color: style.color, backgroundColor: style.backgroundColor, borderColor: style.borderColor };
+  })).toEqual(restingColors);
   await keyboard.getByRole("button", { name: "下一页" }).click();
   await expect(keyboard.getByRole("status")).toHaveText("机器人已处理操作");
 });

@@ -1561,6 +1561,9 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-inline-keyboard-row button.is-primary { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); }
 .message-inline-keyboard-row button.is-danger { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--color-status-danger) 72%, var(--color-bg-canvas)); border-color: var(--color-status-danger); }
 .message-inline-keyboard-row button.is-success { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--color-status-success) 72%, var(--color-bg-canvas)); border-color: var(--color-status-success); }
+.message-inline-keyboard-row button.is-primary:hover:not(:disabled) { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); }
+.message-inline-keyboard-row button.is-danger:hover:not(:disabled) { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--color-status-danger) 72%, var(--color-bg-canvas)); border-color: var(--color-status-danger); }
+.message-inline-keyboard-row button.is-success:hover:not(:disabled) { color: var(--color-text-on-accent); background: color-mix(in srgb, var(--color-status-success) 72%, var(--color-bg-canvas)); border-color: var(--color-status-success); }
 .message-inline-keyboard-feedback { padding: 5px 8px; color: var(--muted); text-align: center; font-size: 10px; }
 .message-rich-text > :first-child { margin-top: 0; }
 .message-rich-text > :last-child { margin-bottom: 0; }
