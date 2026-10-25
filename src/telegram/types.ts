@@ -1022,6 +1022,8 @@ export interface MessageSendFailure {
 }
 
 export interface Message {
+  /** Transient TDLib correlation for the local send presentation. */
+  sendingId?: number;
   canSave?: boolean;
   selfDestruct?: boolean;
   expiresAt?: string;
@@ -1227,6 +1229,7 @@ export type TelegramEvent =
   | { type: "sync.error"; message: string; fatal?: boolean };
 
 export interface SendMessageInput {
+  sendingId?: number;
   chatId: string;
   topicId?: string;
   text: string;
@@ -1238,6 +1241,7 @@ export interface SendMessageInput {
 }
 
 export interface SendEmojiAssetInput {
+  sendingId?: number;
   chatId: string;
   topicId?: string;
   asset: EmojiPickerAsset;
@@ -1337,6 +1341,7 @@ export interface OutgoingAttachment {
 }
 
 export interface SendFilesInput {
+  sendingId?: number;
   onGroupAccepted?: (attachments: OutgoingAttachment[]) => Promise<void>;
   chatId: string;
   topicId?: string;

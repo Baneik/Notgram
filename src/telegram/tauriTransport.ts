@@ -2614,6 +2614,15 @@ export class TauriTelegramTransport implements TelegramTransport {
       // Consume replies before the next update in this native batch, rather
       // than when the awaiting request resumes after the whole batch.
       if (update["@type"] === "chat") this.cacheChat(update);
+      const sentMessages = update["@type"] === "message" ? [update] : asTdObjects(update.messages);
+      for (const message of sentMessages) {
+        const pending = asTdObject(message.sending_state);
+        if (pending?.["@type"] === "messageSendingStatePending" && (tdNumber(pending.sending_id) ?? 0) > 0) {
+          // Prepared uploads must replace local feedback before their promise
+          // resumes, even when updateNewMessage arrives in a later native batch.
+          this.emitMessage(message, true);
+        }
+      }
       return;
     }
     routeTdUpdate(update, this.updateHandlers);

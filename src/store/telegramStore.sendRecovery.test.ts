@@ -7,6 +7,65 @@ import { migrateLocalUnsentState } from "./telegramStore.cache";
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
+it("publishes sending before a stalled draft sync and reconciles once when the server accepts", async () => {
+  const transport = new MockTelegramTransport();
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  let finishDraft!: () => void;
+  vi.spyOn(transport, "setChatDraft").mockImplementationOnce(() => new Promise(resolve => { finishDraft = resolve; }));
+  const sends = vi.spyOn(transport, "sendMessage");
+  store.getState().updateChatDraft("chat-product", "draft to flush");
+  const pending = store.getState().sendMessage("immediate feedback");
+  const local = store.getState().messages.get("chat-product")!.find(message => message.id.startsWith("local-send:"));
+  expect(local).toMatchObject({ delivery: "sending", content: { text: "immediate feedback" } });
+  expect(sends).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(finishDraft).toBeDefined());
+  finishDraft();
+  expect(await pending).toBe(true);
+  const real = store.getState().messages.get("chat-product")!.filter(message => message.content.kind === "text" && message.content.text === "immediate feedback");
+  expect(real).toHaveLength(1);
+  expect(real[0].renderKey).toBe(local!.renderKey);
+  expect(real[0].isPending).toBeUndefined();
+});
+
+it.each(["sendSticker", "sendAnimation"] as const)("shows local-only emoji sends while %s waits", async method => {
+  const transport = new MockTelegramTransport();
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  let finish!: () => void;
+  const original = transport[method].bind(transport);
+  vi.spyOn(transport, method).mockImplementationOnce(async input => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    await original(input);
+  });
+  const pending = store.getState()[method]({ id: "local", fileId: 123,
+    kind: method === "sendSticker" ? "sticker" : "animation", fileName: "local.webp" });
+  expect(store.getState().messages.get("chat-product")!.some(message => message.id.startsWith("local-send:"))).toBe(true);
+  finish();
+  expect(await pending).toBe(true);
+  expect(store.getState().messages.get("chat-product")!.some(message => message.id.startsWith("local-send:"))).toBe(false);
+});
+
+it.each([false, true])("clears only the submitted attachment draft after navigation; newer draft=%s", async newer => {
+  const transport = new MockTelegramTransport();
+  const store = createTelegramStore(transport);
+  await store.getState().initialize();
+  const original = [{ kind: "document" as const, file: new File(["original"], "original.txt") }];
+  await store.getState().saveLocalAttachmentDraft("chat-product", "chat-product", original, { mode: "file", hasSpoiler: false, muteVideos: false });
+  let finish!: () => void;
+  vi.spyOn(transport, "sendFiles").mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(true); }));
+  const pending = store.getState().sendFiles(original);
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  await store.getState().selectChat("chat-mia");
+  if (newer) await store.getState().saveLocalAttachmentDraft("chat-product", "chat-product", [
+    { kind: "document", file: new File(["newer"], "newer.txt") },
+  ], { mode: "file", hasSpoiler: false, muteVideos: false });
+  finish();
+  expect(await pending).toBe(true);
+  expect(store.getState().localAttachmentDrafts.get("chat-product")?.attachments.map(item => item.name))
+    .toEqual(newer ? ["newer.txt"] : undefined);
+});
+
 it("durably queues an online rejection and sends once after recovery without losing a newer draft", async () => {
   const transport = new MockTelegramTransport();
   const store = createTelegramStore(transport);

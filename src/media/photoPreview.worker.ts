@@ -3,6 +3,8 @@ export interface PhotoPreviewTask {
   width: number;
   height: number;
   cover: boolean;
+  mimeType?: string;
+  quality?: number;
 }
 
 globalThis.onmessage = async ({ data }: MessageEvent<PhotoPreviewTask>) => {
@@ -34,7 +36,7 @@ globalThis.onmessage = async ({ data }: MessageEvent<PhotoPreviewTask>) => {
       context.drawImage(current, x, y, currentWidth, currentHeight, 0, 0, nextWidth, nextHeight);
       if (current === image) { image.close(); image = undefined; }
       if (nextWidth === width && nextHeight === height) {
-        const blob = await canvas.convertToBlob({ type: "image/png" });
+        const blob = await canvas.convertToBlob({ type: data.mimeType ?? "image/png", quality: data.quality });
         globalThis.postMessage({ blob, width, height, sourceWidth, sourceHeight });
         break;
       }

@@ -182,4 +182,28 @@ describe("outgoing attachment classification", () => {
     const original = new File(["photo"], "large.jpg", { type: "image/jpeg" });
     await expect(prepareHighQualityPhoto(original)).resolves.toBe(original);
   });
+
+  it("prepares upload pixels in the existing worker without creating a DOM canvas", async () => {
+    const createElement = vi.fn(() => { throw new Error("UI thread canvas must not run"); });
+    const terminate = vi.fn();
+    const postMessage = vi.fn();
+    class PhotoWorker {
+      onmessage?: (event: { data: unknown }) => void;
+      terminate = terminate;
+      postMessage(task: unknown) {
+        postMessage(task);
+        queueMicrotask(() => this.onmessage?.({ data: { blob: new Blob(["encoded"], { type: "image/jpeg" }) } }));
+      }
+    }
+    vi.stubGlobal("Worker", PhotoWorker);
+    vi.stubGlobal("document", { createElement });
+    const original = new File(["photo"], "large.jpg", { type: "image/jpeg", lastModified: 123 });
+    const result = await prepareHighQualityPhoto(original);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ blob: original, width: 2560, height: 2560,
+      cover: false, mimeType: "image/jpeg", quality: 0.99 }));
+    expect(result).toMatchObject({ name: "large.jpg", type: "image/jpeg", lastModified: 123 });
+    expect(await result.text()).toBe("encoded");
+    expect(createElement).not.toHaveBeenCalled();
+    expect(terminate).toHaveBeenCalledOnce();
+  });
 });

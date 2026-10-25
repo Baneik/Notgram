@@ -25,6 +25,7 @@ export interface PreparedPastedFile {
 }
 
 export interface PreparedPastedAttachment extends PreparedPastedFile {
+  sendingId?: number;
   kind: "photo" | "video" | "audio" | "animation" | "document";
   width?: number;
   height?: number;

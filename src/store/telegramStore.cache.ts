@@ -101,6 +101,7 @@ const sanitizeMessageOrigin = (origin?: MessageOrigin): MessageOrigin | undefine
 
 const sanitizeCachedMessage = (message: Message): Message => messageFilesForCache({
   ...message,
+  sendingId: undefined,
   senderTag: message.senderTag === undefined
     ? undefined
     : normalizeIdentityText(message.senderTag) || undefined,

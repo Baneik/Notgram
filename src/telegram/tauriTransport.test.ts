@@ -9,6 +9,7 @@ import { clearPerformanceRecords, getPerformanceRecords } from "../utils/perform
 import { DEFAULT_CHAT_ADMIN_RIGHTS, DEFAULT_CHAT_PERMISSIONS } from "./chatManagement";
 
 type TestableTransport = {
+  requestBroker: TdRequestBroker;
   listener?: TelegramEventListener;
   request: (request: TdObject) => Promise<TdObject>;
   bootstrap: () => Promise<void>;
@@ -3859,6 +3860,29 @@ describe("TauriTelegramTransport message operations", () => {
     ]);
   });
 
+  it.each(["message", "messages"])("publishes a correlated %s upload response before completing the send", async type => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const order: string[] = [];
+    internal.listener = event => {
+      if (event.type === "message.upsert") {
+        expect(event.message).toMatchObject({ id: "100", sendingId: 123, delivery: "sending" });
+        order.push("pending");
+      }
+    };
+    internal.requestBroker = new TdRequestBroker(async (_command, args) => {
+      const message = { ...rawMessage(100), is_outgoing: true,
+        sending_state: { "@type": "messageSendingStatePending", sending_id: 123 } };
+      internal.handleUpdate(type === "message" ? { ...message, "@extra": args?.extra }
+        : { "@type": "messages", "@extra": args?.extra, messages: [message] });
+      return true;
+    });
+    await transport.sendFiles({ chatId: "7", sendingId: 123,
+      attachments: [{ kind: "document", file: new File(["document"], "one.txt") }] });
+    order.push("complete");
+    expect(order).toEqual(["pending", "complete"]);
+  });
+
   it("edits and clears captions through TDLib without losing placement", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
@@ -4031,12 +4055,14 @@ describe("TauriTelegramTransport message operations", () => {
     const internal = transport as unknown as TestableTransport;
     const groups: unknown[][] = [];
     internal.requestPreparedPastedFiles = async (_chatId, files) => {
+      expect(files.every(file => (file as { sendingId?: number }).sendingId === 123)).toBe(true);
       groups.push(files);
       return true;
     };
 
     await expect(transport.sendFiles({
       chatId: "7",
+      sendingId: 123,
       attachments: [
         {
           file: new File(["photo"], "photo.jpg", { type: "image/jpeg" }),

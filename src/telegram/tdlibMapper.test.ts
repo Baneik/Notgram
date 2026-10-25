@@ -16,6 +16,15 @@ import {
 } from "./tdlibMapper";
 
 describe("TDLib mapper", () => {
+  it("reads the transient correlation identifier only from pending sending state", () => {
+    const raw = { id: 1, chat_id: 7, is_outgoing: true, date: 1_700_000_000,
+      content: { "@type": "messageText", text: { text: "pending" } } };
+    expect(mapTdMessage({ ...raw, sending_state: { "@type": "messageSendingStatePending", sending_id: 123 } }))
+      .toMatchObject({ sendingId: 123, delivery: "sending" });
+    expect(mapTdMessage({ ...raw, sending_state: { "@type": "messageSendingStatePending", sending_id: 0 } })?.sendingId).toBeUndefined();
+    expect(mapTdMessage(raw)?.sendingId).toBeUndefined();
+  });
+
   it("keeps audio tags separate from the download name and caption", () => {
     expect(mapTdMessageContent({ "@type": "messageAudio", audio: {
       file_name: "track-01.mp3", title: " 坠落 ", performer: " Rin & ACESTEP ", duration: 150,

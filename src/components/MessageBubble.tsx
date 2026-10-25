@@ -612,6 +612,7 @@ function MessageBubbleComponent({
     let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
     let visibleAtPinnedEdge = false;
     let bottomPinned = !deferUntilPinned || !onMount;
+    let started = false;
     const clearEntranceWait = () => {
       observer?.disconnect();
       if (timeout !== undefined) globalThis.clearTimeout(timeout);
@@ -620,7 +621,8 @@ function MessageBubbleComponent({
       }
     };
     const startEntrance = () => {
-      if (!element.isConnected || !list.isConnected) return;
+      if (started || !element.isConnected || !list.isConnected) return;
+      started = true;
       clearEntranceWait();
       const claimedEntrance = consumeMessageEntrance(message);
       element.classList.remove(preparingClass);
@@ -654,8 +656,12 @@ function MessageBubbleComponent({
     observer.observe(element);
     const willPinAtBottom = onMount?.(() => {
       bottomPinned = true;
-      startWhenReady();
+      // The scroll owner has committed the first pin. Waiting for a second
+      // asynchronous intersection delivery can hide an already placed bubble.
+      if (deferUntilPinned) startEntrance();
+      else startWhenReady();
     });
+    if (started) return;
     if (willPinAtBottom === false) {
       clearEntranceWait();
       element.classList.remove(preparingClass);

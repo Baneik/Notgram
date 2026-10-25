@@ -1577,6 +1577,8 @@ export const mapTdMessage = (raw: TdObject, options: { isChannel?: boolean } = {
     outgoing: raw.is_outgoing === true,
     sentAt: unixDate(raw.date),
     delivery: failed ? "failed" : sendingState ? "sending" : "sent",
+    ...(sendingState?.["@type"] === "messageSendingStatePending" && (tdNumber(sendingState.sending_id) ?? 0) > 0
+      ? { sendingId: tdNumber(sendingState.sending_id) } : {}),
     canRetry: failed && sendingState.can_retry === true &&
       !needAnotherReplyQuote && !needDropReply && !needAnotherSender,
     sendFailure: failed

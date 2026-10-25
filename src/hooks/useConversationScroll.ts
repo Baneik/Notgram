@@ -931,15 +931,17 @@ export const useConversationScroll = ({
     if (!messageListElement) return;
     const viewport = messageListElement.closest<HTMLElement>(".message-list-shell") ??
       messageListElement;
-    let previousViewportHeight = viewport.clientHeight;
+    let previousGeometry = `${messageListElement.clientHeight}:${messageListElement.scrollHeight}`;
     const observer = new ResizeObserver(() => {
-      const nextViewportHeight = viewport.clientHeight;
-      const viewportChanged = Math.abs(nextViewportHeight - previousViewportHeight) > 0.5;
-      previousViewportHeight = nextViewportHeight;
-      if (!viewportChanged) return;
+      const geometry = `${messageListElement.clientHeight}:${messageListElement.scrollHeight}`;
+      if (geometry === previousGeometry) return;
+      previousGeometry = geometry;
       reconcileBottomViewport();
     });
     observer.observe(viewport);
+    observer.observe(messageListElement);
+    const content = messageListElement.querySelector(".message-list-content");
+    if (content) observer.observe(content);
     return () => observer.disconnect();
   }, [messageListElement, reconcileBottomViewport]);
 
@@ -1227,7 +1229,7 @@ export const useConversationScroll = ({
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return false;
     // The mounted row is already measurable, so expose it after the first pin.
     // The coordinator continues reconciling later Virtuoso measurements.
-    scheduleBottomPin(undefined, "track");
+    if (!scheduleBottomPin(undefined, "track")) return false;
     onSettled?.();
     return true;
   }, [currentScrollKey, scheduleBottomPin, searchActive]);

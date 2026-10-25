@@ -12,15 +12,17 @@ export const useComposerAutoResize = (
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input || !enabled) return;
+    const surface = input.closest<HTMLElement>(".composer-wrap") ?? input;
     const notify = () => {
-      const height = input.getBoundingClientRect().height;
+      // Reply bars and attachment trays resize the viewport independently of text.
+      const height = surface.getBoundingClientRect().height;
       if (height === previousHeight.current) return;
       previousHeight.current = height;
       onResize?.();
     };
     notify();
     const observer = new ResizeObserver(notify);
-    observer.observe(input);
+    observer.observe(surface);
     return () => observer.disconnect();
   }, [content, enabled, inputRef, onResize, scope]);
 };

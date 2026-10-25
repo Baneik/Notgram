@@ -76,7 +76,8 @@ export const invalidatePhotoPreview = (source: string, size: PhotoPreviewSize) =
   if (entry) discard(key, entry);
 };
 
-const resizeInWorker = (blob: Blob, size: PhotoPreviewSize, signal: AbortSignal) => new Promise<{
+export const resizePhotoInWorker = (blob: Blob, size: PhotoPreviewSize, signal: AbortSignal,
+  encoding?: { mimeType: string; quality: number }) => new Promise<{
   blob: Blob; width: number; height: number; sourceWidth: number; sourceHeight: number;
 }>((resolve, reject) => {
   const worker = new Worker(new URL("./photoPreview.worker.ts", import.meta.url), { type: "module" });
@@ -89,7 +90,7 @@ const resizeInWorker = (blob: Blob, size: PhotoPreviewSize, signal: AbortSignal)
     if (data.failed) reject(new Error("Photo preview decode failed"));
     else resolve(data);
   };
-  worker.postMessage({ blob, ...size });
+  worker.postMessage({ blob, ...size, ...encoding });
 });
 
 const load = async (entry: Entry) => {
@@ -115,7 +116,7 @@ const load = async (entry: Entry) => {
     height: Number(response.headers.get("X-Preview-Height")),
     sourceWidth: Number(response.headers.get("X-Source-Width")),
     sourceHeight: Number(response.headers.get("X-Source-Height")),
-  } : await resizeInWorker(blob, entry.size, entry.controller.signal);
+  } : await resizePhotoInWorker(blob, entry.size, entry.controller.signal);
   if (![result.width, result.height, result.sourceWidth, result.sourceHeight].every(value => Number.isFinite(value) && value > 0)) {
     throw new Error("Invalid photo preview dimensions");
   }

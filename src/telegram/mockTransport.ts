@@ -2388,7 +2388,7 @@ export class MockTelegramTransport implements TelegramTransport {
     };
   }
 
-  async sendMessage({ chatId, topicId, text, entities, replyToMessageId, replyQuote, clearDraft = true }: SendMessageInput) {
+  async sendMessage({ chatId, topicId, text, entities, replyToMessageId, replyQuote, clearDraft = true, sendingId }: SendMessageInput) {
     const replyTarget = replyToMessageId
       ? this.snapshot.messages.find(
           (message) => message.chatId === chatId && message.topicId === topicId && message.id === replyToMessageId,
@@ -2408,6 +2408,7 @@ export class MockTelegramTransport implements TelegramTransport {
       ) !== replyQuote.text)
     ) throw new Error("引用内容与原消息不匹配");
     this.appendMessage({
+      ...(sendingId ? { sendingId } : {}),
       id: crypto.randomUUID(),
       chatId,
       topicId,
@@ -2619,6 +2620,7 @@ export class MockTelegramTransport implements TelegramTransport {
   }
 
   async sendFiles({
+    sendingId,
     chatId,
     topicId,
     attachments,
@@ -2637,6 +2639,7 @@ export class MockTelegramTransport implements TelegramTransport {
         const isMedia = kind !== "document";
         const preview = kind === "photo" ? await previewDataUrl(file) : undefined;
         this.appendMessage({
+          ...(sendingId ? { sendingId } : {}),
           id: crypto.randomUUID(),
           chatId,
           topicId,
@@ -2811,6 +2814,7 @@ export class MockTelegramTransport implements TelegramTransport {
       id: crypto.randomUUID(),
       chatId: input.chatId,
       topicId: input.topicId,
+      ...(input.sendingId ? { sendingId: input.sendingId } : {}),
       senderId: this.snapshot.currentUserId,
       outgoing: true,
       sentAt: new Date().toISOString(),

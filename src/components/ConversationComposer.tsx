@@ -97,6 +97,7 @@ interface ConversationComposerProps {
   recentMentionUserIds?: readonly string[];
   onTextInsertionApplied?: (id: string) => void;
   onGeometryChange?: () => void;
+  onBeforeAssetSend?: () => void;
   inputRef: RefObject<ComposerInputElement | null>;
   onEditLatestVisible: () => void;
   focus: ComposerFocus;
@@ -185,6 +186,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   recentMentionUserIds = [],
   onTextInsertionApplied,
   onGeometryChange,
+  onBeforeAssetSend,
   inputRef,
   onEditLatestVisible,
   connectionStatus,
@@ -210,6 +212,11 @@ export const ConversationComposer = memo(function ConversationComposer({
   const chatDraft = useTelegramStore((state) => state.drafts.get(draftKey));
   const getChatMentionSuggestions = useTelegramStore((state) => state.getChatMentionSuggestions);
   const activeAccountId = useTelegramStore((state) => state.activeAccountId);
+  const sendScope = useMemo(() => ({ active: true }), [activeAccountId, draftKey]);
+  useLayoutEffect(() => {
+    sendScope.active = true;
+    return () => { sendScope.active = false; };
+  }, [sendScope]);
   const mentionHistory = useTelegramStore((state) => state.messages.get(chatId));
   const mentionSearchMessages = useTelegramStore((state) =>
     state.chatMessageSearch.input?.chatId === chatId ? state.chatMessageSearch.messages : undefined);
@@ -293,6 +300,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const emojiOpenedByHoverRef = useRef(false);
   const pendingAttachmentsRef = useRef(pendingAttachments);
+  const attachmentEditRevisionRef = useRef(0);
+  const inFlightAttachmentSendsRef = useRef(0);
   const pendingAttachmentDraftKeyRef = useRef<string | undefined>(undefined);
   const localAttachmentBatchIdRef = useRef<string | undefined>(undefined);
   const attachmentPreviewSessionRef = useRef<AttachmentPreviewSession | undefined>(undefined);
@@ -863,6 +872,8 @@ export const ConversationComposer = memo(function ConversationComposer({
   useEffect(() => {
     const switchedDraft = pendingAttachmentDraftKeyRef.current !== draftKey;
     const batchChanged = localAttachmentBatchIdRef.current !== localAttachmentDraft?.batchId;
+    // A late persistence acknowledgement must not reopen the submitted tray.
+    if (!switchedDraft && inFlightAttachmentSendsRef.current > 0 && pendingAttachmentsRef.current.length === 0) return;
     if (
       !switchedDraft &&
       !batchChanged &&
@@ -945,6 +956,7 @@ export const ConversationComposer = memo(function ConversationComposer({
 
   const addPendingAttachments = useCallback((files: File[]) => {
     if (files.length === 0) return false;
+    attachmentEditRevisionRef.current++;
     const current = pendingAttachmentsRef.current;
     const available = Math.max(0, TELEGRAM_ALBUM_MAX_ITEMS - current.length);
     const accepted = files.slice(0, available).map((file) => pendingAttachmentFrom({
@@ -980,6 +992,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [persistPendingAttachments, updateAttachmentOptions]);
 
   const removePendingAttachment = useCallback((id: string) => {
+    attachmentEditRevisionRef.current++;
     closeAttachmentPreviewSession();
     const current = pendingAttachmentsRef.current;
     const removed = current.find((attachment) => attachment.id === id);
@@ -996,6 +1009,7 @@ export const ConversationComposer = memo(function ConversationComposer({
   }, [closeAttachmentPreviewSession, focusComposer, persistPendingAttachments, updateAttachmentOptions]);
 
   const discardPendingAttachments = useCallback(() => {
+    attachmentEditRevisionRef.current++;
     closeAttachmentPreviewSession();
     for (const pending of pendingAttachmentsRef.current) {
       if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
@@ -1012,13 +1026,13 @@ export const ConversationComposer = memo(function ConversationComposer({
     if (editingMessage || sending || attachmentPending || pendingAttachments.length === 0) return;
     const restoreFocus = focus.capture();
     const caption = trimComposerFormattedText(draftRef.current, mentionEntitiesRef.current);
-    setAttachmentPending(true);
-    try {
-      const inspectedAttachments = await Promise.all(
-        pendingAttachments.map(({ attachment }) => inspectOutgoingAttachment(attachment.file)),
-      );
-      const sent = await onSendFiles(
-        inspectedAttachments.map((attachment) => ({
+    const submittedAttachments = pendingAttachmentsRef.current;
+    const submittedRevision = ++attachmentEditRevisionRef.current;
+    const submittedReplyId = replyingTo?.id ?? chatDraft?.replyToMessageId;
+    const submittedReplyQuote = activeReplyQuote;
+    inFlightAttachmentSendsRef.current++;
+    const pendingSend = onSendFiles(
+        submittedAttachments.map(({ attachment }) => ({
           ...attachment,
           kind: attachmentMode === "file"
             ? "document"
@@ -1031,35 +1045,55 @@ export const ConversationComposer = memo(function ConversationComposer({
         })),
         caption.text || undefined,
         caption.entities,
-        replyingTo?.id ?? chatDraft?.replyToMessageId,
-        activeReplyQuote,
+        submittedReplyId,
+        submittedReplyQuote,
         disableNotification,
       );
-      if (!sent) return;
-      closeAttachmentPreviewSession();
-      for (const attachment of pendingAttachments) {
-        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    closeAttachmentPreviewSession();
+    pendingAttachmentsRef.current = [];
+    setPendingAttachments([]);
+    setAttachmentNotice(undefined);
+    // Keep the submitted draft's options intact until the background send settles.
+    attachmentModeRef.current = "media";
+    attachmentSpoilerRef.current = false;
+    muteVideosRef.current = false;
+    setAttachmentMode("media");
+    setAttachmentSpoiler(false);
+    setMuteVideos(false);
+    if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = undefined;
+    pendingDraftRef.current = undefined;
+    localDraftDirtyRef.current = false;
+    draftRef.current = "";
+    mentionEntitiesRef.current = [];
+    setDraft("");
+    onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
+    onCancelReply();
+    stopTyping();
+    restoreFocus();
+
+    const sent = await pendingSend;
+    inFlightAttachmentSendsRef.current--;
+    if (!sendScope.active) {
+      for (const attachment of submittedAttachments) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+      return;
+    }
+    if (sent) {
+      for (const attachment of submittedAttachments) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+      // The store clears only the submitted draft generation, even after navigation.
+    } else {
+      const restored = [...submittedAttachments, ...pendingAttachmentsRef.current];
+      pendingAttachmentsRef.current = restored;
+      setPendingAttachments(restored);
+      if (attachmentEditRevisionRef.current === submittedRevision) {
+        updateAttachmentOptions({ mode: attachmentMode, hasSpoiler: attachmentSpoiler, muteVideos });
       }
-      pendingAttachmentsRef.current = [];
-      setPendingAttachments([]);
-      setAttachmentNotice(undefined);
-      setAttachmentMode("media");
-      setAttachmentSpoiler(false);
-      setMuteVideos(false);
-      await clearLocalAttachmentDraft(draftKey);
-      if (draftTimerRef.current) globalThis.clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = undefined;
-      pendingDraftRef.current = undefined;
-      localDraftDirtyRef.current = false;
-      draftRef.current = "";
-      mentionEntitiesRef.current = [];
-      setDraft("");
-      onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
-      onCancelReply();
-      stopTyping();
-      restoreFocus();
-    } finally {
-      setAttachmentPending(false);
+      persistPendingAttachments(restored);
+      const text = prependComposerFormattedText(caption, draftRef.current, mentionEntitiesRef.current);
+      draftRef.current = text.text;
+      mentionEntitiesRef.current = text.entities;
+      setDraft(text.text);
+      scheduleDraft(text.text, submittedReplyId, submittedReplyQuote);
     }
   };
 
@@ -1139,18 +1173,18 @@ export const ConversationComposer = memo(function ConversationComposer({
     onDraftChange(chatId, "", undefined, undefined, undefined, { topicId: draftKey.split(":topic:")[1] });
     stopTyping();
     focusComposer();
-    setSending(true);
+    const submittedReplyId = replyingTo?.id ?? chatDraft?.replyToMessageId;
+    const submittedReplyQuote = activeReplyQuote;
+    onCancelReply();
     const sent = await onSendMessage(
       submitted.text,
-      replyingTo?.id ?? chatDraft?.replyToMessageId,
-      activeReplyQuote,
+      submittedReplyId,
+      submittedReplyQuote,
       submitted.entities,
       disableNotification,
     );
-    setSending(false);
-    if (sent) {
-      onCancelReply();
-    } else {
+    if (!sendScope.active) return;
+    if (!sent) {
       const restored = prependComposerFormattedText(
         submitted,
         draftRef.current,
@@ -1159,7 +1193,7 @@ export const ConversationComposer = memo(function ConversationComposer({
       draftRef.current = restored.text;
       mentionEntitiesRef.current = restored.entities;
       setDraft(restored.text);
-      scheduleDraft(restored.text, replyingTo?.id ?? chatDraft?.replyToMessageId, activeReplyQuote);
+      scheduleDraft(restored.text, submittedReplyId, submittedReplyQuote);
     }
     restoreFocus();
   };
@@ -1306,6 +1340,7 @@ export const ConversationComposer = memo(function ConversationComposer({
             disableNotification={disableNotification}
             onEmoji={insertEmoji}
             onAssetSent={clearReply}
+            onBeforeAssetSend={onBeforeAssetSend}
             onClose={closeEmojiPicker}
             onRequestComposerFocus={focusComposer}
             onCaptureComposerFocus={focus.capture}

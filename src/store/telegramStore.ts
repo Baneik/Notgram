@@ -67,6 +67,7 @@ import {
   withEmojiReaction,
 } from "./telegramStore.messages";
 import { messagesWithOutbox, outboxItemId } from "./telegramStore.outbox";
+import { createPendingSends } from "./telegramStore.pendingSends";
 import {
   filterAndSortChats,
   isChatPinnedInFolder,
@@ -261,6 +262,7 @@ export const createTelegramStore = (
     let cacheWrite = Promise.resolve();
     let accountTransition = false;
     let accountGeneration = 0;
+    const pendingSends = createPendingSends(get, set);
     const cachedChatIds = new Set<string>();
     const chatJoinTargets = new Map<string, string>();
     const pendingPinnedReorders = new Map<string, {
@@ -1112,6 +1114,7 @@ export const createTelegramStore = (
       boundedMessageCount = 0;
       retentionViewports.clear();
       resetOutbox();
+      pendingSends.reset();
       chatJoinTargets.clear();
       history.clear();
       pendingPinnedReorders.clear();
@@ -2379,6 +2382,8 @@ export const createTelegramStore = (
       if (event.type === "messages.upserted") {
         if (event.messages.length === 0) return;
         const mergeStartedAt = isPerformanceMonitoringEnabled() ? performance.now() : undefined;
+        const acceptedLocalIds = new Set(event.messages.filter(message => pendingSends.accept(message))
+          .map(message => `${message.chatId}:${message.id}`));
         const messages = new Map(get().messages);
         const incomingByChat = new Map<string, typeof event.messages>();
         const liveIds = new Set(liveMessages.map(message => `${message.chatId}:${message.id}`));
@@ -2396,7 +2401,7 @@ export const createTelegramStore = (
           for (const message of incoming) {
             const previousMessage = findIndexedMessage(existing, message.id);
             const live = liveIds.has(`${message.chatId}:${message.id}`);
-            if (live && !previousMessage) {
+            if (live && !previousMessage && !acceptedLocalIds.has(`${message.chatId}:${message.id}`)) {
               markMessageEntrance(message);
               newLiveMessages.push(message);
               if (!message.outgoing) forumUnreadState.observeIncoming(chatId);
@@ -2457,11 +2462,12 @@ export const createTelegramStore = (
         return;
       }
 
+      const acceptedLocalSend = event.animateEntrance === true && pendingSends.accept(event.message);
       const messages = new Map(get().messages);
       const existingMessages = messages.get(event.message.chatId) ?? [];
       maybeAutoCacheArchiveMedia(event.message);
       queueBlockedReactionReads([event.message]);
-      const isNewLiveMessage = event.animateEntrance === true &&
+      const isNewLiveMessage = !acceptedLocalSend && event.animateEntrance === true &&
         !existingMessages.some((message) => message.id === event.message.id);
       reconcileMessageAttention(
         event.message,
@@ -2558,6 +2564,7 @@ export const createTelegramStore = (
       accountGeneration += 1;
       incomingAlbums.reset();
       resetOutbox();
+      pendingSends.reset();
       mediaFileRestorer.reset();
       registeredAccountKey = undefined;
       set({
@@ -4792,8 +4799,12 @@ export const createTelegramStore = (
           : false;
         if (queueEmojiAsset({ chatId, topicId, asset, replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
           replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined, disableNotification })) return true;
+        const pending = pendingSends.beginEmoji({ chatId, topicId, asset,
+          replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+          replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined });
         try {
           await transport.sendSticker({
+            sendingId: pending.sendingId,
             chatId,
             topicId,
             asset,
@@ -4811,6 +4822,8 @@ export const createTelegramStore = (
           if (get().activeAccountId !== accountId) return false;
           set({ operationError: errorMessage(error, translate("贴纸发送失败")) });
           return false;
+        } finally {
+          pending.finish();
         }
       },
 
@@ -4828,8 +4841,12 @@ export const createTelegramStore = (
           : false;
         if (queueEmojiAsset({ chatId, topicId, asset, replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
           replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined, disableNotification })) return true;
+        const pending = pendingSends.beginEmoji({ chatId, topicId, asset,
+          replyToMessageId: localOnlyReply ? undefined : replyToMessageId,
+          replyQuote: localOnlyReply ? undefined : replyToMessageId ? replyQuote : undefined });
         try {
           await transport.sendAnimation({
+            sendingId: pending.sendingId,
             chatId,
             topicId,
             asset,
@@ -4846,6 +4863,8 @@ export const createTelegramStore = (
           if (get().activeAccountId !== accountId) return false;
           set({ operationError: errorMessage(error, translate("GIF 发送失败")) });
           return false;
+        } finally {
+          pending.finish();
         }
       },
 
@@ -5079,11 +5098,15 @@ export const createTelegramStore = (
           }
         };
         if (!connectionPresentation(get().connectionStatus).operational) return queueMessage();
-        if (clearDraft) await draftSync.flush(draftKey);
-        if (sendGeneration !== accountGeneration) return false;
-        const clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
+        const pending = pendingSends.begin(chatId, context?.discussionThreadId ?? topicId,
+          [{ content: { kind: "text", text: normalizedText, entities: formatted.entities } }], replyToMessageId, replyQuote);
+        let clearGeneration: number | undefined;
         try {
+          if (clearDraft) await draftSync.flush(draftKey);
+          if (sendGeneration !== accountGeneration) return false;
+          clearGeneration = clearDraft ? draftSync.expect(draftKey, undefined) : undefined;
           await transport.sendMessage({
+            sendingId: pending.sendingId,
             chatId,
             topicId,
             text: normalizedText,
@@ -5109,7 +5132,10 @@ export const createTelegramStore = (
         } catch (error) {
           if (sendGeneration !== accountGeneration) return false;
           if (clearGeneration !== undefined) draftSync.cancelExpectation(draftKey, clearGeneration);
-          if (error instanceof RetryableSendError) return queueMessage(error);
+          if (error instanceof RetryableSendError) {
+            pending.finish();
+            return queueMessage(error);
+          }
           const currentDraft = get().drafts.get(draftKey);
           if (previousDraft && draftSignature(currentDraft) === draftSignature(previousDraft)) {
             const restored = { ...previousDraft, pending: true };
@@ -5120,6 +5146,8 @@ export const createTelegramStore = (
           }
           set({ operationError: error instanceof Error ? error.message : translate("消息发送失败") });
           return false;
+        } finally {
+          pending.finish();
         }
       },
 
@@ -5464,6 +5492,14 @@ export const createTelegramStore = (
           return false;
         }
         const formattedCaption = trimComposerFormattedText(caption ?? "", captionEntities ?? []);
+        const attachmentDraftKey = topicKey(chatId, topicId);
+        const attachmentDraftGeneration = localAttachmentDraftGenerations.get(attachmentDraftKey);
+        const clearSubmittedAttachmentDraft = () => {
+          if (!context && sendGeneration === accountGeneration &&
+            localAttachmentDraftGenerations.get(attachmentDraftKey) === attachmentDraftGeneration) {
+            void get().clearLocalAttachmentDraft(attachmentDraftKey).catch(() => set({ cacheHealth: "invalid" }));
+          }
+        };
         const queueFiles = async (remaining: typeof attachments, retry?: RetryableSendError, captionConsumed = false) => {
           if (sendGeneration !== accountGeneration) return false;
           if (remaining.length === 0) return true;
@@ -5476,6 +5512,7 @@ export const createTelegramStore = (
             if (sendGeneration !== accountGeneration) return false;
             await attachmentOutbox.put({ id, accountId, createdAt, attachments: remaining, metadata, recovery: { chatId, topicId, discussionThreadId: context?.discussionThreadId, replyToMessageId, replyQuote, caption: captionText } });
             if (sendGeneration !== accountGeneration) return false;
+            pending.finish();
             const previousOutbox = get().outbox;
             const previousMessages = get().messages;
             const item: QueuedOutgoingMessage = {
@@ -5504,6 +5541,7 @@ export const createTelegramStore = (
             }
             if (sendGeneration !== accountGeneration) return false;
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
+            clearSubmittedAttachmentDraft();
             void flushOutbox();
             return true;
           } catch (error) {
@@ -5513,22 +5551,37 @@ export const createTelegramStore = (
             return false;
           }
         };
-        if (!connectionPresentation(get().connectionStatus).operational) return queueFiles(attachments);
+        const pending = pendingSends.beginFiles(chatId, context?.discussionThreadId ?? topicId,
+          attachments, formattedCaption.text || undefined, formattedCaption.entities, replyToMessageId, replyQuote);
+        if (!connectionPresentation(get().connectionStatus).operational) {
+          return queueFiles(attachments).finally(pending.finish);
+        }
         const accepted = new Set<(typeof attachments)[number]>();
         try {
+          // Reuse staged metadata; only unfinished probes run after local feedback.
+          const inspected = await Promise.all(attachments.map(async attachment => {
+            if (attachment.kind === "document" || attachment.width || attachment.duration) return attachment;
+            return { ...attachment, ...await inspectOutgoingAttachment(attachment.file), kind: attachment.kind };
+          }));
+          if (sendGeneration !== accountGeneration) return false;
           const sent = await transport.sendFiles({
+            sendingId: pending.sendingId,
             chatId,
             topicId,
-            attachments,
+            attachments: inspected,
             caption: formattedCaption.text || undefined,
             captionEntities: formattedCaption.entities,
             replyToMessageId,
             replyQuote: replyToMessageId ? replyQuote : undefined,
             disableNotification,
-            onGroupAccepted: async group => { group.forEach(attachment => accepted.add(attachment)); },
+            onGroupAccepted: async group => { group.forEach(attachment => {
+              const index = inspected.indexOf(attachment);
+              if (index >= 0) accepted.add(attachments[index]);
+            }); },
           });
           if (sendGeneration !== accountGeneration) return false;
           if (sent) {
+            clearSubmittedAttachmentDraft();
             recordConversationSentMessages(get().activeAccountId, chatId, attachments.length);
             set({ operationError: undefined });
           }
@@ -5540,6 +5593,8 @@ export const createTelegramStore = (
           }
           set({ operationError: error instanceof Error ? error.message : translate("附件发送失败") });
           return false;
+        } finally {
+          pending.finish();
         }
       },
 

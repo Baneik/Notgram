@@ -49,7 +49,7 @@ export const inputMessageText = (text: string | TdObject, clearDraft: boolean): 
   clear_draft: clearDraft,
 });
 
-export const messageSendOptions = (disableNotification = false): TdObject | null => disableNotification ? ({
+export const messageSendOptions = (disableNotification = false, sendingId?: number): TdObject | null => disableNotification || sendingId ? ({
   "@type": "messageSendOptions",
   disable_notification: disableNotification,
   from_background: false,
@@ -57,6 +57,7 @@ export const messageSendOptions = (disableNotification = false): TdObject | null
   update_order_of_installed_sticker_sets: false,
   scheduling_state: null,
   paid_message_star_count: 0,
+  ...(sendingId ? { sending_id: sendingId } : {}),
 }) : null;
 
 export const listObject = (type: "chatListMain" | "chatListArchive") => ({

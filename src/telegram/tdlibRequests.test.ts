@@ -6,11 +6,18 @@ import {
   forumTopicObject,
   formattedTextObject,
   mapAuthorizationState,
+  messageSendOptions,
   numericId,
   nextProxyProfile,
 } from "./tdlibRequests";
 
 describe("TDLib request builders", () => {
+  it("correlates pending sends independently of the silent-send flag", () => {
+    expect(messageSendOptions()).toBeNull();
+    expect(messageSendOptions(false, 314)).toMatchObject({ sending_id: 314, disable_notification: false });
+    expect(messageSendOptions(true, 315)).toMatchObject({ sending_id: 315, disable_notification: true });
+  });
+
   it("serializes caption styles and links while rejecting invalid entity ranges", () => {
     expect(formattedTextObject("caption", [
       { kind: "bold", offset: 0, length: 7 },

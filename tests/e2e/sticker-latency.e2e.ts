@@ -9,6 +9,7 @@ const ready = async (page: Page) => {
   await page.goto("/");
   if ((page.viewportSize()?.width ?? 1280) < 768) await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
 };
 
 for (const width of [1366, 390]) {
@@ -57,12 +58,20 @@ for (const width of [1366, 390]) {
         getCachedStickerPickerPreview: () => pixels, getCachedEmojiAsset: () => undefined,
         loadEmojiAsset: async () => new Promise(() => undefined) });
     }, pixels);
+    // Picker sends must resume following after reading older messages.
+    await page.locator(".message-list").hover();
+    await page.mouse.wheel(0, -100_000);
+    await expect.poll(() => page.locator(".message-list").evaluate(list =>
+      list.scrollHeight - list.scrollTop - list.clientHeight)).toBeGreaterThan(100);
     await page.getByRole("button", { name: "表情", exact: true }).click();
     await dialog(page).getByRole("button", { name: "发送贴纸 🙂", exact: true }).click();
     await expect(dialog(page)).toHaveCount(0, { timeout: 1000 });
     const pending = page.locator('[data-message-id^="outbox:"]');
     await expect(pending).toBeVisible({ timeout: 1000 });
     await expect(pending.locator('[data-delivery="sending"]')).toBeVisible();
+    await expect.poll(() => page.locator(".message-list").evaluate(list =>
+      list.scrollHeight - list.scrollTop - list.clientHeight)).toBeLessThanOrEqual(2);
+    expect(await pending.evaluate(row => row.getBoundingClientRect().bottom - row.closest(".message-list")!.getBoundingClientRect().bottom)).toBeLessThanOrEqual(2);
     await expect.poll(() => page.evaluate(() => (globalThis as unknown as { stickerSendLatency: { calls: number } }).stickerSendLatency.calls)).toBe(1);
     await page.evaluate(() => (globalThis as unknown as { stickerSendLatency: { fail: (error: Error) => void } }).stickerSendLatency.fail(new Error("temporary send failure")));
     await expect(pending.locator('[data-delivery="failed"]')).toBeVisible();

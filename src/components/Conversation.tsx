@@ -1613,6 +1613,8 @@ export function Conversation({
     return observeConversationPresentation(messageListRef.current, performanceTraceId);
   }, [performanceTraceId, pinnedViewOpen, positioning]);
 
+  const followLatestOnSend = useCallback(() => jumpToLatest("auto"), [jumpToLatest]);
+
   const sendMessageAndFollowLatest = useCallback(async (
     text: string,
     replyToMessageId?: string,
@@ -1620,7 +1622,7 @@ export function Conversation({
     entities?: MessageTextEntity[],
     disableNotification?: boolean,
   ) => {
-    jumpToLatest("auto");
+    followLatestOnSend();
     const localReply = getReplyTarget(replyToMessageId);
     const localOnlyReply = localReply?.isLocallyDeleted === true;
     const localReplyAuthor = localOnlyReply && chat
@@ -1637,7 +1639,7 @@ export function Conversation({
       localOnlyReply ? [...(localQuote?.entities ?? []), ...(entities ?? []).map((entity) => ({ ...entity, offset: entity.offset + localReplyPrefix.length }))] : entities,
       disableNotification,
     );
-  }, [chat, forwardTargetsById, getReplyTarget, jumpToLatest, onSendMessage, users]);
+  }, [chat, followLatestOnSend, forwardTargetsById, getReplyTarget, onSendMessage, users]);
 
   const sendFilesAndFollowLatest = useCallback(async (
     attachments: import("../telegram/types").OutgoingAttachment[],
@@ -1647,7 +1649,7 @@ export function Conversation({
     selectedReplyQuote?: MessageReplyQuote,
     disableNotification?: boolean,
   ) => {
-    jumpToLatest("auto");
+    followLatestOnSend();
     const localOnlyReply = getReplyTarget(replyToMessageId)?.isLocallyDeleted === true;
     return onSendFiles(
       attachments,
@@ -1657,7 +1659,7 @@ export function Conversation({
       localOnlyReply ? undefined : selectedReplyQuote,
       disableNotification,
     );
-  }, [getReplyTarget, jumpToLatest, onSendFiles]);
+  }, [followLatestOnSend, getReplyTarget, onSendFiles]);
 
   useEffect(() => {
     const selectionSurface = (node: Node | null) => node instanceof Element
@@ -3308,6 +3310,7 @@ export function Conversation({
         recentMentionUserIds={recentMentionUserIds}
         onTextInsertionApplied={consumeComposerTextInsertion}
         onGeometryChange={reconcileBottomViewport}
+        onBeforeAssetSend={followLatestOnSend}
         inputRef={composerInputRef}
         onEditLatestVisible={editLatestVisible}
         focus={composerFocus}

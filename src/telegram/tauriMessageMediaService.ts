@@ -619,7 +619,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: messageSendOptions(input.disableNotification),
+      options: messageSendOptions(input.disableNotification, input.sendingId),
       reply_markup: null,
       input_message_content: {
         "@type": "inputMessageSticker",
@@ -643,7 +643,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: messageSendOptions(input.disableNotification),
+      options: messageSendOptions(input.disableNotification, input.sendingId),
       reply_markup: null,
       input_message_content: {
         "@type": "inputMessageAnimation",
@@ -677,7 +677,7 @@ export class TauriMessageMediaService {
       chat_id: numericId(input.chatId),
       topic_id: forumTopicObject(input.topicId),
       reply_to: inputMessageReplyTarget(input.replyToMessageId, input.replyQuote),
-      options: messageSendOptions(input.disableNotification),
+      options: messageSendOptions(input.disableNotification, input.sendingId),
       reply_markup: null,
       input_message_content: inputMessageText(text, input.clearDraft !== false),
     }).catch(error => { throw classifySendError(error); });
@@ -991,7 +991,9 @@ export class TauriMessageMediaService {
     let captionPending = input.caption;
     let captionEntitiesPending = input.captionEntities;
     for (const group of groups) {
-      const files = await Promise.all(group.map(this.preparePastedAttachment));
+      const files = await Promise.all(group.map(async attachment => ({
+        ...await this.preparePastedAttachment(attachment), ...(input.sendingId ? { sendingId: input.sendingId } : {}),
+      })));
       if (generation !== this.context.sessionGeneration()) throw new Error(translate("账号已切换，发送已取消"));
       const sent = await this.context.requestPreparedPastedFiles(
         input.chatId,

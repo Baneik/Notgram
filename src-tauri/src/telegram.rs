@@ -39,6 +39,7 @@ const MAX_PASTED_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PastedUploadFile {
+    sending_id: Option<i32>,
     name: String,
     mime_type: String,
     #[serde(default)]
@@ -58,6 +59,16 @@ pub struct PastedUploadFile {
     has_spoiler: bool,
     #[serde(default)]
     show_caption_above_media: bool,
+}
+
+fn upload_sending_id(files: &[PastedUploadFile]) -> Result<Option<i32>, String> {
+    let sending_id = files.first().and_then(|file| file.sending_id);
+    if sending_id.is_some_and(|id| id <= 0)
+        || files.iter().any(|file| file.sending_id != sending_id)
+    {
+        return Err("Invalid upload sending identifier".into());
+    }
+    Ok(sending_id)
 }
 
 #[derive(Deserialize)]
@@ -1343,6 +1354,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn upload_identity_accepts_legacy_payloads_and_requires_one_positive_int32_per_group() {
+        let file = json!({ "name": "photo.png", "mimeType": "image/png", "kind": "photo" });
+        let parse = |value| serde_json::from_value::<PastedUploadFile>(value).unwrap();
+        assert_eq!(upload_sending_id(&[parse(file.clone())]).unwrap(), None);
+        let tagged = |id| {
+            let mut value = file.clone();
+            value["sendingId"] = json!(id);
+            value
+        };
+        assert_eq!(
+            upload_sending_id(&[parse(tagged(7)), parse(tagged(7))]).unwrap(),
+            Some(7)
+        );
+        assert!(upload_sending_id(&[parse(tagged(7)), parse(tagged(8))]).is_err());
+        assert!(upload_sending_id(&[parse(tagged(7)), parse(file.clone())]).is_err());
+        for id in [0, -1] {
+            assert!(upload_sending_id(&[parse(tagged(id))]).is_err());
+        }
+        assert!(serde_json::from_value::<PastedUploadFile>(tagged(i64::MAX)).is_err());
+    }
+
+    #[test]
     fn download_logs_include_priority_without_file_or_request_identity() {
         assert_eq!(
             request_log_details(&json!({
@@ -1944,6 +1977,7 @@ pub async fn telegram_send_pasted_files(
     runtime: State<'_, TelegramRuntime>,
 ) -> Result<bool, String> {
     validate_webview_extra(&extra)?;
+    let sending_id = upload_sending_id(&files)?;
     let active_account = crate::storage::account::active_account_id(&app)?;
     if account_id
         .as_ref()
@@ -2115,9 +2149,10 @@ pub async fn telegram_send_pasted_files(
         "protect_content": false,
         "update_order_of_installed_sticker_sets": false,
         "scheduling_state": null,
-        "paid_message_star_count": 0
+        "paid_message_star_count": 0,
+        "sending_id": sending_id.unwrap_or(0)
     });
-    if disable_notification {
+    if disable_notification || sending_id.is_some() {
         request["options"] = send_options.clone();
     }
     let fallback_request = if fallback_files.iter().any(Option::is_some) {
@@ -2161,7 +2196,7 @@ pub async fn telegram_send_pasted_files(
         None
     };
     let fallback_request = fallback_request.map(|mut fallback| {
-        if disable_notification {
+        if disable_notification || sending_id.is_some() {
             fallback["options"] = send_options;
         }
         fallback

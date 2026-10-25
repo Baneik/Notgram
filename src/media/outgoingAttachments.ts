@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { resizePhotoInWorker } from "./photoPreview";
 import type {
   OutgoingAttachment,
   OutgoingAttachmentKind,
@@ -211,7 +212,24 @@ const probePhoto = async (file: File): Promise<Partial<OutgoingAttachment>> => {
 export const prepareHighQualityPhoto = async (file: File): Promise<File> => {
   const extension = fileExtension(file.name);
   const isPhoto = file.type.startsWith("image/") || PHOTO_EXTENSIONS.has(extension ?? "");
-  if (!isPhoto || file.type === "image/gif" || typeof Image === "undefined" ||
+  if (!isPhoto || file.type === "image/gif") return file;
+  if (typeof Worker !== "undefined") {
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const mimeType = file.type === "image/png" || extension === "png" ? "image/png" : "image/jpeg";
+      const { blob } = await resizePhotoInWorker(file,
+        { width: HIGH_QUALITY_PHOTO_MAX_EDGE, height: HIGH_QUALITY_PHOTO_MAX_EDGE, cover: false }, controller.signal,
+        { mimeType, quality: HIGH_QUALITY_JPEG_QUALITY });
+      return new File([blob], file.name, { type: file.type || mimeType, lastModified: file.lastModified });
+    } catch {
+      // A failed worker must not retry expensive bitmap processing on the UI thread.
+      return file;
+    } finally {
+      globalThis.clearTimeout(timer);
+    }
+  }
+  if (typeof Image === "undefined" ||
     typeof document === "undefined" || typeof URL.createObjectURL !== "function") return file;
   const source = URL.createObjectURL(file);
   const image = new Image();
