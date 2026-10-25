@@ -26,7 +26,8 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { calculateContextMenuLayout } from "../utils/contextMenuLayout";
 import { useNativeContextMenu, type NativeContextMenuItem } from "../contextMenu/nativeContextMenuBridge";
 import { ContextMenuPanel, ContextMenuSurface, type ContextMenuPoint } from "./ContextMenuSurface";
 import { useContextMenuDismiss } from "../hooks/useContextMenuDismiss";
@@ -145,10 +146,18 @@ export function MessageActionMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [expandedForwardAction, setExpandedForwardAction] = useState<"forward">();
   const quickForwardTargets = forwardTargets.slice(0, MAX_QUICK_FORWARD_TARGETS);
-  const fallbackPosition = {
-    left: Math.max(8, Math.min(position.left, window.innerWidth - 160 - 8)),
-    top: Math.max(8, Math.min(position.top - 21, window.innerHeight - 326 - 8)),
-  };
+  const [fallbackPosition, setFallbackPosition] = useState({ left: position.left, top: position.top - 21 });
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const layout = calculateContextMenuLayout(
+      { x: position.left, y: position.top - 21 },
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: menu.offsetWidth, height: menu.offsetHeight },
+    );
+    setFallbackPosition(current => current.left === layout.x && current.top === layout.y
+      ? current : { left: layout.x, top: layout.y });
+  });
   const fallbackSubmenuSide = fallbackPosition.left + 160 + 6 + 204 <= window.innerWidth - 8
     ? "right"
     : "left";

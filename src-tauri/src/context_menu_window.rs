@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{collections::VecDeque, sync::Mutex};
 
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
@@ -6,7 +6,7 @@ use tauri::{
 };
 
 const CONTEXT_MENU_WINDOW_LABEL: &str = "context-menu-shared";
-const MIN_WIDTH: f64 = 180.0;
+const MIN_WIDTH: f64 = 144.0;
 const MAX_WIDTH: f64 = 440.0;
 const MIN_HEIGHT: f64 = 54.0;
 const MAX_HEIGHT: f64 = 480.0;
@@ -14,6 +14,7 @@ const MAX_HEIGHT: f64 = 480.0;
 #[derive(Default)]
 struct ContextMenuSession {
     active_id: Option<String>,
+    cancelled_ids: VecDeque<String>,
 }
 
 impl ContextMenuSession {
@@ -25,7 +26,19 @@ impl ContextMenuSession {
         self.active_id.as_deref() == Some(id)
     }
 
+    fn is_cancelled(&self, id: &str) -> bool {
+        self.cancelled_ids.iter().any(|cancelled| cancelled == id)
+    }
+
     fn finish(&mut self, id: &str) -> bool {
+        // Close may arrive before a delayed open command. Keep a bounded set
+        // so that command cannot resurrect a menu after browser fallback.
+        if !self.is_cancelled(id) {
+            self.cancelled_ids.push_back(id.to_string());
+            if self.cancelled_ids.len() > 128 {
+                self.cancelled_ids.pop_front();
+            }
+        }
         if !self.is_active(id) {
             return false;
         }
@@ -108,10 +121,13 @@ pub async fn notgram_open_context_menu_window(
     height: f64,
     x: i32,
     y: i32,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     validate_id(&id)?;
     let (width, height) = menu_size(width, height)?;
     let mut session = state.session.lock().map_err(|error| error.to_string())?;
+    if session.is_cancelled(&id) {
+        return Ok(false);
+    }
     let window = context_menu_window(&app)?;
     window.hide().map_err(|error| error.to_string())?;
     window
@@ -121,7 +137,7 @@ pub async fn notgram_open_context_menu_window(
         .set_size(LogicalSize::new(width, height))
         .map_err(|error| error.to_string())?;
     session.activate(id);
-    Ok(())
+    Ok(true)
 }
 
 #[tauri::command]
@@ -180,13 +196,14 @@ pub async fn notgram_close_context_menu_window(
 ) -> Result<bool, String> {
     validate_id(&id)?;
     let mut session = state.session.lock().map_err(|error| error.to_string())?;
-    if !session.is_active(&id) {
+    let active = session.is_active(&id);
+    session.finish(&id);
+    if !active {
         return Ok(false);
     }
     if let Some(window) = app.get_webview_window(CONTEXT_MENU_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
     }
-    session.finish(&id);
     Ok(true)
 }
 
@@ -218,5 +235,19 @@ mod tests {
         assert!(session.is_active("second"));
         assert!(session.finish("second"));
         assert!(!session.is_active("second"));
+    }
+
+    #[test]
+    fn cancellation_before_open_is_remembered_without_closing_a_newer_menu() {
+        let mut session = ContextMenuSession::default();
+        session.activate("current".to_string());
+        assert!(!session.finish("delayed"));
+        assert!(session.is_cancelled("delayed"));
+        assert!(session.is_active("current"));
+        for index in 0..200 {
+            session.finish(&format!("cancelled{index}"));
+        }
+        assert_eq!(session.cancelled_ids.len(), 128);
+        assert!(session.is_active("current"));
     }
 }

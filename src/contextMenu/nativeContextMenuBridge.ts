@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow, monitorFromPoint } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import type { Avatar } from "../telegram/types";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
@@ -68,12 +68,16 @@ export interface NativeContextMenuDescriptor {
 export type NativeContextMenuMessage =
   | { type: "ready" }
   | { type: "prepared" }
+  | { type: "probe" }
   | { type: "init"; id: string; descriptor: NativeContextMenuDescriptor }
+  | { type: "shown"; id: string }
+  | { type: "failed"; id: string }
+  | { type: "dismiss"; id: string }
   | { type: "action"; id: string; actionId: string }
   | { type: "closed"; id: string };
 
 export const NATIVE_CONTEXT_MENU_CHANNEL = "notgram-context-menu-v2";
-const NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS = 10_000;
+const NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS = 3_000;
 
 let preparation: Promise<void> | undefined;
 
@@ -82,17 +86,23 @@ export const prepareNativeContextMenuWindow = () => {
   if (preparation) return preparation;
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
   let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-  const ready = new Promise<void>((resolve, reject) => {
-    timeout = globalThis.setTimeout(() => reject(new Error("context menu window did not become ready")), 5_000);
+  const ready = new Promise<void>((resolve) => {
     channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
       if (event.data?.type !== "ready") return;
       channel.postMessage({ type: "prepared" } satisfies NativeContextMenuMessage);
       resolve();
     };
   });
-  const pending = Promise.all([
-    invoke<void>("notgram_prepare_context_menu_window"),
-    ready,
+  const pending = Promise.race([
+    Promise.all([
+      invoke<void>("notgram_prepare_context_menu_window").then(() => {
+        channel.postMessage({ type: "probe" } satisfies NativeContextMenuMessage);
+      }),
+      ready,
+    ]),
+    new Promise<never>((_, reject) => {
+      timeout = globalThis.setTimeout(() => reject(new Error("context menu window did not become ready")), 5_000);
+    }),
   ]).then(() => undefined).catch((error) => {
     if (preparation === pending) preparation = undefined;
     throw error;
@@ -118,7 +128,7 @@ const menuPlacement = async (
 ) => {
   const currentWindow = getCurrentWindow();
   const [origin, sourceScale, innerSize] = await Promise.all([
-    currentWindow.outerPosition(),
+    currentWindow.innerPosition(),
     currentWindow.scaleFactor(),
     currentWindow.innerSize(),
   ]);
@@ -128,17 +138,14 @@ const menuPlacement = async (
     x: origin.x + point.x * xScale,
     y: origin.y + point.y * yScale,
   };
-  const monitor = await monitorFromPoint(anchor.x, anchor.y);
-  const targetScale = monitor?.scaleFactor ?? sourceScale;
-  const workPosition = monitor?.workArea.position ?? { x: 0, y: 0 };
-  const workSize = monitor?.workArea.size ?? {
-    width: globalThis.screen.availWidth * targetScale,
-    height: globalThis.screen.availHeight * targetScale,
-  };
+  const monitor = await monitorFromPoint(anchor.x, anchor.y).catch(() => null)
+    ?? await currentMonitor().catch(() => null);
+  if (!monitor) throw new Error("context menu monitor unavailable");
+  const targetScale = monitor.scaleFactor;
   return calculateNativeContextMenuPosition(
     anchor,
     geometry,
-    { position: workPosition, size: workSize },
+    monitor.workArea,
     targetScale,
     placement,
   );
@@ -160,20 +167,16 @@ const showNativeContextMenu = async (
     undefined,
     measureNativeContextMenuLabel,
   );
-  const menuPosition = await menuPlacement(
-    point,
-    geometry,
-    placement,
-  );
-  if (signal.aborted) return undefined;
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
   let descriptor = initialDescriptor;
   let opened = false;
   let settled = false;
   let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
   let finishResult: ((actionId?: string) => void) | undefined;
-  const result = new Promise<string | undefined>((resolve) => {
+  let failResult: ((error: Error) => void) | undefined;
+  const result = new Promise<string | undefined>((resolve, reject) => {
     finishResult = resolve;
+    failResult = reject;
   });
   const publishDescriptor = () => {
     if (!opened || settled) return;
@@ -183,18 +186,28 @@ const showNativeContextMenu = async (
     descriptor = nextDescriptor;
     publishDescriptor();
   });
-  const finish = (actionId?: string) => {
+  const finish = (actionId?: string, error?: Error) => {
     if (settled) return;
     settled = true;
     if (timeout !== undefined) globalThis.clearTimeout(timeout);
     signal.removeEventListener("abort", abort);
     registerUpdater(undefined);
     channel.close();
-    finishResult?.(actionId);
+    if (error) failResult?.(error);
+    else finishResult?.(actionId);
+  };
+  const closeWindow = () => {
+    channel.postMessage({ type: "dismiss", id } satisfies NativeContextMenuMessage);
+    void invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
   };
   const abort = () => {
-    void invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
+    closeWindow();
     finish();
+  };
+  const fail = () => {
+    closeWindow();
+    preparation = undefined;
+    finish(undefined, new Error("context menu did not become visible"));
   };
   signal.addEventListener("abort", abort, { once: true });
   channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
@@ -202,6 +215,11 @@ const showNativeContextMenu = async (
     if (!message) return;
     if (message.type === "ready") {
       publishDescriptor();
+    } else if (message.type === "shown" && message.id === id) {
+      if (timeout !== undefined) globalThis.clearTimeout(timeout);
+      timeout = undefined;
+    } else if (message.type === "failed" && message.id === id) {
+      fail();
     } else if (message.type === "action" && message.id === id) {
       const item = descriptor.items.flatMap(item => [item, ...(item.children ?? [])])
         .find(item => item.id === message.actionId || item.middleClickActionId === message.actionId);
@@ -212,31 +230,31 @@ const showNativeContextMenu = async (
       finish();
     }
   };
-  timeout = globalThis.setTimeout(abort, NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS);
-  try {
-    await prepareNativeContextMenuWindow().catch(() => undefined);
-    if (signal.aborted) return result;
-    await invoke("notgram_open_context_menu_window", {
+  timeout = globalThis.setTimeout(fail, NATIVE_CONTEXT_MENU_OPEN_TIMEOUT_MS);
+  // The watchdog also covers placement/preparation IPC. Returning result now
+  // lets a stalled native command fall back without waiting for that command.
+  void (async () => {
+    const [menuPosition] = await Promise.all([
+      menuPlacement(point, geometry, placement),
+      prepareNativeContextMenuWindow(),
+    ]);
+    if (settled || signal.aborted) return;
+    const applied = await invoke<boolean>("notgram_open_context_menu_window", {
       id,
       width: geometry.width,
       height: geometry.height,
       x: menuPosition.x,
       y: menuPosition.y,
     });
-    if (timeout !== undefined) {
-      globalThis.clearTimeout(timeout);
-      timeout = undefined;
-    }
+    if (!applied) { if (!settled) fail(); return; }
     opened = true;
-    if (signal.aborted) {
+    if (settled || signal.aborted) {
       await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
-      return result;
+      return;
     }
     publishDescriptor();
-  } catch (error) {
-    finish();
-    throw error;
-  }
+  })().catch(() => { if (!settled) fail(); });
+  if (signal.aborted) abort();
   return result;
 };
 

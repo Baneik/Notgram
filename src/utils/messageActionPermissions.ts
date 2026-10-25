@@ -1,4 +1,5 @@
 import type { Message, MessagePermissions } from "../telegram/types";
+import { messagePermissionRevision } from "./messagePermissionRevision";
 
 const MAX_MESSAGE_PERMISSION_SNAPSHOTS = 3;
 
@@ -14,12 +15,12 @@ interface LoadMessageActionPermissionsOptions {
     signal?: AbortSignal,
   ) => Promise<MessagePermissions | undefined>;
   signal?: AbortSignal;
+  force?: boolean;
 }
 
 /**
- * A live message update can replace the object being checked while TDLib is
- * loading its operation permissions. Retry only when that replacement caused
- * the stale result; ordinary failures should remain failures.
+ * Retry only when permission-relevant state changed during a TDLib lookup.
+ * Presentation replacements and ordinary failures must not start retry loops.
  */
 export const loadMessageActionPermissions = async ({
   chatId,
@@ -28,16 +29,17 @@ export const loadMessageActionPermissions = async ({
   getCurrentMessage,
   load,
   signal,
+  force = false,
 }: LoadMessageActionPermissionsOptions): Promise<MessagePermissions | undefined> => {
   let requestedMessage = initialMessage;
   for (let attempt = 0; attempt < MAX_MESSAGE_PERMISSION_SNAPSHOTS; attempt += 1) {
     if (signal?.aborted || requestedMessage.isLocallyDeleted) return undefined;
-    const permissions = await load(chatId, messageId, true, signal);
+    const permissions = await load(chatId, messageId, force, signal);
     if (signal?.aborted) return undefined;
     if (permissions) return permissions;
 
     const currentMessage = getCurrentMessage();
-    if (!currentMessage || currentMessage === requestedMessage) return undefined;
+    if (!currentMessage || messagePermissionRevision(currentMessage) === messagePermissionRevision(requestedMessage)) return undefined;
     requestedMessage = currentMessage;
   }
   return undefined;

@@ -1,4 +1,5 @@
 import { messageCanBeSaved, messageExpired } from "../telegram/messageLifecycle";
+import { chatMessagePermissionRevision, messagePermissionRevision } from "../utils/messagePermissionRevision";
 import { isInDeletedHistory } from "../telegram/deletedHistory";
 import { chatJoinError, chatJoinKey } from "../telegram/chatJoin";
 import { canPostToChannel } from "../telegram/chatManagement";
@@ -262,6 +263,21 @@ export const createTelegramStore = (
     let cacheWrite = Promise.resolve();
     let accountTransition = false;
     let accountGeneration = 0;
+    const messagePermissionCache = new Map<string, { revision: string; permissions: MessagePermissions; expiresAt: number }>();
+    const messagePermissionRequests = new Map<string, {
+      revision: string;
+      consumers: Set<symbol>;
+      promise: Promise<MessagePermissions>;
+    }>();
+    const messagePermissionKey = (chatId: string, messageId: string) =>
+      `${accountGeneration}:${get().activeAccountId}:${chatId}:${messageId}`;
+    const permissionRevision = (message: Message) =>
+      `${chatMessagePermissionRevision(get().chats.get(message.chatId))}:${messagePermissionRevision(message)}`;
+    const cachedMessagePermissions = (message: Message) => {
+      const entry = messagePermissionCache.get(messagePermissionKey(message.chatId, message.id));
+      return entry && entry.expiresAt > Date.now() && entry.revision === permissionRevision(message)
+        ? entry.permissions : undefined;
+    };
     const pendingSends = createPendingSends(get, set);
     const cachedChatIds = new Set<string>();
     const chatJoinTargets = new Map<string, string>();
@@ -341,7 +357,10 @@ export const createTelegramStore = (
     const acceptsMessage = (message: Message) => !removedMessageIds.has(`${message.chatId}:${message.id}`) &&
       !isInDeletedHistory(message.id, deletedHistory.get(message.chatId));
     const upsertMessages = (current: Message[], incoming: Message[]) =>
-      mergeMessages(current, incoming.filter(acceptsMessage));
+      mergeMessages(current, incoming.filter(acceptsMessage).map(message => {
+        const permissions = message.permissions ?? cachedMessagePermissions(message);
+        return permissions && !message.permissions ? { ...message, permissions } : message;
+      }));
     const upsertMessage = (current: Message[], incoming: Message) => upsertMessages(current, [incoming]);
     const publishMessageChange = (event: MessageChangeEvent) => {
       if (event.type === "evict") {
@@ -1109,6 +1128,8 @@ export const createTelegramStore = (
     });
 
     const clearCachedData = (clearSnapshot = true) => {
+      messagePermissionCache.clear();
+      messagePermissionRequests.clear();
       cachedChatIds.clear();
       incomingAlbums.reset();
       boundedMessages = undefined;
@@ -2151,6 +2172,23 @@ export const createTelegramStore = (
             ? undefined
             : get().activeTopicId,
         });
+        const changedRights = new Set(incomingChats.filter(chat =>
+          chatMessagePermissionRevision(previousChats.get(chat.id)) !== chatMessagePermissionRevision(chat))
+          .map(chat => chat.id));
+        if (changedRights.size > 0) {
+          const messages = new Map(get().messages);
+          for (const chatId of changedRights) {
+            for (const message of messages.get(chatId) ?? []) {
+              const key = messagePermissionKey(chatId, message.id);
+              messagePermissionCache.delete(key);
+              messagePermissionRequests.delete(key);
+            }
+            const history = messages.get(chatId);
+            if (history?.some(message => message.permissions)) messages.set(chatId,
+              history.map(message => message.permissions ? { ...message, permissions: undefined } : message));
+          }
+          set({ messages });
+        }
         for (const chat of incomingChats) {
           scheduleSavedMessagesRead(chat);
           if (chat.isForum && chat.id === get().activeChatId &&
@@ -2563,6 +2601,8 @@ export const createTelegramStore = (
       let disconnected = false;
       accountTransition = true;
       accountGeneration += 1;
+      messagePermissionCache.clear();
+      messagePermissionRequests.clear();
       incomingAlbums.reset();
       resetOutbox();
       pendingSends.reset();
@@ -4016,25 +4056,51 @@ export const createTelegramStore = (
         const isCurrent = () => !signal?.aborted && generation === accountGeneration && accountId === get().activeAccountId;
         const requestedMessage = (get().messages.get(chatId) ?? [])
           .find((message) => message.id === messageId);
-        if (!requestedMessage) return undefined;
+        if (!requestedMessage || requestedMessage.isLocallyDeleted || requestedMessage.isRemoving) return undefined;
         if (!connectionPresentation(get().connectionStatus).operational) return requestedMessage.permissions;
-        if (requestedMessage.permissions && !force) return requestedMessage.permissions;
+        const key = messagePermissionKey(chatId, messageId);
+        const revision = permissionRevision(requestedMessage);
+        const cached = !force ? cachedMessagePermissions(requestedMessage) : undefined;
+        let pending = messagePermissionRequests.get(key);
+        if (!cached && (!pending || pending.revision !== revision)) {
+          pending = { revision, consumers: new Set(), promise: transport.getMessageProperties(chatId, messageId) };
+          messagePermissionRequests.set(key, pending);
+        }
+        const consumer = Symbol();
+        const requestIsCurrent = () => isCurrent() && (Boolean(cached) || messagePermissionRequests.get(key) === pending);
+        pending?.consumers.add(consumer);
+        const release = () => {
+          pending?.consumers.delete(consumer);
+          if (pending?.consumers.size === 0 && messagePermissionRequests.get(key) === pending) {
+            messagePermissionRequests.delete(key);
+          }
+        };
+        signal?.addEventListener("abort", release, { once: true });
         try {
-          const permissions = await transport.getMessageProperties(chatId, messageId);
-          if (!isCurrent()) return undefined;
+          const permissions = cached ?? await pending!.promise;
+          if (!requestIsCurrent()) return undefined;
           const currentMessages = get().messages.get(chatId) ?? [];
           const message = currentMessages.find((item) => item.id === messageId);
-          if (!message || message !== requestedMessage) return undefined;
+          if (!message || revision !== permissionRevision(message)) return undefined;
+          if (!cached) {
+            messagePermissionCache.delete(key);
+            messagePermissionCache.set(key, { revision, permissions, expiresAt: Date.now() + 60_000 });
+            while (messagePermissionCache.size > 512) messagePermissionCache.delete(messagePermissionCache.keys().next().value!);
+          }
+          if (message.permissions === permissions) return permissions;
           const messages = new Map(get().messages);
           messages.set(chatId, upsertMessage(currentMessages, { ...message, permissions }));
           set({ messages, operationError: undefined });
           return permissions;
         } catch (error) {
-          if (!isCurrent()) return undefined;
+          if (!requestIsCurrent()) return undefined;
           set({
             operationError: error instanceof Error ? error.message : translate("无法读取消息操作权限"),
           });
           return undefined;
+        } finally {
+          signal?.removeEventListener("abort", release);
+          release();
         }
       },
 

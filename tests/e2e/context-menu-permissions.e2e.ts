@@ -10,6 +10,17 @@ declare global {
       releases: Array<() => void>;
     };
     __menuCommands: string[];
+    __menuPlacement?: { x: number; y: number };
+    __menuClick?: { x: number; y: number };
+    __menuShowReleases?: Array<(applied: boolean) => void>;
+    __menuNativeProbe?: {
+      origin: { x: number; y: number };
+      scale: number;
+      zoom?: number;
+      monitorMissing: boolean;
+      stall: "none" | "placement" | "preparation" | "open";
+      releases: Array<() => void>;
+    };
     __lateEditCompleted?: boolean;
   }
 }
@@ -58,7 +69,13 @@ const nativeMenu = async (page: Page) => {
       window.__menuCommands = [];
       mockWindows("context-menu-shared");
       mockConvertFileSrc("windows");
-      mockIPC((command) => { window.__menuCommands.push(command); return true; }, { shouldMockEvents: true });
+      mockIPC((command) => {
+        window.__menuCommands.push(command);
+        if (command === "notgram_show_context_menu_window" && window.__menuShowReleases) {
+          return new Promise(resolve => window.__menuShowReleases.push(resolve));
+        }
+        return true;
+      }, { shouldMockEvents: true });
       await import("/src/windows/contextMenuWindowEntry.tsx");
     </script>`) });
   });
@@ -70,17 +87,153 @@ const nativeMenu = async (page: Page) => {
     window.__menuCommands = [];
     mockWindows("main");
     mockConvertFileSrc("windows");
-    mockIPC(command => {
+    mockIPC((command, args) => {
       window.__menuCommands.push(command);
-      if (command === "plugin:window|outer_position") return { x: 0, y: 0 };
-      if (command === "plugin:window|inner_size") return { width: innerWidth, height: innerHeight };
-      if (command === "plugin:window|scale_factor") return 1;
-      if (command === "plugin:window|monitor_from_point") return null;
+      const probe = window.__menuNativeProbe;
+      if (command === "notgram_prepare_context_menu_window" && probe?.stall === "preparation") {
+        return new Promise(resolve => probe.releases.push(() => resolve(undefined)));
+      }
+      if (command === "plugin:window|inner_position") {
+        if (probe?.stall === "placement") return new Promise(resolve => probe.releases.push(() => resolve(probe.origin)));
+        return probe?.origin ?? { x: 0, y: 0 };
+      }
+      if (command === "plugin:window|inner_size") return {
+        width: innerWidth * (probe?.scale ?? 1) * (probe?.zoom ?? 1),
+        height: innerHeight * (probe?.scale ?? 1) * (probe?.zoom ?? 1),
+      };
+      if (command === "plugin:window|scale_factor") return probe?.scale ?? 1;
+      if (command === "plugin:window|monitor_from_point" && probe) return null;
+      if (command === "plugin:window|current_monitor" && probe?.monitorMissing) return null;
+      if (command === "plugin:window|monitor_from_point" || command === "plugin:window|current_monitor") return {
+        name: "test", scaleFactor: probe?.scale ?? 1, position: probe?.origin ?? { x: 0, y: 0 }, size: { width: 2560, height: 2440 },
+        workArea: { position: probe?.origin ?? { x: 0, y: 0 }, size: { width: 2560, height: 2400 } },
+      };
+      if (command === "notgram_open_context_menu_window") {
+        window.__menuPlacement = args as { x: number; y: number };
+        if (probe?.stall === "open") return new Promise(resolve => probe.releases.push(() => resolve(true)));
+      }
       return true;
     }, { shouldMockEvents: true });
   });
   return child;
 };
+
+for (const native of [false, true]) {
+  test(`${native ? "native" : "browser"} message menu reuses cached permissions across reopen and presentation updates`, async ({ page }) => {
+    await prepare(page);
+    const surface = native ? await nativeMenu(page) : page;
+    const menu = surface.getByRole("menu", { name: "消息操作", exact: true });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await openMenu(page);
+      await expect(menu.getByRole("menuitem", { name: "回复", exact: true })).toBeEnabled();
+      await expect(menu.getByRole("status")).toHaveCount(0);
+      expect(await calls(page)).toBe(1);
+      await surface.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+      await page.evaluate(async () => {
+        const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+        const messages = new Map(telegramStore.getState().messages);
+        messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-4" ? {
+          ...message, permissions: undefined, interaction: { viewCount: (message.interaction?.viewCount ?? 0) + 1, forwardCount: 0, replyCount: 0, reactions: [] },
+        } : message));
+        telegramStore.setState({ messages });
+      });
+    }
+    if (native) await surface.close();
+  });
+}
+
+test("read and view-count updates do not discard a pending permission result", async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => { window.__menuProbe.mode = "deferred"; });
+  await openMenu(page);
+  await expect.poll(() => calls(page)).toBe(1);
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const messages = new Map(telegramStore.getState().messages);
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-4" ? {
+      ...message, delivery: "read", interaction: { viewCount: 42, forwardCount: 0, replyCount: 0, reactions: [] },
+    } : message));
+    telegramStore.setState({ messages });
+    window.__menuProbe.releases.shift()!();
+  });
+  await expect(page.getByRole("menuitem", { name: "回复", exact: true })).toBeEnabled();
+  expect(await calls(page)).toBe(1);
+});
+
+test("a short browser menu stays near its click and uses its measured height", async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => { window.__menuProbe.mode = "deferred"; });
+  const target = page.locator('[data-message-id="p-video"] .message-bubble-shell').first();
+  await target.evaluate(element => {
+    element.addEventListener("contextmenu", event => {
+      const mouse = event as MouseEvent;
+      window.__menuClick = { x: mouse.clientX, y: mouse.clientY };
+    }, { once: true });
+  });
+  await target.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "消息操作", exact: true });
+  await expect(menu.getByRole("status")).toHaveText("正在读取操作权限");
+  const bounds = (await menu.boundingBox())!;
+  const height = await page.evaluate(() => innerHeight);
+  const click = await page.evaluate(() => window.__menuClick!);
+  expect(bounds.y).toBeCloseTo(Math.min(click.y - 21, height - bounds.height - 8), 0);
+  expect(click.y).toBeGreaterThan(height - 326 - 8 + 21);
+});
+
+test("native menu keeps negative monitor coordinates and accounts for source zoom", async ({ page }) => {
+  await prepare(page);
+  const surface = await nativeMenu(page);
+  await page.evaluate(() => {
+    window.__menuNativeProbe = { origin: { x: -2560, y: -100 }, scale: 1.5, zoom: 1.25, monitorMissing: false, stall: "none", releases: [] };
+  });
+  const target = page.locator('[data-message-id="p-4"] .message-bubble-shell').first();
+  await target.evaluate(element => {
+    element.addEventListener("contextmenu", event => {
+      const mouse = event as MouseEvent;
+      window.__menuClick = { x: mouse.clientX, y: mouse.clientY };
+    }, { once: true });
+  });
+  await target.click({ button: "right", position: { x: 20, y: 10 } });
+  await expect(surface.getByRole("menu", { name: "消息操作", exact: true })).toBeVisible();
+  const placement = await page.evaluate(() => window.__menuPlacement!);
+  const click = await page.evaluate(() => window.__menuClick!);
+  expect(placement.x).toBeCloseTo(Math.round(-2560 + click.x * 1.875 + 6), 0);
+  expect(placement.y).toBeCloseTo(Math.round(-100 + click.y * 1.875 - 49.5), 0);
+  await surface.close();
+});
+
+for (const failure of ["placement", "preparation", "open", "shown", "monitor"] as const) {
+  test(`native menu falls back after ${failure} failure and ignores late completion`, async ({ page }) => {
+    await prepare(page);
+    const surface = await nativeMenu(page);
+    await page.evaluate(failure => {
+      window.__menuNativeProbe = { origin: { x: -1920, y: 0 }, scale: 1, monitorMissing: failure === "monitor",
+        stall: failure === "placement" || failure === "preparation" || failure === "open" ? failure : "none", releases: [] };
+    }, failure);
+    if (failure === "shown") await surface.evaluate(() => { window.__menuShowReleases = []; });
+    await openMenu(page);
+    const fallback = page.getByRole("menu", { name: "消息操作", exact: true });
+    await expect(fallback.getByRole("menuitem", { name: "复制", exact: true })).toBeVisible({ timeout: 6000 });
+    expect(await page.evaluate(() => window.__menuCommands.includes("notgram_close_context_menu_window"))).toBe(true);
+    await page.evaluate(() => window.__menuNativeProbe!.releases.splice(0).forEach(release => release()));
+    if (failure === "shown") await surface.evaluate(() => {
+      window.__menuShowReleases!.splice(0).forEach(release => release(true));
+      window.__menuShowReleases = undefined;
+    });
+    await expect(fallback).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(fallback).toHaveCount(0);
+    await page.evaluate(() => {
+      window.__menuNativeProbe!.stall = "none";
+      window.__menuNativeProbe!.monitorMissing = false;
+    });
+    await openMenu(page);
+    await expect(surface.getByRole("menu", { name: "消息操作", exact: true })).toBeVisible();
+    await expect(fallback).toHaveCount(0);
+    await surface.close();
+  });
+}
 
 test("native composer format menu preserves the selected range and returns typing after activation", async ({ page }) => {
   await prepare(page);
@@ -407,7 +560,7 @@ test("live message replacement is bounded and invalidated permissions can recove
   await page.evaluate(async () => {
     const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
     const messages = new Map(telegramStore.getState().messages);
-    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-4" ? { ...message, permissions: undefined } : message));
+    messages.set("chat-product", messages.get("chat-product")!.map(message => message.id === "p-4" ? { ...message, editedAt: "2026-10-25T18:00:00Z", permissions: undefined } : message));
     telegramStore.setState({ messages });
   });
   await expect.poll(() => calls(page)).toBe(loaded + 1);

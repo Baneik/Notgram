@@ -152,6 +152,14 @@ export function ContextMenuWindow() {
     channel.onmessage = (event: MessageEvent<NativeContextMenuMessage>) => {
       const message = event.data;
       if (!message) return;
+      if (message.type === "probe") {
+        ready();
+        return;
+      }
+      if (message.type === "dismiss") {
+        if (activeIdRef.current === message.id) void close();
+        return;
+      }
       if (message.type === "prepared") {
         stopReady();
         return;
@@ -217,6 +225,7 @@ export function ContextMenuWindow() {
       if (!applied || activeIdRef.current !== session.id) return;
       if (firstShow) {
         shownIdRef.current = session.id;
+        channelRef.current?.postMessage({ type: "shown", id: session.id } satisfies NativeContextMenuMessage);
         blurTimerRef.current = globalThis.setTimeout(() => {
           if (activeIdRef.current === session.id) blurArmedRef.current = true;
         }, 50);
@@ -227,7 +236,10 @@ export function ContextMenuWindow() {
         focusFirstMenuButton(menuRef.current);
       }
     }).catch(() => {
-      if (activeIdRef.current === session.id) void close();
+      if (activeIdRef.current === session.id) {
+        channelRef.current?.postMessage({ type: "failed", id: session.id } satisfies NativeContextMenuMessage);
+        void close();
+      }
     });
   }, [close, expandedId, session]);
 
