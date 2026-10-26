@@ -234,7 +234,12 @@ download, and queue ownership remain with the existing audio controller and host
 Voice notes are selected by `mediaType`, never the filename or MIME type. They
 retain incoming/outgoing bubble colors and render a compact play button, static
 waveform seek control, remaining time, rate and download actions. Message and
-rich page-block mappers preserve TDLib's base64-encoded, low-bit-first 5-bit
+rich voice players align the waveform above a duration footer, keep download
+actions separate, and show the rate pill only for the active track. Plain voice
+bubbles share that footer with the existing message metadata; captions, reactions
+and channel posts retain their own metadata placement. Outgoing controls use
+the theme's success color, including a contrasting play icon in dark mode.
+Message and rich page-block mappers preserve TDLib's base64-encoded, low-bit-first 5-bit
 waveform. Decode work is bounded to 1 KiB; missing or unusable waveforms render
 flat bars rather than invented amplitudes. The native range input handles pointer
 and keyboard seeking; played bars track the shared controller and forced colors

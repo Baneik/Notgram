@@ -699,6 +699,9 @@ function MessageBubbleComponent({
       channelAuthor={channelAuthor} onOpenAuthor={!forwardLabel ? onOpenForwardSource : undefined} onRetry={onRetry} />
   );
 
+  const inlineVoiceMeta = content.kind === "media" && content.mediaType === "voice" &&
+    !hasCaption && !showReactionFooter && !channelPost;
+
   const visualCaption = content.kind === "media" && hasCaption && content.caption ? (
     <MessageTextFlow className="photo-caption-flow" forceWrapped={channelPost} layoutSource={content} layoutVersion={textLayoutVersion}>
       <MessageRichText
@@ -1120,6 +1123,7 @@ function MessageBubbleComponent({
                   subtitle={content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined)}
                   mediaType={content.mediaType === "voice" ? "voice" : "audio"}
                   waveform={content.waveform}
+                  voiceMessageMeta={inlineVoiceMeta ? messageMeta : undefined}
                   fileId={content.fileId}
                   size={content.size}
                   mimeType={content.mimeType}
@@ -1215,7 +1219,7 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {content.kind !== "text" && !usesRichTextFlow && !(isVisual && hasCaption) && !showReactionFooter && messageMeta}
+          {content.kind !== "text" && !usesRichTextFlow && !(isVisual && hasCaption) && !showReactionFooter && !inlineVoiceMeta && messageMeta}
           {showReactionFooter && (
             <div className="message-reaction-footer">
               <MessageReactions

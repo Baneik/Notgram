@@ -2047,17 +2047,29 @@ html.reduce-motion .audio-disc { animation: none; }
 .audio-transfer-indicator .spin { position: absolute; inset: 0; }
 .audio-transfer-indicator .media-progress-ring { position: absolute; inset: 0; }
 .audio-transfer-indicator .audio-transfer-cancel { position: relative; z-index: 1; }
-.voice-player { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; min-height: 40px; padding: 0; }
-.voice-player button { color: var(--color-text-link); }
-.voice-player button:hover { background: color-mix(in srgb, var(--color-text-link) 10%, transparent); }
-.voice-player .audio-play { color: var(--color-text-on-accent); background: var(--accent); box-shadow: none; }
-.voice-player .audio-play:hover { background: var(--color-accent-strong); }
-.voice-player-meta { min-width: 0; display: grid; justify-items: end; gap: 0; }
-.voice-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.voice-player-actions { display: flex; align-items: center; gap: 2px; }
-.voice-player-actions button { height: 24px; }
-.voice-waveform { position: relative; min-width: 0; height: 36px; color: var(--color-text-link); }
-.voice-waveform svg { position: absolute; inset: 2px 0; width: 100%; height: 32px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; opacity: .55; }
+.voice-player {
+  --voice-accent: var(--color-text-link); --voice-play-background: var(--accent); --voice-play-foreground: var(--color-text-on-accent);
+  grid-template-columns: 36px minmax(0, 1fr) auto; grid-template-rows: 24px auto;
+  column-gap: 10px; row-gap: 0; min-height: 42px; padding: 2px 0;
+}
+.is-outgoing .voice-player {
+  --voice-accent: var(--color-status-success); --voice-play-background: var(--color-status-success); --voice-play-foreground: var(--color-bg-elevated);
+}
+.voice-player > button { color: var(--voice-accent); }
+.voice-player > button:hover { background: color-mix(in srgb, var(--voice-accent) 10%, transparent); }
+.voice-player .audio-play { grid-column: 1; grid-row: 1 / 3; width: 36px; height: 36px; color: var(--voice-play-foreground); background: var(--voice-play-background); box-shadow: none; }
+.voice-player .audio-play:hover { background: color-mix(in srgb, var(--voice-play-background) 88%, var(--ink)); }
+.voice-player .audio-play .lucide-play { transform: translateX(1px); }
+.voice-player > .audio-download { grid-column: 3; grid-row: 1; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--voice-accent) 7%, transparent); }
+.voice-player-meta { grid-column: 2 / -1; grid-row: 2; min-width: 0; min-height: 18px; display: flex; flex-wrap: wrap; align-items: center; column-gap: 7px; }
+.voice-time { flex: 0 0 auto; color: var(--voice-accent); font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.voice-player-meta .playback-rate { flex: 0 0 auto; width: auto; min-width: 28px; height: 18px; padding: 0 5px; color: var(--voice-accent); background: color-mix(in srgb, var(--voice-accent) 9%, transparent); border-radius: 9px; font-size: 10px; }
+.voice-player-meta .playback-rate:hover { background: color-mix(in srgb, var(--voice-accent) 16%, transparent); }
+.voice-player-meta .message-meta { flex: 0 0 auto; min-height: 18px; margin: 0 0 0 auto; font-size: 10px; line-height: 18px; }
+.voice-player .message-meta .message-retry { width: 17px; height: 17px; padding: 0; color: var(--color-status-danger); background: transparent; border-radius: 50%; }
+.voice-waveform { grid-column: 2 / -1; grid-row: 1; position: relative; min-width: 0; height: 24px; color: var(--voice-accent); }
+.voice-player:has(> .audio-download) > .voice-waveform { grid-column: 2; }
+.voice-waveform svg { position: absolute; inset: 1px 0; width: 100%; height: 22px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; opacity: .48; }
 .voice-waveform .voice-waveform-played { opacity: 1; }
 .voice-waveform input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .voice-waveform input:disabled { cursor: default; }

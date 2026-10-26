@@ -30,6 +30,7 @@ interface AudioPlayerProps {
   subtitle?: string;
   mediaType?: "audio" | "voice";
   waveform?: string;
+  voiceMessageMeta?: ReactNode;
   fileId?: number;
   size?: number;
   mimeType?: string;
@@ -53,6 +54,7 @@ export function AudioPlayer({
   subtitle,
   mediaType = "audio",
   waveform,
+  voiceMessageMeta,
   fileId,
   size,
   mimeType,
@@ -163,9 +165,11 @@ export function AudioPlayer({
         {playButton}
         <VoiceWaveform waveform={waveform} currentTime={currentTime} duration={duration}
           disabled={!active || duration <= 0} onSeek={time => audioPlaybackController.seek(time)} />
+        {downloadButton}
         <div className="voice-player-meta">
           <span className="voice-time">{formatPlaybackTime(active ? Math.max(0, duration - currentTime) : duration)}</span>
-          <div className="voice-player-actions">{rateButton}{downloadButton}</div>
+          {active && rateButton}
+          {voiceMessageMeta}
         </div>
       </div>
     );
