@@ -416,6 +416,7 @@ const mediaContent = (
   options: {
     title?: string;
     performer?: string;
+    waveform?: string;
     isDocument?: boolean;
     fileNameIsGenerated?: boolean;
     stickerEmoji?: string;
@@ -738,6 +739,7 @@ const richPageMedia = (block: TdObject): MessageRichMedia => {
       return richMedia("voice", translate("语音消息"), voice?.voice, {
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
         duration: tdNumber(voice?.duration),
+        waveform: typeof voice?.waveform === "string" ? voice.waveform : undefined,
         caption: richCaption(block.caption),
       });
     }
@@ -1123,6 +1125,7 @@ export const mapTdMessageContent = (value: unknown, includePendingUpload = false
         ...formattedCaption(content.caption),
         mimeType: typeof voice?.mime_type === "string" ? voice.mime_type : undefined,
         duration: tdNumber(voice?.duration),
+        waveform: typeof voice?.waveform === "string" ? voice.waveform : undefined,
         includePendingUpload,
       });
     }

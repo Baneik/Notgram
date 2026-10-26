@@ -12,6 +12,7 @@ export interface AudioTrackDescriptor {
   label: string;
   title?: string;
   subtitle?: string;
+  mediaType?: "audio" | "voice";
   source?: string;
   fileId?: number;
   size?: number;

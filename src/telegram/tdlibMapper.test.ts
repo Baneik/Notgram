@@ -972,6 +972,7 @@ describe("TDLib mapper", () => {
       caption: { "@type": "formattedText", text: "voice caption", entities: [] },
       voice_note: {
         duration: 37,
+        waveform: "IIjxISI=",
         mime_type: "audio/ogg",
         voice: {
           id: 81,
@@ -986,6 +987,7 @@ describe("TDLib mapper", () => {
       fileId: 81,
       size: 240_000,
       duration: 37,
+      waveform: "IIjxISI=",
       mimeType: "audio/ogg",
       caption: "voice caption",
     });
@@ -1480,7 +1482,7 @@ describe("TDLib mapper", () => {
           },
           {
             "@type": "pageBlockVoiceNote",
-            voice_note: { mime_type: "audio/ogg", voice: file(45), duration: 8 },
+            voice_note: { mime_type: "audio/ogg", voice: file(45), duration: 8, waveform: "IIjxISI=" },
             caption,
           },
           {
@@ -1543,7 +1545,7 @@ describe("TDLib mapper", () => {
       }),
       expect.objectContaining({
         kind: "media",
-        media: expect.objectContaining({ mediaType: "voice", fileId: 45, duration: 8 }),
+        media: expect.objectContaining({ mediaType: "voice", fileId: 45, duration: 8, waveform: "IIjxISI=" }),
       }),
       expect.objectContaining({ kind: "collection", layout: "collage" }),
     ]));

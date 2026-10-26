@@ -265,6 +265,8 @@ function RichMediaBlock({ media, context, blockKey }: {
         title={media.title}
         displayLabel={media.title}
         subtitle={media.performer || (media.mediaType === "voice" ? media.sizeLabel : undefined)}
+        mediaType={media.mediaType}
+        waveform={media.waveform}
         fileId={media.fileId}
         size={media.size}
         mimeType={media.mimeType}

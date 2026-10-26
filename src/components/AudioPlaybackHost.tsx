@@ -545,7 +545,7 @@ function AudioFloatingController() {
   const volume = muted ? 0 : playback.volume;
   const progress = playback.duration > 0
     ? Math.min(100, Math.max(0, playback.currentTime / playback.duration * 100)) : 0;
-  const trackInfo = <AudioTrackInfo label={track.label} title={track.title} subtitle={track.subtitle}
+  const trackInfo = <AudioTrackInfo label={track.label} title={track.title} subtitle={track.subtitle} mediaType={track.mediaType}
     size={track.size} duration={playback.duration} durationHint={track.durationHint} playing={playback.playing} />;
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {

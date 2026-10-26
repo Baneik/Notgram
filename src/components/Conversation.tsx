@@ -1088,6 +1088,7 @@ export function Conversation({
       label: content.fileName,
       title: content.title,
       subtitle: content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined),
+      mediaType: content.mediaType === "voice" ? "voice" as const : "audio" as const,
       source: localMediaSource(content.localPath),
       fileId: content.fileId,
       size: content.size,

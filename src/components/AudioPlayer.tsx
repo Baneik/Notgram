@@ -18,6 +18,7 @@ import {
 import { formatPlaybackTime } from "../media/mediaPlayback";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { AudioTrackInfo } from "./AudioTrackInfo";
+import { VoiceWaveform } from "./VoiceWaveform";
 import { useStableVisibility } from "../hooks/useStableVisibility";
 
 interface AudioPlayerProps {
@@ -27,6 +28,8 @@ interface AudioPlayerProps {
   title?: string;
   displayLabel?: ReactNode;
   subtitle?: string;
+  mediaType?: "audio" | "voice";
+  waveform?: string;
   fileId?: number;
   size?: number;
   mimeType?: string;
@@ -48,6 +51,8 @@ export function AudioPlayer({
   title,
   displayLabel,
   subtitle,
+  mediaType = "audio",
+  waveform,
   fileId,
   size,
   mimeType,
@@ -67,6 +72,7 @@ export function AudioPlayer({
     label,
     title,
     subtitle,
+    mediaType,
     source,
     fileId,
     size,
@@ -87,6 +93,7 @@ export function AudioPlayer({
     label,
     title,
     subtitle,
+    mediaType,
     mimeType,
     nextPlaybackId,
     onCancelDownload,
@@ -118,23 +125,57 @@ export function AudioPlayer({
   const progress = duration > 0 ? Math.min(100, Math.max(0, currentTime / duration * 100)) : 0;
   const volume = muted ? 0 : playback.volume;
 
+  const playButton = (
+    <button className="audio-play" type="button" aria-label={playbackLabel}
+      title={canPlay ? playing ? translate("暂停") : translate("播放") : translate("音频文件暂不可用")}
+      disabled={!canPlay} onClick={() => audioPlaybackController.toggle(track)}>
+      {showLoading
+        ? <LoaderCircle className="spin" size={18} />
+        : failed || !canPlay ? <AlertCircle size={18} />
+          : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+    </button>
+  );
+  const rateButton = (
+    <button className="playback-rate" type="button"
+      aria-label={translate("播放速度 {{value0}} 倍", { value0: playbackRate })}
+      title={translate("切换播放速度")} disabled={!active}
+      onClick={() => audioPlaybackController.cyclePlaybackRate()}>
+      {playbackRate}x
+    </button>
+  );
+  const downloadButton = onCancelDownload ? (
+    <button className="audio-download" type="button" aria-label={translate("取消下载 {{value0}}", { value0: label })} title={translate("取消下载")} onClick={onCancelDownload}>
+      <span className="audio-transfer-indicator" role="progressbar" aria-valuemin={0} aria-valuemax={100}
+        aria-valuenow={Math.round((downloadProgress ?? 0) * 100)}>
+        <MediaProgressRing progress={downloadProgress} size={22} />
+        <X className="audio-transfer-cancel" size={12} />
+      </span>
+    </button>
+  ) : onDownload ? (
+    <button className="audio-download" type="button" aria-label={translate("下载 {{value0}}", { value0: label })} title={translate("下载音频")} onClick={onDownload}>
+      <Download size={15} />
+    </button>
+  ) : null;
+
+  if (mediaType === "voice") {
+    return (
+      <div className={`audio-player voice-player ${active ? "is-active" : ""} ${playing ? "is-playing" : ""}`} role="group" aria-label={label}>
+        {playButton}
+        <VoiceWaveform waveform={waveform} currentTime={currentTime} duration={duration}
+          disabled={!active || duration <= 0} onSeek={time => audioPlaybackController.seek(time)} />
+        <div className="voice-player-meta">
+          <span className="voice-time">{formatPlaybackTime(active ? Math.max(0, duration - currentTime) : duration)}</span>
+          <div className="voice-player-actions">{rateButton}{downloadButton}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`audio-player ${active ? "is-active" : ""} ${playing ? "is-playing" : ""}`} role="group" aria-label={label}>
       <AudioTrackInfo label={label} title={title} subtitle={subtitle} displayTitle={displayLabel}
         size={size} duration={duration} durationHint={durationHint} playing={playing} />
-      <button
-        className="audio-play"
-        type="button"
-        aria-label={playbackLabel}
-        title={canPlay ? playing ? translate("暂停") : translate("播放") : translate("音频文件暂不可用")}
-        disabled={!canPlay}
-        onClick={() => audioPlaybackController.toggle(track)}
-      >
-        {showLoading
-          ? <LoaderCircle className="spin" size={18} />
-          : failed || !canPlay ? <AlertCircle size={18} />
-            : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-      </button>
+      {playButton}
       <div className="audio-player-controls">
         <input
           className="audio-seek"
@@ -151,16 +192,7 @@ export function AudioPlayer({
         <div className="audio-player-details">
           <span className="audio-time"><span>{formatPlaybackTime(currentTime)}</span> / {formatPlaybackTime(duration)}</span>
           <div className="audio-player-actions">
-            <button
-              className="playback-rate"
-              type="button"
-              aria-label={translate("播放速度 {{value0}} 倍", { value0: playbackRate })}
-              title={translate("切换播放速度")}
-              disabled={!active}
-              onClick={() => audioPlaybackController.cyclePlaybackRate()}
-            >
-              {playbackRate}x
-            </button>
+            {rateButton}
             <div className="audio-inline-volume">
               <button
                 type="button"
@@ -184,24 +216,7 @@ export function AudioPlayer({
               />
               <span className="audio-volume-value" aria-hidden="true">{Math.round(volume * 100)}%</span>
             </div>
-            {onCancelDownload ? (
-              <button className="audio-download" type="button" aria-label={translate("取消下载 {{value0}}", { value0: label })} title={translate("取消下载")} onClick={onCancelDownload}>
-                <span
-                  className="audio-transfer-indicator"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round((downloadProgress ?? 0) * 100)}
-                >
-                  <MediaProgressRing progress={downloadProgress} size={22} />
-                  <X className="audio-transfer-cancel" size={12} />
-                </span>
-              </button>
-            ) : onDownload && (
-              <button className="audio-download" type="button" aria-label={translate("下载 {{value0}}", { value0: label })} title={translate("下载音频")} onClick={onDownload}>
-                <Download size={15} />
-              </button>
-            )}
+            {downloadButton}
           </div>
         </div>
       </div>

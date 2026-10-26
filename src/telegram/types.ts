@@ -726,6 +726,7 @@ export interface MessageRichMedia {
   fileName: string;
   title?: string;
   performer?: string;
+  waveform?: string;
   sizeLabel: string;
   mimeType?: string;
   fileId?: number;
@@ -836,6 +837,7 @@ interface TransferableMessageContent {
   stickerEmoji?: string;
   title?: string;
   performer?: string;
+  waveform?: string;
   sizeLabel: string;
   stickerSetId?: string;
   caption?: string;

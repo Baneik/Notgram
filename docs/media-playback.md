@@ -213,7 +213,7 @@ to play from the coordinator; delayed state reports never reclaim ownership.
 
 ## Inline audio messages
 
-The inline and floating players share `AudioTrackInfo` for their CD, title,
+Music inline and floating players share `AudioTrackInfo` for their CD, title,
 performer, and estimated bitrate. Queue descriptors retain the same title and
 subtitle so floating playback keeps the metadata after message views unmount.
 The compact floating player retains the CD and both text rows. Width and drag
@@ -221,7 +221,8 @@ coordinates use the conversation bounds in pre-zoom CSS pixels; when mobile
 navigation hides the conversation, the app bounds keep playback controls visible.
 The player presents the audio title and performer separately from the original
 download filename. Missing tags fall back to the filename and an
-unknown artist; voice notes retain their size subtitle. TDLib supplies no codec
+unknown artist. Music uses dedicated lavender audio tokens in both themes so
+its background cannot be mistaken for an outgoing message. TDLib supplies no codec
 bitrate, so the compact K badge is explicitly an estimated average from file
 size and duration and is omitted when those values are unavailable.
 
@@ -229,6 +230,17 @@ The decorative CD rotates only while its track is playing, pauses in background
 windows, and stops for either app or system reduced motion. Message and rich
 audio captions use a divider inset from both edges. Transport, seek, volume,
 download, and queue ownership remain with the existing audio controller and host.
+
+Voice notes are selected by `mediaType`, never the filename or MIME type. They
+retain incoming/outgoing bubble colors and render a compact play button, static
+waveform seek control, remaining time, rate and download actions. Message and
+rich page-block mappers preserve TDLib's base64-encoded, low-bit-first 5-bit
+waveform. Decode work is bounded to 1 KiB; missing or unusable waveforms render
+flat bars rather than invented amplitudes. The native range input handles pointer
+and keyboard seeking; played bars track the shared controller and forced colors
+show the native slider. Volume remains available in the floating player, where
+voice tracks use a microphone instead of a rotating CD or bitrate badge. Queue
+registration preserves this media type after the inline message unmounts.
 
 ## Sources, recovery and native leases
 

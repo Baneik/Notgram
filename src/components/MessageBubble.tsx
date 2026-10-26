@@ -300,6 +300,8 @@ function MessageBubbleComponent({
       : undefined;
   };
   const isSticker = content.kind === "media" && content.mediaType === "sticker";
+  const audioShellClass = content.kind === "media" && ["audio", "voice"].includes(content.mediaType)
+    ? `is-${content.mediaType}-shell` : "";
   const isService = content.kind === "service" || content.kind === "unsupported";
   const channelPost = channelPostRequested && !isService;
   const handleDeveloperCopyClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
@@ -760,7 +762,7 @@ function MessageBubbleComponent({
       }}
     >
       <div
-        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? "is-audio-shell" : ""} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
+        className={`message-bubble-shell ${isVisual ? "is-visual-shell" : ""} ${isSticker ? "is-sticker-shell" : ""} ${channelPost ? "is-channel-post-shell" : ""} ${audioShellClass} ${message.replyMarkup ? "has-inline-keyboard" : ""} ${cornerAction ? "has-corner-action" : ""} ${locallyConcealed ? "is-local-block-concealed" : ""}`}
         style={visualShellStyle}
         onDragStart={event => {
           if (!messageCanBeSaved(message) || locallyConcealed || selectionMode) { event.preventDefault(); return; }
@@ -1107,7 +1109,7 @@ function MessageBubbleComponent({
               onSearchHashtag={onSearchHashtag}
             />
           ) : content.kind === "media" && ["audio", "voice"].includes(content.mediaType) ? (
-            <div className="attachment-message audio-attachment-message">
+            <div className={`attachment-message ${content.mediaType === "voice" ? "voice-attachment-message" : "audio-attachment-message"}`}>
               <div className="audio-message" draggable>
                 <AudioPlayer
                   source={fullMediaSource}
@@ -1116,6 +1118,8 @@ function MessageBubbleComponent({
                   title={content.title}
                   displayLabel={highlightedText(content.title || content.fileName, searchQuery)}
                   subtitle={content.performer || (content.mediaType === "voice" ? content.sizeLabel : undefined)}
+                  mediaType={content.mediaType === "voice" ? "voice" : "audio"}
+                  waveform={content.waveform}
                   fileId={content.fileId}
                   size={content.size}
                   mimeType={content.mimeType}

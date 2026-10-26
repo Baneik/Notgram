@@ -92,3 +92,176 @@ test("audio metadata and download controls fit a narrow zoomed message with an i
   expect(divider.right).toBeGreaterThan(0);
   expect(divider.height).toBe("1px");
 });
+
+async function voiceMessages(page: Page) {
+  await audioMessage(page);
+  await page.evaluate(async ({ storePath, mapperPath }) => {
+    const { telegramStore } = await import(storePath);
+    const { mapTdMessageContent } = await import(mapperPath);
+    const state = telegramStore.getState() as { messages: Map<string, Message[]> };
+    const messages = new Map(state.messages);
+    const current = messages.get("chat-product") ?? [];
+    const template = current.find(message => message.id === "p-video")!;
+    const incomingSender = current.find(message => !message.outgoing)!.senderId;
+    const samples = Array.from({ length: 100 }, (_, index) => Math.round(3 + 28 * Math.abs(Math.sin(index * 0.37) * Math.cos(index * 0.11))));
+    const packed = new Uint8Array(Math.ceil(samples.length * 5 / 8));
+    samples.forEach((value, index) => {
+      const bit = index * 5;
+      packed[bit >> 3] |= value << (bit & 7);
+      if ((bit & 7) > 3) packed[(bit >> 3) + 1] |= value >> (8 - (bit & 7));
+    });
+    const content = mapTdMessageContent({ "@type": "messageVoiceNote", voice_note: {
+      duration: 70, waveform: btoa(String.fromCharCode(...packed)), mime_type: "audio/ogg",
+      voice: { id: 93, size: 120_000, local: { path: "/mock-video.mp4", is_downloading_completed: true } },
+    } });
+    messages.set("chat-product", [
+      { ...template, outgoing: false, senderId: incomingSender },
+      { ...template, id: "p-voice-incoming", renderKey: undefined, outgoing: false, senderId: incomingSender,
+        sentAt: "2026-08-01T09:52:00+08:00", content },
+      { ...template, id: "p-voice-outgoing", renderKey: undefined,
+        sentAt: "2026-08-01T09:53:00+08:00", content },
+    ]);
+    telegramStore.setState({ messages });
+  }, { storePath: "/src/store/telegramStore.ts", mapperPath: "/src/telegram/tdlibMapper.ts" });
+  const incoming = page.getByRole("log").locator('[data-message-id="p-voice-incoming"]');
+  const outgoing = page.getByRole("log").locator('[data-message-id="p-voice-outgoing"]');
+  await expect(incoming.locator(".voice-player")).toBeVisible();
+  await expect(outgoing.locator(".voice-player")).toBeVisible();
+  return { incoming, outgoing };
+}
+
+for (const theme of ["notgram-light", "notgram-dark"]) {
+  for (const width of [1366, 390]) {
+    test(`voice waveforms preserve message direction and music has its own color at ${width}px in ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 });
+      const { incoming, outgoing } = await voiceMessages(page);
+      await page.locator("html").evaluate((element, selectedTheme) => {
+        element.dataset.theme = selectedTheme;
+        if (window.innerWidth < 500) element.style.zoom = "1.25";
+      }, theme);
+      for (const row of [incoming, outgoing]) {
+        const player = row.locator(".voice-player");
+        await expect(player.locator(".audio-disc, .audio-quality, .audio-player-artist")).toHaveCount(0);
+        await expect(player.locator(".voice-time")).toHaveText("1:10");
+        await expect(player.locator(".voice-waveform path").first()).toHaveAttribute("d", /v(?!4(?: |$))/);
+        await expect(player.getByRole("slider", { name: "播放进度" })).toBeDisabled();
+        expect(await row.locator(".message-bubble").evaluate(element => {
+          const expected = element.closest(".message-row")!.classList.contains("is-outgoing")
+            ? "--color-message-outgoing" : "--color-message-incoming";
+          const probe = document.createElement("span");
+          probe.style.backgroundColor = `var(${expected})`;
+          element.append(probe);
+          const matches = getComputedStyle(element).backgroundColor === getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return matches;
+        })).toBe(true);
+        expect(await player.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          return [...element.querySelectorAll("button, input, .voice-time")].every(child => {
+            const rect = child.getBoundingClientRect();
+            return rect.left >= bounds.left - .5 && rect.right <= bounds.right + .5;
+          });
+        })).toBe(true);
+      }
+      const music = page.getByRole("log").locator('[data-message-id="p-video"]');
+      await expect(music.locator(".audio-disc")).toBeVisible();
+      expect(await music.locator(".message-bubble").evaluate(element => getComputedStyle(element).backgroundColor))
+        .not.toBe(await outgoing.locator(".message-bubble").evaluate(element => getComputedStyle(element).backgroundColor));
+      await page.locator(".conversation").screenshot({ path: testInfo.outputPath("voice-and-music.png") });
+    });
+  }
+}
+
+test("voice waveform pointer and keyboard seeking share playback, rate and floating voice identity", async ({ page }) => {
+  const { incoming } = await voiceMessages(page);
+  const player = incoming.locator(".voice-player");
+  await player.getByRole("button", { name: "播放 语音消息", exact: true }).click();
+  await expect(player.getByRole("button", { name: "暂停 语音消息", exact: true })).toBeVisible();
+  const slider = player.getByRole("slider", { name: "播放进度" });
+  await expect(slider).toBeEnabled();
+  await expect(slider).toHaveAttribute("max", "3");
+  await slider.click({ position: { x: (await slider.boundingBox())!.width / 2, y: 18 } });
+  await expect.poll(() => slider.inputValue().then(Number)).toBeGreaterThan(1.2);
+  await expect.poll(() => slider.inputValue().then(Number)).toBeLessThan(1.8);
+  await expect(player.locator(".voice-waveform-played")).not.toHaveCSS("clip-path", "inset(0px 100% 0px 0px)");
+  await slider.press("Home");
+  await slider.press("ArrowRight");
+  await expect.poll(() => slider.inputValue().then(Number)).toBeCloseTo(.1, 1);
+  await player.getByRole("button", { name: "播放速度 1 倍" }).click();
+  await expect(player.getByRole("button", { name: "播放速度 1.25 倍" })).toBeVisible();
+  const floating = page.locator(".audio-floating-controller");
+  await expect(floating.locator(".audio-voice-symbol")).toBeVisible();
+  await expect(floating.locator(".audio-disc, .audio-quality")).toHaveCount(0);
+  await floating.getByRole("button", { name: "缩小播放器" }).click();
+  await expect(floating.locator(".audio-voice-symbol")).toHaveCSS("width", "28px");
+  await player.getByRole("button", { name: "暂停 语音消息", exact: true }).click();
+  await expect(player.getByRole("button", { name: "播放 语音消息", exact: true })).toBeVisible();
+});
+
+test("voice notes retain download progress and use a native seek control in forced colors", async ({ page }) => {
+  const { incoming } = await voiceMessages(page);
+  await page.evaluate(async storePath => {
+    const { telegramStore } = await import(storePath);
+    const state = telegramStore.getState() as { messages: Map<string, Message[]> };
+    const messages = new Map(state.messages);
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map(message =>
+      message.id === "p-voice-incoming" ? { ...message, content: { ...message.content,
+        localPath: undefined, isDownloaded: false, canDownload: true, isDownloading: true, progress: .45 } } : message));
+    // Synthetic message IDs are absent from the transport's own snapshot.
+    telegramStore.setState({ messages, cancelFileDownload: async (fileId: number) => {
+      document.documentElement.dataset.cancelledVoiceFile = String(fileId);
+      const current = telegramStore.getState() as { messages: Map<string, Message[]> };
+      const updated = new Map(current.messages);
+      updated.set("chat-product", (updated.get("chat-product") ?? []).map(message =>
+        message.id === "p-voice-incoming" ? { ...message, content: { ...message.content,
+          isDownloading: false, progress: undefined } } : message));
+      telegramStore.setState({ messages: updated });
+    }, downloadFile: async (fileId: number) => {
+      document.documentElement.dataset.downloadedVoiceFile = String(fileId);
+      return undefined;
+    } });
+  }, "/src/store/telegramStore.ts");
+  const cancel = incoming.getByRole("button", { name: "取消下载 语音消息" });
+  await expect(cancel).toBeVisible();
+  await expect(cancel.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "45");
+  await cancel.click();
+  await expect(page.locator("html")).toHaveAttribute("data-cancelled-voice-file", "93");
+  await expect(incoming.getByRole("button", { name: "下载 语音消息", exact: true })).toBeVisible();
+  await incoming.getByRole("button", { name: "下载 语音消息", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-downloaded-voice-file", "93");
+  await page.emulateMedia({ forcedColors: "active" });
+  await expect(incoming.locator(".voice-waveform input")).toHaveCSS("opacity", "1");
+  await expect(incoming.locator(".voice-waveform svg").first()).toBeHidden();
+});
+
+test("voice fallbacks and rich voice blocks stay distinct from ordinary OGG audio", async ({ page }) => {
+  const { incoming, outgoing } = await voiceMessages(page);
+  await page.evaluate(async ({ storePath, mapperPath }) => {
+    const { telegramStore } = await import(storePath);
+    const { mapTdMessageContent } = await import(mapperPath);
+    const state = telegramStore.getState() as { messages: Map<string, Message[]> };
+    const messages = new Map(state.messages);
+    const richVoice = mapTdMessageContent({ "@type": "messageRichMessage", message: {
+      "@type": "richMessage", is_full: true, blocks: [{ "@type": "pageBlockVoiceNote", voice_note: {
+        duration: 8, waveform: "IIjxISI=", mime_type: "audio/ogg", voice: { id: 4245, size: 12000 },
+      }, caption: { text: { "@type": "richTextPlain", text: "Rich voice caption" } } }],
+    } });
+    messages.set("chat-product", (messages.get("chat-product") ?? []).map(message => {
+      if (message.id === "p-voice-incoming") return { ...message, content: { ...message.content,
+        waveform: undefined, localPath: undefined, fileId: undefined, size: 0, caption: "Voice caption" } };
+      if (message.id === "p-voice-outgoing") return { ...message, content: richVoice };
+      return { ...message, content: { ...message.content, fileName: "recording.ogg", mimeType: "audio/ogg" } };
+    }));
+    telegramStore.setState({ messages });
+  }, { storePath: "/src/store/telegramStore.ts", mapperPath: "/src/telegram/tdlibMapper.ts" });
+  await expect(incoming.getByRole("button", { name: "语音消息 暂不可播放" })).toBeDisabled();
+  const flatPath = await incoming.locator(".voice-waveform path").first().getAttribute("d");
+  expect(flatPath?.split(" ").every(segment => /,14v4$/.test(segment))).toBe(true);
+  await expect(incoming.locator(".attachment-caption")).toHaveText("Voice caption");
+  await expect(outgoing.locator(".rich-media-voice .voice-player")).toBeVisible();
+  await expect(outgoing.locator(".rich-media-voice figcaption")).toHaveText("Rich voice caption");
+  await expect(outgoing.locator(".audio-disc, .audio-player-artist")).toHaveCount(0);
+  const ordinaryAudio = page.getByRole("log").locator('[data-message-id="p-video"]');
+  await expect(ordinaryAudio.locator(".audio-disc")).toBeVisible();
+  await expect(ordinaryAudio.locator(".voice-player")).toHaveCount(0);
+});
