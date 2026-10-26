@@ -2047,12 +2047,12 @@ html.reduce-motion .audio-disc { animation: none; }
 .audio-transfer-indicator .spin { position: absolute; inset: 0; }
 .audio-transfer-indicator .media-progress-ring { position: absolute; inset: 0; }
 .audio-transfer-indicator .audio-transfer-cancel { position: relative; z-index: 1; }
-.voice-player { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; min-height: 56px; padding: 4px 0; }
+.voice-player { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; min-height: 40px; padding: 0; }
 .voice-player button { color: var(--color-text-link); }
 .voice-player button:hover { background: color-mix(in srgb, var(--color-text-link) 10%, transparent); }
 .voice-player .audio-play { color: var(--color-text-on-accent); background: var(--accent); box-shadow: none; }
 .voice-player .audio-play:hover { background: var(--color-accent-strong); }
-.voice-player-meta { min-width: 0; display: grid; justify-items: end; gap: 2px; }
+.voice-player-meta { min-width: 0; display: grid; justify-items: end; gap: 0; }
 .voice-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .voice-player-actions { display: flex; align-items: center; gap: 2px; }
 .voice-player-actions button { height: 24px; }
