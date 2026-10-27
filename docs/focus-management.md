@@ -290,11 +290,26 @@ selectable messages before ordinary viewing enters selection mode. Touch scrolli
 service notices, unsupported rows and the source post in a discussion do not count.
 Ordinary conversations and discussion comments share the same gesture owner.
 
+Visual albums retain the same grid, caption and mounted media while selection is
+active. Their shared caption and its horizontal padding belong to native text
+selection during ordinary viewing, never to the whitespace gesture. A whitespace
+range treats each displayed album as one endpoint and includes all its selectable
+items; movement inside a single album does not satisfy the two-group threshold.
+Clicks on individual tiles toggle only that media item. In selection mode the
+shared caption, footer and reply area toggle the whole album: complete a partial
+selection, then clear it when all items are selected. Keyboard activation follows
+the same distinction. Tile activation takes precedence over video playback,
+spoiler reveal and media controls. This follows Telegram Desktop's separate
+`changeSelection` and `changeSelectionAsGroup` paths in
+[`history_inner_widget.cpp`](https://github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/history/history_inner_widget.cpp).
+
 An active drag previews the range relative to the selection at pointer down, so
 reversing contracts the new range and preserves earlier selections. Edge scrolling
 uses the existing selection scroll writer. Selection stops on pointer release,
 cancellation, window blur, Escape or scope change, and consumes the release click.
-Selection is capped at 100, independently of forwarding permission. Copy and
+Selection is capped at 100, independently of forwarding permission. Adding an
+album as a group is atomic at this cap; it cannot leave only its first few tiles
+selected. Individually selected tiles still count as individual messages. Copy and
 forward stay disabled while capabilities are unresolved or protected; failed
 permission reads expose a retry without losing the selection.
 

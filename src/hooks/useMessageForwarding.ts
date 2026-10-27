@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { isSelectableMessage } from "../utils/messageSelection";
+import { addMessageSelectionGroups, isSelectableMessage, messageSelectionGroups, toggleMessageSelectionGroup } from "../utils/messageSelection";
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import type {
   Chat,
@@ -155,13 +155,13 @@ export const useMessageForwarding = ({
 
   const selectMessages = useCallback((range: Message[], baseIds?: ReadonlySet<string>) => {
     setSelectedIds(current => {
-      const next = new Set(baseIds ?? current);
-      for (const message of range) {
-        if (next.size >= 100) break;
-        if (isSelectableMessage(message)) next.add(message.id);
-      }
+      const next = addMessageSelectionGroups(baseIds ?? current, messageSelectionGroups(range));
       return next.size === current.size && [...next].every(id => current.has(id)) ? current : next;
     });
+  }, []);
+
+  const toggleSelectionGroup = useCallback((group: Message[]) => {
+    setSelectedIds(current => toggleMessageSelectionGroup(current, group));
   }, []);
 
   // Selection is independent of forwarding permission: protected messages can
@@ -309,6 +309,7 @@ export const useMessageForwarding = ({
     cancelSelection,
     startSelection,
     toggleSelection,
+    toggleSelectionGroup,
     selectMessages,
     openDialogForMessages,
     openSelectedDialog,

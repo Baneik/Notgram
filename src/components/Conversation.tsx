@@ -47,6 +47,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type SyntheticEvent,
 } from "react";
 import { Virtuoso, type Components, type ListProps, type SizeFunction } from "react-virtuoso";
 import type {
@@ -2638,10 +2639,7 @@ export function Conversation({
                   </span>
                 )}
                 <div className="message-group-stack">
-                  {(selectionMode
-                    ? messageGroup.map((message) => ({ kind: "message" as const, message }))
-                    : groupModel.segments
-                  ).map((segment) => {
+                  {groupModel.segments.map((segment) => {
                     const renderDiscussionAction = (message: Message) => !selectionMode && !pinnedViewOpen && channelDiscussionAvailable(message) ? (
                           <button
                             className="channel-post-discussion"
@@ -2802,6 +2800,14 @@ export function Conversation({
                     const albumRows = layoutMediaAlbum(segment.messages);
                     const captionMessage = mediaAlbumCaptionMessage(segment.messages);
                     const albumMetadataMessage = mediaAlbumMetadataMessage(segment.messages)!;
+                    const albumSelected = segment.messages.every(message => selectedMessageIds.has(message.id));
+                    const albumPartiallySelected = !albumSelected && segment.messages.some(message => selectedMessageIds.has(message.id));
+                    const toggleAlbumSelection = (event: SyntheticEvent) => {
+                      if (!selectionMode || (event.target instanceof Element && event.target.closest(".message-row"))) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      forwarding.toggleSelectionGroup(segment.messages);
+                    };
                     // Keep each reaction tied to its source message, independently of the metadata owner.
                     const albumReactions = segment.messages.flatMap(message => {
                       const reactions = visibleMessageReactions(message, localBlockedReactionUserIds);
@@ -2849,11 +2855,17 @@ export function Conversation({
                     ) : null;
                     return (
                       <div
-                        className={`media-album ${isChannelConversation ? "is-channel-album" : ""} ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"}`}
+                        className={`media-album ${isChannelConversation ? "is-channel-album" : ""} ${!isChannelConversation && firstMessage.outgoing ? "is-outgoing" : "is-incoming"} ${albumSelected ? "is-selected" : ""} ${albumPartiallySelected ? "is-partially-selected" : ""}`}
                         data-media-album-id={segment.albumId}
                         key={`album:${segment.albumId}`}
                         role="group"
                         aria-label={translate("{{value0}} 项媒体相册", { value0: segment.messages.length })}
+                        tabIndex={selectionMode ? 0 : undefined}
+                        onClickCapture={toggleAlbumSelection}
+                        onContextMenuCapture={toggleAlbumSelection}
+                        onKeyDownCapture={(event) => {
+                          if (event.key === "Enter" || event.key === " ") toggleAlbumSelection(event);
+                        }}
                       >
                         {albumReply && (
                           <button

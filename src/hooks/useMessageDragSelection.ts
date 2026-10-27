@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../telegram/types";
 import { conversationScrollWriter, writeConversationScrollTop } from "../utils/conversationTrace";
-import { isSelectableMessage } from "../utils/messageSelection";
+import { isSelectableMessage, messageSelectionGroups } from "../utils/messageSelection";
 
 interface DragSelectionOptions {
   identity: string | undefined;
@@ -14,9 +14,9 @@ interface DragSelectionOptions {
   selectMessages: (messages: Message[], baseIds?: ReadonlySet<string>) => void;
 }
 
-// The shell includes text padding, captions, media and inline keyboards. A drag
-// starting anywhere inside it must remain owned by the native content gesture.
-const contentSelector = ".message-bubble-shell, .message-sender-avatar, .channel-discussion-post, button, a, input, textarea, select, video, audio, [role='button'], [contenteditable], [draggable='true'], [inert]";
+// Message shells and albums include text padding, captions and media. A drag
+// starting inside either must remain owned by the native content gesture.
+const contentSelector = ".message-bubble-shell, .media-album, .message-sender-avatar, .channel-discussion-post, button, a, input, textarea, select, video, audio, [role='button'], [contenteditable], [draggable='true'], [inert]";
 
 export function useMessageDragSelection(options: DragSelectionOptions) {
   const latest = useRef(options);
@@ -32,23 +32,24 @@ export function useMessageDragSelection(options: DragSelectionOptions) {
       let closest: string | undefined;
       let distance = Infinity;
       const available = new Set(latest.current.messages.filter(isSelectableMessage).map(message => message.id));
-      for (const row of list.querySelectorAll<HTMLElement>(".message-row[data-message-id]")) {
-        const id = row.dataset.messageId!;
+      for (const row of list.querySelectorAll<HTMLElement>(".media-album, .message-row[data-message-id]:not(.is-album-item)")) {
+        const id = row.dataset.messageId ?? [...row.querySelectorAll<HTMLElement>("[data-message-id]")]
+          .find(item => available.has(item.dataset.messageId!))?.dataset.messageId;
         if (row.matches(".is-removing") || row.closest(".channel-discussion-post")) continue;
         const bounds = row.getBoundingClientRect();
         const nextDistance = Math.max(bounds.top - y, y - bounds.bottom, 0);
-        if (nextDistance < distance) { closest = id; distance = nextDistance; }
+        if (id && nextDistance < distance) { closest = id; distance = nextDistance; }
       }
       return closest && available.has(closest) ? closest : undefined;
     };
     const update = (y: number) => {
       if (!drag) return;
-      const messages = latest.current.messages;
-      const anchor = messages.findIndex(message => message.id === drag!.anchorId);
+      const groups = messageSelectionGroups(latest.current.messages);
+      const anchor = groups.findIndex(group => group.some(message => message.id === drag!.anchorId));
       const endId = messageAt(y);
-      const end = messages.findIndex(message => message.id === endId);
+      const end = groups.findIndex(group => group.some(message => message.id === endId));
       if (anchor < 0 || end < 0) return;
-      const range = messages.slice(Math.min(anchor, end), Math.max(anchor, end) + 1).filter(isSelectableMessage);
+      const range = groups.slice(Math.min(anchor, end), Math.max(anchor, end) + 1);
       if (anchor > end) range.reverse();
       if (!drag.active && range.length < (latest.current.selectionMode ? 1 : 2)) return;
       if (!drag.active) {
@@ -57,7 +58,7 @@ export function useMessageDragSelection(options: DragSelectionOptions) {
         list.classList.add("is-drag-selecting-messages");
         globalThis.getSelection()?.removeAllRanges();
       }
-      latest.current.selectMessages(range, drag.baseIds);
+      latest.current.selectMessages(range.flat(), drag.baseIds);
     };
     const tick = () => {
       frame = undefined;

@@ -1261,6 +1261,15 @@ html.is-resizing-sidebar, html.is-resizing-sidebar * { cursor: col-resize !impor
 .local-block-message-reveal:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .media-album { width: min(74%, 540px); margin: 1px 0; align-self: flex-start; overflow: hidden; background: var(--color-message-incoming); border-radius: 8px; box-shadow: 0 1px 2px var(--color-shadow); }
 .media-album.is-outgoing { align-self: flex-end; background: var(--outgoing); }
+.media-album.is-selected > :is(.media-album-caption, .media-album-footer, .media-album-reply) {
+  background: color-mix(in srgb, var(--accent) 20%, var(--color-bg-elevated));
+}
+.media-album .message-row.is-selected::after,
+.media-album .message-row.is-selection-pending::after { inset: 0; z-index: 2; }
+.is-selecting-messages .media-album { cursor: pointer; }
+@media (forced-colors: active) {
+  .media-album.is-selected > :is(.media-album-caption, .media-album-footer, .media-album-reply) { background: Highlight; color: HighlightText; }
+}
 .is-channel-post-bubble, .is-channel-album { --channel-post-inline-padding: 13px; }
 .media-album.is-channel-album { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: 10px; }
 .is-channel-album .media-album-caption { padding: 0 var(--channel-post-inline-padding) 10px; }

@@ -747,6 +747,14 @@ function MessageBubbleComponent({
       inert={message.isRemoving || undefined}
       aria-hidden={message.isRemoving || undefined}
       data-local-block-group={localBlockGroupId}
+      onClickCapture={(event) => {
+        // Album tiles keep their media controls mounted during selection. Claim
+        // the click before a video, spoiler or download button can activate.
+        if (!selectionMode || !albumItem) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!selectionDisabled) void onToggleSelection(message);
+      }}
       onClick={(event) => {
         if (!selectionMode || isService || selectionDisabled) return;
         const target = event.target instanceof Element ? event.target : null;
@@ -775,7 +783,7 @@ function MessageBubbleComponent({
             startAttachmentDrag(event.dataTransfer, scope, signal => readMessageAttachment(message, signal));
           }
         }}
-        tabIndex={!locallyConcealed && !selectionMode && !isService ? 0 : undefined}
+        tabIndex={!locallyConcealed && (!selectionMode || albumItem) && !isService ? 0 : undefined}
         onPointerDown={(event) => {
           contextReplyQuoteRef.current = event.button === 2
             ? selectedReplyQuoteFor(event.currentTarget)
@@ -794,6 +802,12 @@ function MessageBubbleComponent({
           }
         }}
         onKeyDown={(event) => {
+          if (selectionMode && albumItem && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!selectionDisabled) void onToggleSelection(message);
+            return;
+          }
           if (selectionMode || isService) return;
           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
           event.preventDefault();
