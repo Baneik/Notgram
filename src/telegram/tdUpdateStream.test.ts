@@ -20,7 +20,7 @@ describe("acknowledged TDLib update stream", () => {
     };
     const error = vi.fn();
     const apply = vi.fn((batch: TdObject[], offset: number, budget: number) => {
-      expect(budget).toBe(4);
+      expect(budget).toBe(2);
       const count = Math.min(4, batch.length - offset);
       applied.push(...batch.slice(offset, offset + count));
       return count;

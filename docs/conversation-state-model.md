@@ -705,16 +705,37 @@ local preview paths survive. A downloaded flag without a local path is not resto
 
 When the account is ready and online, `MediaFileRestorer` resolves persistent identities for the
 selected conversation and deletion archives. Inactive ordinary conversations wait until selection.
-Lookups deduplicate remote IDs and run with at most four workers. A selection during an in-flight
-batch requests another pass. A new account invalidates old results. Missing, failed, or mismatched
-identities may refresh the source message once per pass; they never authorize an old numeric handle.
-Deleted and pending messages cannot use that fallback.
+Committed message events feed incremental discovery; selecting a visited chat never rescans all
+archives. Lookups share in-flight remote IDs and run with at most four workers. New selections
+promote their queued work, while every fourth dispatch reserves capacity for another chat's work.
+An offline interval preserves in-flight results and unfinished patches for the same operation to
+resume. Failed identities may retry on reconnection; successful bindings are reused in a bounded
+runtime cache. Missing, failed, or mismatched identities may refresh a live source message once per
+connection attempt. Deleted and pending messages cannot use that fallback.
+
+File lookup, download, stream and send ownership use the account/TDLib session generation, not the
+chat hydration generation. Switching conversations must not discard a valid file response. A runtime
+replacement cancels old work distinctly from an unavailable file and never triggers missing-file
+fallback. Navigation and reply hydration retain their separate conversation ownership checks.
 
 `MessageFileIndex` follows committed message reset/upsert/replace/remove events. A `file.updated`
 event reaches ordinary cached messages even when they are absent from the transport's raw history
 index. Match the numeric handle and available persistent identity before applying progress, local
 paths, or completion. Unchanged file updates preserve object identity. Ordinary media follows TDLib
 cache eviction; only deletion archives retain their independently owned local copies.
+
+Restoration and transfer patches merge against the latest message and coalesce main/thumbnail
+updates before committing. Batches contain at most 32 changed messages, with a cooperative 2 ms
+budget and actual task/frame yields, including across immediately fulfilled promises. Reuse history
+positions, retention counts and expiration deadlines for file-only changes. Only differences in the
+snapshot projection schedule persistence: runtime handles and transient progress alone do not.
+Local paths and persistent identities still schedule a save. An unchanged source-message refresh
+does not publish or write a snapshot.
+
+The native transport publishes file state through `file.updated` only, rather than also mapping,
+publishing and hydrating the same messages again. Raw message file patches remain ordered, read the
+latest raw content, and finish in budgeted tasks; edits and deletions win while that work yields.
+Avatar updates use reverse file-to-owner indexes instead of scanning every chat and user.
 
 Media restoration does not change history membership, ordering, deletion facts, or viewport ownership.
 It does not scan every conversation on each file update. Automatic download still follows the user's
@@ -743,7 +764,7 @@ reading chunk and one lease; it is not a total process-memory limit. Windows del
 remove spool contents even on process exit. Spill failures retain the current records and backpressure
 the native receive loop. New messages, edits and deletions are never coalesced or dropped to reduce lag.
 
-The frontend applies each lease in approximately 4 ms slices, yielding a macrotask between slices and
+The frontend applies each lease in approximately 2 ms slices, yielding a macrotask between slices and
 packets. The budget is cooperative: a single update cannot be preempted. Native receive diagnostics
 include pending records, in-flight records and acknowledged batches. Optional UI diagnostics report
 queue age and delivery duration separately from synchronous processing time.

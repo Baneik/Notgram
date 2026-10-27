@@ -79,7 +79,7 @@ export class TdUpdateStream {
         let offset = 0;
         while (offset < batch.updates.length && !this.disposed) {
           let consumed: number;
-          try { consumed = this.apply(batch.updates, offset, 4); }
+          try { consumed = this.apply(batch.updates, offset, 2); }
           catch (error) {
             // A partially applied packet cannot be replayed safely. Surface the
             // fault and retain its native lease until the session is restarted.

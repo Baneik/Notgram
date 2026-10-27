@@ -54,6 +54,18 @@ export const findIndexedMessage = (messages: Message[], messageId: string) => {
   return index === undefined ? undefined : messages[index];
 };
 
+/** File patches preserve membership and order, so reuse the immutable history's positions. */
+export const replaceIndexedMessages = (messages: Message[], updates: ReadonlyMap<string, Message>) => {
+  const positions = positionsFor(messages);
+  const next = messages.slice();
+  for (const [id, message] of updates) {
+    const index = positions.get(id);
+    if (index !== undefined) next[index] = message;
+  }
+  messagePositions.set(next, positions);
+  return next;
+};
+
 export const upsertMessages = (messages: Message[], incoming: Message[]) => {
   if (incoming.length === 0) return messages;
   const positions = positionsFor(messages);

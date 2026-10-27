@@ -18,7 +18,7 @@ const asset = (fileId = 1, mimeType = "image/webp"): EmojiPickerAsset => ({
 const directory = { directory: "C:/Exports", accountId: "account-1" };
 const harness = () => {
   const transport = new TauriTelegramTransport();
-  const internal = transport as unknown as { request: (value: TdObject) => Promise<TdObject>; hydrationGeneration: number; fileDownloads: FileDownloadQueue };
+  const internal = transport as unknown as { request: (value: TdObject) => Promise<TdObject>; sessionGeneration: number; fileDownloads: FileDownloadQueue };
   const request = vi.fn(async (value: TdObject): Promise<TdObject> => {
     const id = String(value.remote_file_id).split("-").at(-1);
     return { id: Number(id) + 100, remote: { unique_id: `unique-${id}` },
@@ -70,7 +70,7 @@ describe("sticker export", () => {
 
   it("cancels when the account changes while choosing the folder", async () => {
     const { transport, internal, request } = harness();
-    vi.mocked(invoke).mockImplementationOnce(async () => { internal.hydrationGeneration++; return directory; });
+    vi.mocked(invoke).mockImplementationOnce(async () => { internal.sessionGeneration++; return directory; });
     await expect(transport.exportStickers([asset()], "pack")).resolves.toBe(false);
     expect(request).not.toHaveBeenCalled();
   });
@@ -78,7 +78,7 @@ describe("sticker export", () => {
   it("does not download or write a file after an account change during rebinding", async () => {
     const { transport, internal, request } = harness();
     const download = vi.spyOn(internal.fileDownloads, "cache");
-    request.mockImplementationOnce(async () => { internal.hydrationGeneration++; return { id: 999, local: {} }; });
+    request.mockImplementationOnce(async () => { internal.sessionGeneration++; return { id: 999, local: {} }; });
     await expect(transport.exportStickers([asset()], "pack")).resolves.toBe(false);
     expect(download).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledTimes(1);

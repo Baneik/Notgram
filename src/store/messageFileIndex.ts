@@ -24,11 +24,32 @@ export class MessageFileIndex {
   }
 
   forFile(fileId: number) {
-    return [...(this.fileReferences.get(fileId) ?? [])].map(key => this.messages.get(key)!);
+    return [...this.iterateFile(fileId)];
+  }
+
+  *iterateFile(fileId: number) {
+    for (const key of [...this.fileReferences.get(fileId) ?? []]) {
+      const message = this.messages.get(key);
+      if (message) yield message;
+    }
   }
 
   forRemoteFile(remoteId: string) {
-    return [...(this.remoteReferences.get(remoteId) ?? [])].map(key => this.messages.get(key)!);
+    return [...this.iterateRemoteFile(remoteId)];
+  }
+
+  *iterateRemoteFile(remoteId: string) {
+    for (const key of [...this.remoteReferences.get(remoteId) ?? []]) {
+      const message = this.messages.get(key);
+      if (message) yield message;
+    }
+  }
+
+  *values() {
+    for (const key of [...this.messages.keys()]) {
+      const message = this.messages.get(key);
+      if (message) yield message;
+    }
   }
 
   reset(messages: ReadonlyMap<string, Message[]>) {

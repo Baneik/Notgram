@@ -367,13 +367,13 @@ describe("TauriTelegramTransport startup", () => {
 
   it("discards remote file lookups completed in a different TDLib session", async () => {
     const transport = new TauriTelegramTransport();
-    const internal = transport as unknown as TestableTransport & { hydrationGeneration: number };
+    const internal = transport as unknown as TestableTransport & { sessionGeneration: number };
     let finish!: (file: TdObject) => void;
     internal.request = () => new Promise(resolve => { finish = resolve; });
     const resolving = transport.resolveRemoteFile("remote-photo");
-    internal.hydrationGeneration += 1;
+    internal.sessionGeneration += 1;
     finish({ "@type": "file", id: 1777, remote: { id: "remote-photo", unique_id: "unique-photo" } });
-    expect(await resolving).toBeUndefined();
+    await expect(resolving).rejects.toThrow("TDLib session superseded");
   });
 
   it("rejects an unbound retained media copy before issuing a Telegram request", async () => {
@@ -423,14 +423,14 @@ describe("TauriTelegramTransport startup", () => {
 
   it("cancels text sends if their session changes while Markdown is being parsed", async () => {
     const transport = new TauriTelegramTransport();
-    const internal = transport as unknown as TestableTransport & { hydrationGeneration: number };
+    const internal = transport as unknown as TestableTransport & { sessionGeneration: number };
     let finish!: (value: TdObject) => void;
     const parsing = new Promise<TdObject>(resolve => { finish = resolve; });
     const request = vi.fn(() => parsing);
     internal.request = request;
     const sending = transport.sendMessage({ chatId: "7", text: "**retained**" });
     await vi.waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ "@type": "parseMarkdown" })));
-    internal.hydrationGeneration += 1;
+    internal.sessionGeneration += 1;
     finish({ "@type": "formattedText", text: "retained", entities: [] });
     await expect(sending).rejects.toThrow("发送已取消");
     expect(request).toHaveBeenCalledTimes(1);
@@ -4512,7 +4512,7 @@ describe("TauriTelegramTransport history", () => {
 });
 
 describe("TauriTelegramTransport media", () => {
-  it("coalesces file updates for one message within a TDLib batch", () => {
+  it("coalesces raw file state without publishing duplicate message updates", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
@@ -4574,21 +4574,19 @@ describe("TauriTelegramTransport media", () => {
     expect(events.filter((event) => event.type === "message.upsert")).toHaveLength(0);
     expect(events.filter((event) => event.type === "file.updated")).toHaveLength(2);
     const messageEvents = events.filter((event) => event.type === "messages.upserted");
-    expect(messageEvents).toHaveLength(1);
-    expect(messageEvents[0]).toMatchObject({
-      type: "messages.upserted",
-      messages: [{
-        id: "13",
-        content: {
-          fileId: 92,
-          isDownloaded: true,
-          localPath: "C:\\cache\\photo.jpg",
-        },
-      }],
+    expect(messageEvents).toHaveLength(0);
+    const raw = (internal as unknown as { rawMessages: Map<string, Map<string, TdObject>> }).rawMessages.get("7")!.get("13")!;
+    expect(internal.mapMessage(raw)).toMatchObject({
+      id: "13",
+      content: {
+        fileId: 92,
+        isDownloaded: true,
+        localPath: "C:\\cache\\photo.jpg",
+      },
     });
   });
 
-  it("marks file progress as transient but keeps completion cache-relevant", () => {
+  it("delivers progress and completion in order through the indexed file channel", () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;
     const events: Parameters<TelegramEventListener>[0][] = [];
@@ -4633,10 +4631,9 @@ describe("TauriTelegramTransport media", () => {
         remote: {},
       },
     });
-    expect(events.filter(event => event.type === "message.upsert").at(-1)).toMatchObject({
-      type: "message.upsert",
-      cacheRelevant: false,
-      message: { content: { isDownloading: true, downloadedSize: 2_000 } },
+    expect(events.at(-1)).toMatchObject({
+      type: "file.updated",
+      file: { isDownloading: true, downloadedSize: 2_000 },
     });
 
     internal.handleUpdate({
@@ -4655,11 +4652,11 @@ describe("TauriTelegramTransport media", () => {
         remote: {},
       },
     });
-    expect(events.filter(event => event.type === "message.upsert").at(-1)).toMatchObject({
-      type: "message.upsert",
-      message: { content: { isDownloaded: true, localPath: "C:\\cache\\archive.zip" } },
+    expect(events.at(-1)).toMatchObject({
+      type: "file.updated",
+      file: { isDownloaded: true, localPath: "C:\\cache\\archive.zip" },
     });
-    expect(events.filter(event => event.type === "message.upsert").at(-1)).not.toHaveProperty("cacheRelevant", false);
+    expect(events.map(event => event.type)).toEqual(["file.updated", "file.updated"]);
   });
 
   it("cancels an idle stream without interrupting an explicit file download", async () => {

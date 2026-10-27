@@ -3530,8 +3530,9 @@ describe("chat filtering", () => {
       exactMessageRequests = 0;
 
       override async getMessage(chatId: string, messageId: string) {
+        if (chatId !== target.chatId || messageId !== target.id) return undefined;
         this.exactMessageRequests += 1;
-        return chatId === target.chatId && messageId === target.id ? target : undefined;
+        return target;
       }
     }
     const transport = new ExactMessageTransport();

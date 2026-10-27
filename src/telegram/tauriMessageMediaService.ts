@@ -5,6 +5,7 @@ import { translate } from "../i18n";
 import { inputMediaCopy } from "./mediaCopy";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { FileDownloadQueue } from "./fileDownloadQueue";
+import { TdSessionSupersededError } from "./tdSession";
 import type {
   PreparedPastedAttachment,
   PreparedPastedFile,
@@ -241,6 +242,7 @@ export interface PendingDownload {
 }
 
 export class TauriMessageMediaService {
+  private readonly remoteLookups = new Map<string, { generation: number; promise: Promise<MessageFileState | undefined> }>();
   private readonly activeStreams = new Map<number, MediaStreamOwner & { generation: number }>();
   private readonly pendingDrafts = new Map<string, symbol>();
 
@@ -893,13 +895,21 @@ export class TauriMessageMediaService {
     this.context.fileDownloads.release(fileId);
   }
 
-  async resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined> {
+  resolveRemoteFile(remoteId: string): Promise<MessageFileState | undefined> {
     const generation = this.context.sessionGeneration();
-    const raw = await this.context.request({ "@type": "getRemoteFile", remote_file_id: remoteId, file_type: null });
-    if (generation !== this.context.sessionGeneration() || raw["@type"] !== "file") return undefined;
-    const file = fileDetails(raw);
-    if (file.fileId === undefined || file.fileId <= 0) return undefined;
-    return { ...file, fileId: file.fileId };
+    const pending = this.remoteLookups.get(remoteId);
+    if (pending?.generation === generation) return pending.promise;
+    const promise = this.context.request({ "@type": "getRemoteFile", remote_file_id: remoteId, file_type: null }).then(raw => {
+      if (generation !== this.context.sessionGeneration()) throw new TdSessionSupersededError();
+      if (raw["@type"] !== "file") return undefined;
+      const file = fileDetails(raw);
+      if (file.fileId === undefined || file.fileId <= 0) return undefined;
+      return { ...file, fileId: file.fileId };
+    }).finally(() => {
+      if (this.remoteLookups.get(remoteId)?.promise === promise) this.remoteLookups.delete(remoteId);
+    });
+    this.remoteLookups.set(remoteId, { generation, promise });
+    return promise;
   }
 
   async recoverFile(fileId: number, priority = 32) {

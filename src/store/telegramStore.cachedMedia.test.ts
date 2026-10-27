@@ -74,6 +74,53 @@ it("defers ordinary media restoration in other chats until selected", async () =
   await vi.waitFor(() => expect(read("other-photo", "chat-mia").content).toMatchObject({ fileId: 192 }));
 });
 
+it("merges main and thumbnail restoration against the latest edit in one publication", async () => {
+  const original = photo();
+  original.content = { ...original.content as Extract<Message["content"], { kind: "media" }>,
+    thumbnailRemoteId: "thumbnail", thumbnailRemoteUniqueId: "thumbnail-unique" };
+  const { transport, store, read } = fixture([original]);
+  const pending = new Map<string, (file: MessageFileState) => void>();
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(id => new Promise(resolve => pending.set(id, resolve)));
+  await store.getState().initialize();
+  await vi.waitFor(() => expect(pending.size).toBe(2));
+  transport.dispatch({ type: "message.upsert", message: { ...read(), editedAt: new Date().toISOString(),
+    content: { ...read().content as Extract<Message["content"], { kind: "media" }>, caption: "new caption" } } });
+  const publications: Array<readonly Message[]> = [];
+  const stop = store.getState().subscribeMessageChanges(event => { if (event.type === "upsert") publications.push(event.messages); });
+  pending.get("old-photo")!({ fileId: 191, remoteId: "old-photo", remoteUniqueId: "old-photo-unique", sizeLabel: "83 KB", size: 85479 });
+  pending.get("thumbnail")!({ fileId: 192, remoteId: "thumbnail", remoteUniqueId: "thumbnail-unique", sizeLabel: "1 KB", localPath: "C:/cache/thumb" });
+  await vi.waitFor(() => expect(read().content).toMatchObject({ fileId: 191, thumbnailFileId: 192, caption: "new caption", thumbnailPath: "C:/cache/thumb" }));
+  stop();
+  expect(publications).toHaveLength(1);
+  expect(publications[0]).toHaveLength(1);
+});
+
+it("persists local paths while runtime binding and progress alone do not schedule snapshots", async () => {
+  vi.useFakeTimers();
+  const { transport, store, read } = fixture();
+  let finish!: (file: MessageFileState) => void;
+  vi.spyOn(transport, "resolveRemoteFile").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const save = vi.spyOn(transport, "saveCachedSnapshot");
+  await store.getState().initialize();
+  await vi.advanceTimersByTimeAsync(10_001);
+  save.mockClear();
+  finish({ fileId: 191, remoteId: "old-photo", remoteUniqueId: "old-photo-unique",
+    sizeLabel: "83 KB", size: 85479, isDownloaded: false, canDownload: true });
+  await vi.advanceTimersByTimeAsync(10_001);
+  expect(read().content).toMatchObject({ fileId: 191 });
+  expect(save).not.toHaveBeenCalled();
+  transport.dispatch({ type: "file.updated", file: { fileId: 191, remoteId: "old-photo", remoteUniqueId: "old-photo-unique",
+    sizeLabel: "83 KB", size: 85479, isDownloading: true, progress: 0.5, downloadedSize: 42_000 } });
+  await vi.advanceTimersByTimeAsync(10_001);
+  expect(save).not.toHaveBeenCalled();
+  transport.dispatch({ type: "file.updated", file: { fileId: 191, remoteId: "old-photo", remoteUniqueId: "old-photo-unique",
+    sizeLabel: "83 KB", size: 85479, isDownloaded: true, isDownloading: false, localPath: "C:/cache/completed" } });
+  expect(read().content).toMatchObject({ localPath: "C:/cache/completed" });
+  await vi.advanceTimersByTimeAsync(10_001);
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0][0].messages.find(item => item.id === "old-photo")?.content).toMatchObject({ fileId: undefined, localPath: "C:/cache/completed" });
+});
+
 it("keeps an offline preview, then rebinds on reconnect", async () => {
   const original = photo();
   original.content = { ...original.content as Extract<Message["content"], { kind: "media" }>,

@@ -116,7 +116,7 @@ it("reuses history capacity counts during draft-only writes and rechecks changed
   expect(reads).toBe(1_000);
 });
 
-it("commits all messages sharing one file in one update per chat", async () => {
+it("commits shared-file patches in bounded batches and yields before processing the rest", async () => {
   const { store, transport } = await fixture();
   const chatId = store.getState().activeChatId!;
   const items = Array.from({ length: 100 }, (_, index) => ({ ...message(String(index), chatId),
@@ -131,10 +131,53 @@ it("commits all messages sharing one file in one update per chat", async () => {
   });
   transport.dispatch({ type: "file.updated", file: { fileId: 91, sizeLabel: "1 KB",
     isDownloaded: true, isDownloading: false, localPath: "C:/cache/shared.jpg" } });
-  stop();
   expect(commits).toHaveLength(1);
+  expect(commits[0].filter(message => message.content.kind === "media" && message.content.localPath === "C:/cache/shared.jpg").length).toBeLessThanOrEqual(32);
+  await vi.advanceTimersByTimeAsync(10);
+  stop();
+  expect(commits.length).toBeGreaterThanOrEqual(4);
   for (const item of items) {
-    expect(commits[0].find(value => value.id === item.id)?.content).toMatchObject({ isDownloaded: true, localPath: "C:/cache/shared.jpg" });
+    expect(commits.at(-1)!.find(value => value.id === item.id)?.content).toMatchObject({ isDownloaded: true, localPath: "C:/cache/shared.jpg" });
   }
   expect(before.find(item => item.id === "0")?.content).toMatchObject({ isDownloaded: false });
+});
+
+it("does not revisit unrelated expiry or retention fields for a persistent file patch and keeps expiration armed", async () => {
+  const { store, transport } = await fixture();
+  const chatId = store.getState().activeChatId!;
+  const expiresAt = new Date(Date.now() + 1_000).toISOString();
+  const photo: Message = { ...message("expires", chatId), expiresAt,
+    content: { kind: "file", fileId: 91, fileName: "photo", sizeLabel: "1 KB" } };
+  const unrelated = Array.from({ length: 1_000 }, (_, index) => message(`unrelated-${index}`, chatId));
+  transport.dispatch({ type: "messages.upserted", messages: [photo, ...unrelated] });
+  let reads = 0;
+  for (const item of store.getState().messages.get(chatId)!.filter(item => item.id.startsWith("unrelated-"))) {
+    Object.defineProperty(item, "expiresAt", { configurable: true, get: () => { reads++; return undefined; } });
+    Object.defineProperty(item, "isLocallyDeleted", { configurable: true, get: () => { reads++; return false; } });
+  }
+  transport.dispatch({ type: "file.updated", file: { fileId: 91, sizeLabel: "1 KB", localPath: "C:/cache/photo", isDownloaded: true } });
+  expect(reads).toBe(0);
+  expect(store.getState().messages.get(chatId)?.find(item => item.id === "expires")?.content).toMatchObject({ localPath: "C:/cache/photo" });
+  await vi.advanceTimersByTimeAsync(1_001);
+  expect(store.getState().messages.get(chatId)?.some(item => item.id === "expires")).toBe(false);
+});
+
+it("uses current content and file state after yielding, preserving edits, deletion and archive-owned paths", async () => {
+  const { store, transport } = await fixture();
+  const chatId = store.getState().activeChatId!;
+  const items = Array.from({ length: 100 }, (_, index): Message => ({ ...message(`shared-${index}`, chatId),
+    isLocallyDeleted: index >= 90, content: { kind: "file", fileId: 91, fileName: "shared", sizeLabel: "1 KB",
+      localPath: index >= 90 ? "C:/archive/independent" : undefined },
+  }));
+  transport.dispatch({ type: "messages.upserted", messages: items });
+  transport.dispatch({ type: "file.updated", file: { fileId: 91, sizeLabel: "1 KB", localPath: "C:/cache/completed", isDownloaded: true } });
+  transport.dispatch({ type: "message.upsert", message: { ...items[80], content: { kind: "text", text: "edited while yielded" } } });
+  transport.dispatch({ type: "message.remove", chatId, messageId: "shared-81", permanent: true, source: "local" });
+  transport.dispatch({ type: "file.updated", file: { fileId: 91, sizeLabel: "1 KB", localPath: undefined, isDownloaded: false, downloadedSize: 0 } });
+  await vi.advanceTimersByTimeAsync(50);
+  const read = (id: string) => store.getState().messages.get(chatId)?.find(item => item.id === id);
+  expect(read("shared-80")?.content).toEqual({ kind: "text", text: "edited while yielded" });
+  expect(read("shared-81")).toBeUndefined();
+  expect(read("shared-89")?.content).toMatchObject({ localPath: undefined, isDownloaded: false });
+  expect(read("shared-99")?.content).toMatchObject({ localPath: "C:/archive/independent", isDownloaded: true });
 });

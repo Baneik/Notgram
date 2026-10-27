@@ -2,6 +2,8 @@ import { chatReportRequest, mapChatReportResult } from "./chatReport";
 import { assertReadReceiptAllowed } from "./readReceiptPolicy";
 import { chatEventSummary } from "./chatEventSummary";
 import { ChatViewSession } from "./chatViewSession";
+import { TdSessionSupersededError } from "./tdSession";
+import { FileReferenceIndex } from "./fileReferenceIndex";
 import { mapChatInvitePreview, mapChatJoinResult } from "./chatJoin";
 import { telegramInviteLink } from "./telegramLinks";
 import type { JoinChatInput, JoinChatResult } from "./types";
@@ -389,10 +391,12 @@ export class TauriTelegramTransport implements TelegramTransport {
   private pendingDownloads = new Map<number, PendingDownload>();
   private rawMessageFileIds = new Map<string, Set<number>>();
   private fileMessageReferences = new Map<number, Set<string>>();
+  private readonly chatAvatarFiles = new FileReferenceIndex();
+  private readonly userAvatarFiles = new FileReferenceIndex();
+  private fileMessageFlushTimer?: ReturnType<typeof setTimeout>;
   private handlingUpdateBatch = false;
   private pendingFileMessageUpdates = new Map<string, {
     fileUpdates: Map<number, TdObject>;
-    cacheRelevant: boolean;
   }>();
   private exhaustedHistories = new Set<string>();
   private historyCursors = new Map<string, number>();
@@ -434,7 +438,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     },
   );
   private mentionService = new TauriMentionService({
-    sessionGeneration: () => this.hydrationGeneration,
+    sessionGeneration: () => this.sessionGeneration,
     currentUserId: () => this.currentUserId,
     request: (request) => this.request(request),
     rawUsers: this.rawUsers,
@@ -442,7 +446,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     loadCachedSnapshot: () => this.accountStorage.loadCachedSnapshot(),
   });
   private messageMediaService = new TauriMessageMediaService({
-    sessionGeneration: () => this.hydrationGeneration,
+    sessionGeneration: () => this.sessionGeneration,
     prepareMentions: (chatId, text, entities) => this.mentionService.prepare(chatId, text, entities),
     recoverFile: (fileId) => this.requestBroker.recoverFile(fileId),
     request: (request) => this.request(request),
@@ -653,7 +657,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     } finally {
       if (!nestedBatch) {
         this.handlingUpdateBatch = false;
-        if (shouldBatchFileUpdates) this.flushPendingFileMessageUpdates();
+        if (shouldBatchFileUpdates) this.flushPendingFileMessageUpdates(Math.max(0, budgetMs - (performance.now() - startedAt)));
       } else {
         this.handlingUpdateBatch = true;
       }
@@ -2566,7 +2570,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     assertReadReceiptAllowed(request);
     const generation = this.sessionGeneration;
     const response = await this.requestBroker.request(request, timeoutMs);
-    if (generation !== this.sessionGeneration) throw new Error("TDLib session superseded");
+    if (generation !== this.sessionGeneration) throw new TdSessionSupersededError();
     return this.fileStates.resolve(response);
   }
 
@@ -2966,6 +2970,7 @@ export class TauriTelegramTransport implements TelegramTransport {
     const user = mapTdUser(raw);
     if (!id || !user) return;
     this.rawUsers.set(id, raw);
+    this.userAvatarFiles.set(id, tdNumber(asTdObject(asTdObject(raw.profile_photo)?.small)?.id));
     if (this.initialUserSyncPending) {
       this.initialUsers.set(id, user);
       return;
@@ -3115,7 +3120,10 @@ export class TauriTelegramTransport implements TelegramTransport {
     const current = this.rawChats.get(id);
     if (this.consumedChatSnapshots.has(raw)) return current ?? raw;
     this.consumedChatSnapshots.add(raw);
-    if (id) this.rawChats.set(id, raw);
+    if (id) {
+      this.rawChats.set(id, raw);
+      this.chatAvatarFiles.set(id, tdNumber(asTdObject(asTdObject(raw.photo)?.small)?.id));
+    }
     return raw;
   }
 
@@ -3390,14 +3398,18 @@ export class TauriTelegramTransport implements TelegramTransport {
       tdNumber(local?.downloaded_size),
     );
 
-    for (const raw of [...this.rawChats.values()]) {
+    for (const id of this.chatAvatarFiles.forFile(fileId)) {
+      const raw = this.rawChats.get(id);
+      if (!raw) continue;
       const photo = asTdObject(raw.photo);
       const small = asTdObject(photo?.small);
       if (tdNumber(small?.id) !== fileId || !photo) continue;
       this.upsertChat({ ...raw, photo: { ...photo, small: file } }, cacheRelevant);
     }
 
-    for (const raw of [...this.rawUsers.values()]) {
+    for (const id of this.userAvatarFiles.forFile(fileId)) {
+      const raw = this.rawUsers.get(id);
+      if (!raw) continue;
       const profilePhoto = asTdObject(raw.profile_photo);
       const small = asTdObject(profilePhoto?.small);
       if (tdNumber(small?.id) !== fileId || !profilePhoto) continue;
@@ -3414,27 +3426,13 @@ export class TauriTelegramTransport implements TelegramTransport {
       const messageId = reference.slice(separator + 1);
       const raw = this.rawMessages.get(chatId)?.get(messageId);
       if (!raw) continue;
-      const replaced = replaceFileReference(raw, fileId, file);
-      if (replaced.changed) {
-        const nextRaw = asTdObject(replaced.value);
-        if (!nextRaw) continue;
-        if (this.handlingUpdateBatch) {
-          const chatMessages = this.rawMessages.get(chatId);
-          chatMessages?.set(messageId, nextRaw);
-          const pending = this.pendingFileMessageUpdates.get(reference) ?? {
-            fileUpdates: new Map<number, TdObject>(),
-            cacheRelevant: false,
-          };
-          pending.fileUpdates.set(fileId, file);
-          pending.cacheRelevant ||= cacheRelevant;
-          this.pendingFileMessageUpdates.set(reference, pending);
-        } else {
-          this.emitMessage(nextRaw, false, cacheRelevant);
-        }
-      }
+      const pending = this.pendingFileMessageUpdates.get(reference) ?? { fileUpdates: new Map<number, TdObject>() };
+      pending.fileUpdates.set(fileId, file);
+      this.pendingFileMessageUpdates.set(reference, pending);
     }
 
     this.listener?.({ type: "file.updated", file: { ...fileDetails(file), fileId } });
+    if (!this.handlingUpdateBatch) this.flushPendingFileMessageUpdates(2);
 
     const pending = this.pendingDownloads.get(fileId);
     if (pending && local?.is_downloading_completed === true) {
@@ -3472,7 +3470,6 @@ export class TauriTelegramTransport implements TelegramTransport {
         if (replaced.changed) merged = asTdObject(replaced.value) ?? merged;
       }
       raw = merged;
-      cacheRelevant &&= pending.cacheRelevant;
       this.pendingFileMessageUpdates.delete(reference);
     }
     if (raw.is_outgoing !== true && raw.is_pending !== true) this.clearPendingBotDrafts(tdId(raw.chat_id));
@@ -3651,22 +3648,33 @@ export class TauriTelegramTransport implements TelegramTransport {
     }
   }
 
-  private flushPendingFileMessageUpdates() {
-    if (this.pendingFileMessageUpdates.size === 0) return;
-    const pending = this.pendingFileMessageUpdates;
-    this.pendingFileMessageUpdates = new Map();
-    const transientRawMessages: TdObject[] = [];
-    const durableRawMessages: TdObject[] = [];
-    for (const [reference, update] of pending) {
-      const separator = reference.indexOf(":");
-      const chatId = reference.slice(0, separator);
-      const messageId = reference.slice(separator + 1);
-      const raw = this.rawMessages.get(chatId)?.get(messageId);
-      if (!raw) continue;
-      (update.cacheRelevant ? durableRawMessages : transientRawMessages).push(raw);
+  private flushPendingFileMessageUpdates(budgetMs = Infinity) {
+    const startedAt = performance.now();
+    // The Store applies indexed file patches from file.updated. Re-mapping these
+    // raw messages would publish the same change twice and enqueue hydration again.
+    while (this.pendingFileMessageUpdates.size && performance.now() - startedAt < budgetMs) {
+      for (const [reference, update] of this.pendingFileMessageUpdates) {
+        this.pendingFileMessageUpdates.delete(reference);
+        const separator = reference.indexOf(":");
+        const messages = this.rawMessages.get(reference.slice(0, separator));
+        const id = reference.slice(separator + 1);
+        let raw = messages?.get(id);
+        if (raw) {
+          for (const [fileId, file] of update.fileUpdates) {
+            const replaced = replaceFileReference(raw, fileId, this.fileStates.resolve(file));
+            if (replaced.changed) raw = asTdObject(replaced.value) ?? raw;
+          }
+          messages!.set(id, raw);
+        }
+        if (performance.now() - startedAt >= budgetMs) break;
+      }
     }
-    if (transientRawMessages.length > 0) this.emitMessages(transientRawMessages, false);
-    if (durableRawMessages.length > 0) this.emitMessages(durableRawMessages);
+    if (this.pendingFileMessageUpdates.size && this.fileMessageFlushTimer === undefined) {
+      this.fileMessageFlushTimer = globalThis.setTimeout(() => {
+        this.fileMessageFlushTimer = undefined;
+        this.flushPendingFileMessageUpdates(2);
+      }, 0);
+    }
   }
 
   private ensureMessageSenderChat(raw: TdObject) {
@@ -4070,6 +4078,10 @@ export class TauriTelegramTransport implements TelegramTransport {
   }
 
   private resetSessionState() {
+    globalThis.clearTimeout(this.fileMessageFlushTimer);
+    this.fileMessageFlushTimer = undefined;
+    this.chatAvatarFiles.clear();
+    this.userAvatarFiles.clear();
     this.updateStream?.dispose();
     this.updateStream = undefined;
     this.sessionGeneration += 1;

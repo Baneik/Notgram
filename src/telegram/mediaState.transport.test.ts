@@ -6,7 +6,7 @@ import type { TelegramEvent } from "./types";
 
 afterEach(() => vi.unstubAllGlobals());
 
-it("projects native transfer intent into both message and file updates", () => {
+it("projects native transfer intent through file updates without re-publishing and hydrating messages", async () => {
   const transport = new TauriTelegramTransport();
   const events: TelegramEvent[] = [];
   const internal = transport as unknown as {
@@ -19,11 +19,15 @@ it("projects native transfer intent into both message and file updates", () => {
   internal.emitMessage(message(file));
   const lastMessage = () => events.filter(event => event.type === "message.upsert").at(-1);
   expect(lastMessage()).toMatchObject({ message: { content: { isDownloading: false } } });
+  const initialCount = events.filter(event => event.type === "message.upsert" || event.type === "messages.upserted").length;
   for (const requested of [true, false]) {
     internal.handleUpdateBatch([{ "@type": "updateFile", file: { ...file, notgram_download_requested: requested } }]);
-    expect(lastMessage()).toMatchObject({ message: { content: { isDownloading: requested } } });
     expect(events.filter(event => event.type === "file.updated").at(-1)).toMatchObject({ file: { isDownloading: requested } });
+    expect(events.filter(event => event.type === "message.upsert" || event.type === "messages.upserted")).toHaveLength(initialCount);
   }
+  const raw = (internal as unknown as { rawMessages: Map<string, Map<string, TdObject>> }).rawMessages.get("7")!.get("1")!;
+  (transport as unknown as { request: () => Promise<TdObject> }).request = async () => raw;
+  expect((await transport.getMessage("7", "1"))?.content).toMatchObject({ isDownloading: false });
 });
 
 it.each([

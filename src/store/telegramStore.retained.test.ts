@@ -23,6 +23,15 @@ class RetainedTransport extends MockTelegramTransport {
   override async cacheFile(_fileId: number, _priority?: number) {}
 }
 
+// Archive recovery assertions must not include unrelated unbound Mock history media.
+class ArchiveRecoveryTransport extends RetainedTransport {
+  override async loadChatHistory() { return { messages: [], messageIds: [], loadedCount: 0, hasMore: false }; }
+  override async loadCachedSnapshot() {
+    const snapshot = await super.loadCachedSnapshot();
+    return snapshot ? { ...snapshot, messages: [] } : undefined;
+  }
+}
+
 async function fixture(transport = new RetainedTransport()) {
   const store = createTelegramStore(transport);
   await store.getState().initialize();
@@ -49,7 +58,7 @@ it.each(["persisted archives", "loaded history"])("caches %s without filling the
   }));
   const snapshot = { ...cachedSnapshotFrom(initial.getState()), messages: [],
     locallyDeletedMessages: source === "persisted archives" ? archived : [] };
-  const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: snapshot });
   const request = vi.fn(async (request: TdObject) => ({ "@type": "file", id: request.file_id,
     local: { is_downloading_active: true, is_downloading_completed: false } }));
   const queue = new FileDownloadQueue(request, () => undefined);
@@ -177,7 +186,7 @@ it.each([777, 778, 999])("ignores reused runtime ID %s when restoring a legacy a
     ...saved.locallyDeletedMessages![0], content: { ...photo.content, thumbnailPath: "C:/cache/thumb.jpg",
       isDownloading: true, thumbnailIsDownloading: true, canDownload: true, thumbnailCanDownload: true },
   }] }));
-  const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: snapshot });
   const resolve = vi.spyOn(transport, "resolveRemoteFile");
   const cache = vi.spyOn(transport, "cacheFile");
   const store = createTelegramStore(transport);
@@ -216,7 +225,7 @@ it("rebinds persisted photo and thumbnail identities independently before accept
     localPath: undefined, isDownloaded: false,
   } });
   const snapshot = JSON.parse(JSON.stringify({ ...cachedSnapshotFrom(initial.getState()), messages: [] }));
-  const transport = new RetainedTransport({ cachedSnapshot: snapshot });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: snapshot });
   const pending = new Map<string, (file: MessageFileState) => void>();
   vi.spyOn(transport, "resolveRemoteFile").mockImplementation(remoteId => new Promise(resolve => pending.set(remoteId, resolve)));
   const cache = vi.spyOn(transport, "cacheFile");
@@ -256,7 +265,7 @@ it("rebinds persisted photo and thumbnail identities independently before accept
 it.each(["wrong identity", "missing identity", "lookup failure"])("keeps local previews and disables unverified handles after %s", async failure => {
   const { store: initial, photo, archive } = await fixture();
   archive(withRemoteIdentity(photo));
-  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
   vi.spyOn(transport, "resolveRemoteFile").mockImplementation(async remoteId => {
     if (failure === "lookup failure") throw new Error("inaccessible");
     return { fileId: 777, remoteId, remoteUniqueId: failure === "wrong identity" ? "wrong" : undefined,
@@ -274,7 +283,7 @@ it("preserves completed local files when a verified lookup has lost its local st
   const { store: initial, photo, archive } = await fixture();
   archive({ ...withRemoteIdentity(photo), content: { ...withRemoteIdentity(photo).content as Extract<Message["content"], { kind: "media" }>,
     thumbnailPath: "C:/cache/thumb.jpg" } });
-  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
   vi.spyOn(transport, "resolveRemoteFile").mockImplementation(async remoteId => ({
     fileId: remoteId === "photo-remote" ? 1777 : 1778, remoteId,
     remoteUniqueId: remoteId === "photo-remote" ? "photo-unique" : "thumb-unique",
@@ -295,7 +304,7 @@ it("preserves completed local files when a verified lookup has lost its local st
 it("does not recreate an archive deleted while its persistent file is being resolved", async () => {
   const { store: initial, photo, archive } = await fixture();
   archive(withRemoteIdentity(photo));
-  const transport = new RetainedTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
+  const transport = new ArchiveRecoveryTransport({ cachedSnapshot: cachedSnapshotFrom(initial.getState()) });
   const finishes: Array<(file: MessageFileState | undefined) => void> = [];
   vi.spyOn(transport, "resolveRemoteFile").mockImplementation(() => new Promise(resolve => finishes.push(resolve)));
   const store = createTelegramStore(transport);
@@ -314,7 +323,7 @@ it("discards lookups from the old account and restores the new account independe
   const snapshot = { ...cachedSnapshotFrom(initial.getState()), messages: [] };
   const accounts: TelegramAccount[] = ["default", "secondary"].map(id => ({ id, userId: id, displayName: id, avatar: { label: id, color: "#3390ec" } }));
   const pending = new Map<string, (file: MessageFileState | undefined) => void>();
-  class SwitchingTransport extends RetainedTransport {
+  class SwitchingTransport extends ArchiveRecoveryTransport {
     active = "default";
     override async getAccountState() { return { activeAccountId: this.active, accounts }; }
     override async registerCurrentAccount() { return this.getAccountState(); }
@@ -330,7 +339,7 @@ it("discards lookups from the old account and restores the new account independe
   expect(pending.size).toBe(2);
   expect(await store.getState().switchAccount("secondary")).toBe(true);
   transport.setConnectionStatus("online");
-  expect(pending.size).toBe(4);
+  await vi.waitFor(() => expect(pending.size).toBe(4));
   const file: MessageFileState = { fileId: 1777, remoteId: "photo-remote", remoteUniqueId: "photo-unique", sizeLabel: "4 KB",
     localPath: "C:/cache/old-account.jpg", isDownloaded: true };
   pending.get("default:photo-remote")!(file);

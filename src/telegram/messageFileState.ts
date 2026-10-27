@@ -69,6 +69,17 @@ export const messageFilesForCache = (message: Message) => mapMessageFiles(messag
   progress: content.localPath ? 1 : undefined,
 }));
 
+/** Compare the actual snapshot projection, excluding runtime handles and transient progress. */
+export const messageFileCacheChanged = (before: Message, after: Message) => {
+  const previous = messageFiles(messageFilesForCache(before));
+  const next = messageFiles(messageFilesForCache(after));
+  return previous.length !== next.length || next.some((file, index) => {
+    const old = previous[index];
+    return [...new Set([...Object.keys(old), ...Object.keys(file)])].some(key =>
+      old[key as keyof MessageFileContent] !== file[key as keyof MessageFileContent]);
+  });
+};
+
 export const matchesFileIdentity = (remoteId: string | undefined, uniqueId: string | undefined,
   file: Pick<MessageFileState, "remoteId" | "remoteUniqueId">) =>
   uniqueId ? uniqueId === file.remoteUniqueId : Boolean(remoteId && remoteId === file.remoteId);

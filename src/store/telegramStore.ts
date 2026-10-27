@@ -18,7 +18,7 @@ import { MessageFileIndex } from "./messageFileIndex";
 import { IncomingMediaAlbums } from "./incomingMediaAlbums";
 import { ForumUnreadState } from "./forumUnreadState";
 import { withLocalReadState } from "../telegram/localReadTransport";
-import { bindMessageFile, updateMessageFile } from "../telegram/messageFileState";
+import { bindMessageFile, matchesFileIdentity, messageFileCacheChanged, updateMessageFile } from "../telegram/messageFileState";
 import { MediaFileRestorer } from "./mediaFileRestorer";
 import { SyncRetryQueue } from "../telegram/syncRetryQueue";
 import { ConversationHistory } from "./conversationHistory";
@@ -38,6 +38,7 @@ import type {
   ChatDraft,
   ForwardMessagesResult,
   Message,
+  MessageFileState,
   MessagePermissions,
   QueuedOutgoingMessage,
   SendEmojiAssetInput,
@@ -63,6 +64,7 @@ import {
   compareMessages,
   messageMapFrom,
   findIndexedMessage,
+  replaceIndexedMessages,
   replaceMessage,
   upsertMessages as mergeMessages,
   withEmojiReaction,
@@ -362,7 +364,7 @@ export const createTelegramStore = (
         return permissions && !message.permissions ? { ...message, permissions } : message;
       }));
     const upsertMessage = (current: Message[], incoming: Message) => upsertMessages(current, [incoming]);
-    const publishMessageChange = (event: MessageChangeEvent) => {
+    const publishMessageChange = (event: MessageChangeEvent, discoverMedia = true) => {
       if (event.type === "evict") {
         messageFiles.remove(event.chatId, event.messageIds);
         for (const listener of messageChangeListeners) listener(event);
@@ -391,6 +393,11 @@ export const createTelegramStore = (
         messageFiles.remove(event.message.chatId, [event.oldMessageId]);
         messageFiles.upsert([event.message]);
       } else messageFiles.upsert(event.messages);
+      if (event.type === "reset") {
+        void mediaFileRestorer.enqueue(messageFiles.values());
+      } else if (discoverMedia && (event.type === "upsert" || event.type === "replace")) {
+        void mediaFileRestorer.enqueue(event.type === "replace" ? [event.message] : event.messages);
+      }
       if (event.type === "upsert") {
         const liveIds = new Set(event.liveMessages.map(message => `${message.chatId}:${message.id}`));
         for (const message of event.messages) recordConversationMessage(message.chatId, message.id,
@@ -1144,6 +1151,7 @@ export const createTelegramStore = (
       deletedHistory.clear();
       historyDeletionVersions.clear();
       mediaFileRestorer.reset();
+      resetFileUpdates();
       syncGeneration += 1;
       hasConnected = false;
       syncRetries.clear();
@@ -1895,49 +1903,123 @@ export const createTelegramStore = (
       }
     };
 
+    const latestFileStates = new Map<number, MessageFileState>();
     const commitFileUpdates = (updated: Message[]) => {
-      const messages = new Map(get().messages);
-      const byChat = new Map<string, Message[]>();
+      const previous = get().messages;
+      const messages = new Map(previous);
+      const byChat = new Map<string, Map<string, Message>>();
+      let cacheChanged = false;
       for (const message of updated) {
-        const items = byChat.get(message.chatId) ?? [];
-        items.push(message);
+        const items = byChat.get(message.chatId) ?? new Map<string, Message>();
+        const current = findIndexedMessage(previous.get(message.chatId) ?? [], message.id);
+        if (current) cacheChanged ||= messageFileCacheChanged(current, message);
+        items.set(message.id, message);
         byChat.set(message.chatId, items);
       }
       for (const [chatId, items] of byChat) {
-        messages.set(chatId, upsertMessages(messages.get(chatId) ?? [], items));
+        const current = messages.get(chatId) ?? [];
+        const next = replaceIndexedMessages(current, items);
+        messages.set(chatId, next);
+        const count = ordinaryMessageCounts.get(current);
+        if (count !== undefined) ordinaryMessageCounts.set(next, count);
       }
+      // File state cannot change membership, order, or expiration deadlines.
+      if (boundedMessages === previous) boundedMessages = messages;
+      if (expiryMessages === previous) expiryMessages = messages;
       set({ messages });
-      publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] });
+      publishMessageChange({ type: "upsert", messages: updated, liveMessages: [] }, false);
+      if (cacheChanged) scheduleCacheWrite();
     };
 
     const mediaFileRestorer = new MediaFileRestorer({
       canRestore: () => !accountTransition && get().authorization.kind === "ready" && get().connectionStatus === "online",
-      messages: () => [...(get().messages.get(get().activeChatId ?? "") ?? []), ...retainedMessages.all()],
+      currentMessage: (chatId, messageId) => findIndexedMessage(get().messages.get(chatId) ?? [], messageId),
+      sources: remoteId => messageFiles.iterateRemoteFile(remoteId),
       resolveFile: remoteId => transport.resolveRemoteFile(remoteId),
       refreshMessage: async message => {
         const generation = accountGeneration;
         const fresh = await transport.getMessage(message.chatId, message.id);
         if (!fresh || generation !== accountGeneration || !acceptsMessage(fresh) ||
-          get().messages.get(message.chatId)?.find(item => item.id === message.id) !== message) return;
+          findIndexedMessage(get().messages.get(message.chatId) ?? [], message.id) !== message) return;
+        const current = get().messages.get(fresh.chatId) ?? [];
+        const next = upsertMessage(current, fresh);
+        if (next === current) return;
         const messages = new Map(get().messages);
-        messages.set(fresh.chatId, upsertMessage(messages.get(fresh.chatId) ?? [], fresh));
+        messages.set(fresh.chatId, next);
         set({ messages });
         publishMessageChange({ type: "upsert", messages: [fresh], liveMessages: [] });
         scheduleCacheWrite();
       },
-      applyFile: (remoteId, file) => {
-        const updated = messageFiles.forRemoteFile(remoteId).flatMap(message => {
-          const next = bindMessageFile(message, remoteId, file);
-          return next === message ? [] : [next];
-        });
-        if (updated.length === 0) return;
-        commitFileUpdates(updated);
-        // Restoring old archives can queue thousands of missing files. Keep
-        // those repairs in background capacity; live preservation stays urgent.
-        for (const message of updated) maybeAutoCacheArchiveMedia(message, 16);
-        scheduleCacheWrite();
+      applyFiles: async (files, isCurrent) => {
+        let started = performance.now();
+        const updated = new Map<string, Message>();
+        const commit = () => {
+          if (!updated.size || !isCurrent()) return;
+          const batch = [...updated.values()];
+          updated.clear();
+          commitFileUpdates(batch);
+          for (const message of batch) maybeAutoCacheArchiveMedia(message, 16);
+        };
+        for (const [remoteId, resolved] of files) {
+          for (const source of messageFiles.iterateRemoteFile(remoteId)) {
+            if (!isCurrent()) return;
+            const key = `${source.chatId}\u0000${source.id}`;
+            const current = updated.get(key) ?? findIndexedMessage(get().messages.get(source.chatId) ?? [], source.id);
+            if (!current || !acceptsMessage(current)) continue;
+            const latest = latestFileStates.get(resolved.fileId);
+            const file = latest && matchesFileIdentity(resolved.remoteId, resolved.remoteUniqueId, latest) ? latest : resolved;
+            const next = bindMessageFile(current, remoteId, file);
+            if (next !== current) updated.set(key, next);
+            if (updated.size >= 32 || performance.now() - started >= 2) {
+              commit();
+              await yieldToBackground();
+              started = performance.now();
+            }
+          }
+        }
+        commit();
       },
     });
+    const restoreMediaFiles = () => mediaFileRestorer.focus(get().activeChatId,
+      get().messages.get(get().activeChatId ?? "") ?? []);
+    const pendingFileUpdates = new Map<number, MessageFileState>();
+    let fileUpdateWork: Iterator<{ source: Message; file: MessageFileState }> | undefined;
+    let fileUpdateTimer: ReturnType<typeof setTimeout> | undefined;
+    const resetFileUpdates = () => {
+      globalThis.clearTimeout(fileUpdateTimer);
+      fileUpdateTimer = undefined;
+      fileUpdateWork = undefined;
+      pendingFileUpdates.clear();
+      latestFileStates.clear();
+    };
+    function* fileUpdateSources() {
+      while (pendingFileUpdates.size) {
+        const [id, file] = pendingFileUpdates.entries().next().value!;
+        pendingFileUpdates.delete(id);
+        for (const source of messageFiles.iterateFile(id)) yield { source, file };
+      }
+    }
+    const flushFileUpdates = () => {
+      fileUpdateTimer = undefined;
+      fileUpdateWork ??= fileUpdateSources();
+      const started = performance.now();
+      const updated = new Map<string, Message>();
+      let done = false;
+      let count = 0;
+      do {
+        const next = fileUpdateWork.next();
+        if (next.done) { done = true; break; }
+        const { source, file: original } = next.value;
+        const key = `${source.chatId}\u0000${source.id}`;
+        const current = updated.get(key) ?? findIndexedMessage(get().messages.get(source.chatId) ?? [], source.id);
+        if (!current || !acceptsMessage(current)) continue;
+        const nextMessage = updateMessageFile(current, latestFileStates.get(original.fileId) ?? original);
+        if (nextMessage !== current) updated.set(key, nextMessage);
+      } while (++count < 32 && performance.now() - started < 2);
+      if (updated.size) commitFileUpdates([...updated.values()]);
+      if (done) fileUpdateWork = undefined;
+      else fileUpdateTimer = globalThis.setTimeout(flushFileUpdates, 0);
+    };
 
     const incomingAlbums = new IncomingMediaAlbums((batch) => {
       const messages = batch.messages.filter(acceptsMessage);
@@ -1951,16 +2033,12 @@ export const createTelegramStore = (
         return;
       }
       if (event.type === "file.updated") {
+        latestFileStates.delete(event.file.fileId);
+        latestFileStates.set(event.file.fileId, event.file);
+        if (latestFileStates.size > 20_000) latestFileStates.delete(latestFileStates.keys().next().value!);
         emojiPickerController.updateFile(event.file);
-        const updated = messageFiles.forFile(event.file.fileId).flatMap(message => {
-          const current = findIndexedMessage(get().messages.get(message.chatId) ?? [], message.id);
-          if (!current) return [];
-          const next = updateMessageFile(current, event.file);
-          return next === current ? [] : [next];
-        });
-        if (updated.length === 0) return;
-        commitFileUpdates(updated);
-        if (event.file.isDownloaded || !event.file.isDownloading) scheduleCacheWrite();
+        pendingFileUpdates.set(event.file.fileId, event.file);
+        if (!fileUpdateWork && fileUpdateTimer === undefined) flushFileUpdates();
         return;
       }
       if (event.type === "authorization.changed") {
@@ -1972,7 +2050,7 @@ export const createTelegramStore = (
         if (event.state.kind === "ready") {
           emojiPickerController.warm();
           loadInitialVisibleFolder();
-          void mediaFileRestorer.restore();
+          void restoreMediaFiles();
           scheduleCacheWrite();
           draftSync.resumePending();
           void flushOutbox();
@@ -2024,7 +2102,10 @@ export const createTelegramStore = (
         const recovered = event.status === "online" && get().connectionStatus !== "online" && hasConnected;
         set({ connectionStatus: event.status });
         if (event.status === "online") {
-          void mediaFileRestorer.restore();
+          mediaFileRestorer.retry();
+          void mediaFileRestorer.enqueue(retainedMessages.values());
+          void mediaFileRestorer.enqueue(get().messages.get(get().activeChatId ?? "") ?? []);
+          void restoreMediaFiles();
           hasConnected = true;
           if (recovered) {
             emojiPickerController.invalidate();
@@ -2607,6 +2688,7 @@ export const createTelegramStore = (
       resetOutbox();
       pendingSends.reset();
       mediaFileRestorer.reset();
+      resetFileUpdates();
       registeredAccountKey = undefined;
       set({
         accountPending: true,
@@ -2647,7 +2729,7 @@ export const createTelegramStore = (
           throw new Error(get().error ?? translate("无法切换账号"));
         }
         accountTransition = false;
-        void mediaFileRestorer.restore();
+        void restoreMediaFiles();
         void registerCurrentAccount();
         return true;
       } catch (error) {
@@ -3086,7 +3168,7 @@ export const createTelegramStore = (
             }
           }
           publishMessageChange({ type: "reset", messages });
-          void mediaFileRestorer.restore();
+          void restoreMediaFiles();
           void registerCurrentAccount();
           if (settingsOnly) return;
           emojiPickerController.warm();
@@ -3370,7 +3452,7 @@ export const createTelegramStore = (
         });
         scheduleCacheWrite();
         if (get().authorization.kind !== "ready") return;
-        void mediaFileRestorer.restore();
+        void restoreMediaFiles();
         if (targetChat?.isForum) {
           if (restoredTopicId && !options?.deferHistory) loadActiveForumTopic(chatId, restoredTopicId);
           else if (!options?.deferHistory) void loadHistory(chatId, "ensure").then(() => markActiveConversationRead(chatId));
