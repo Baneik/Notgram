@@ -6,6 +6,9 @@ import type { TelegramEventListener, TelegramTransport } from "./transport";
 import type { Chat, ForumTopic, Message, TelegramEvent, TelegramSnapshot } from "./types";
 
 const topicKey = (chatId: string, topicId: string) => JSON.stringify([chatId, topicId]);
+const readCountSignature = (value: ReadCountSource) => JSON.stringify([
+  value.unreadCount, value.lastReadInboxMessageId, value.unreadMentionCount, value.unreadReactionCount ?? 0,
+]);
 const countSignature = (value: ReadCountSource & { updatedAt?: string }) => JSON.stringify([
   value.unreadCount, value.lastReadInboxMessageId, value.unreadMentionCount, value.unreadReactionCount,
   "updatedAt" in value ? value.updatedAt : value.lastMessage?.id,
@@ -22,6 +25,8 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
   const state = new LocalReadState();
   const chats = new Map<string, Chat>();
   const topics = new Map<string, ReadCountSource & { chatId: string }>();
+  const publishedChatCounts = new Map<string, string>();
+  const publishedTopicCounts = new Map<string, string>();
   const revisions = new Map<string, number>();
   const pending = new Set<string>();
   const active = new Set<string>();
@@ -47,11 +52,24 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
 
   const publish = (chatId: string) => {
     const chat = chats.get(chatId);
-    if (chat) listener?.({ type: "chat.upsert", chat: state.project(chat) });
+    if (chat) {
+      const projected = state.project(chat);
+      const signature = readCountSignature(projected);
+      if (publishedChatCounts.get(chatId) !== signature) {
+        publishedChatCounts.set(chatId, signature);
+        listener?.({ type: "chat.upsert", chat: projected });
+      }
+    }
     for (const topic of topics.values()) {
       if (topic.chatId !== chatId) continue;
       const effective = projectTopic(topic);
-      listener?.({ type: "forumTopics.changed", chatId, topic: { id: effective.id,
+      const key = topicKey(chatId, topic.id);
+      const signature = readCountSignature(effective);
+      if (publishedTopicCounts.get(key) === signature) continue;
+      publishedTopicCounts.set(key, signature);
+      // A local projection is already complete; fetching topics again feeds its
+      // reply hydration back into recounting and can keep the cycle alive.
+      listener?.({ type: "forumTopics.changed", chatId, source: "local", topic: { id: effective.id,
         lastReadInboxMessageId: effective.lastReadInboxMessageId,
         unreadCount: effective.unreadCount,
         unreadMentionCount: effective.unreadMentionCount, unreadReactionCount: effective.unreadReactionCount ?? 0 } });
@@ -156,7 +174,9 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
     if (root && chat.unreadMentionCount === 0) { root.mentions = []; delete root.mentionCount; }
     if (root && (chat.unreadReactionCount ?? 0) === 0) { root.reactions = []; delete root.reactionCount; }
     if (!old || countSignature(old) !== countSignature(chat)) { bump(chat.id); schedule(chat.id); }
-    return state.project(chat);
+    const projected = state.project(chat);
+    publishedChatCounts.set(chat.id, readCountSignature(projected));
+    return projected;
   };
   const observeTopic = (topic: ForumTopic) => {
     const key = topicKey(topic.chatId, topic.id);
@@ -167,7 +187,9 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
       lastMessage: topic.lastMessage ? readCursor(topic.lastMessage) : undefined });
     if (state.has(topic.chatId)) state.ensure(topic.chatId, topic.id);
     if (!old || countSignature(old) !== countSignature(topic)) { bump(topic.chatId); schedule(topic.chatId); }
-    return projectTopic(topic);
+    const projected = projectTopic(topic);
+    publishedTopicCounts.set(key, readCountSignature(projected));
+    return projected;
   };
   const projectMessage = (message: Message) => state.projectMessage(message);
   const mapResult = (value: unknown): unknown => {
@@ -209,6 +231,7 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
       // A cached topic can receive an update before its raw metadata has loaded.
       const effective = projectTopic({ unreadCount: 0, unreadMentionCount: 0,
         ...old, ...event.topic, chatId: event.chatId });
+      if (old) publishedTopicCounts.set(key, readCountSignature(effective));
       const topic = { ...event.topic };
       if ("lastReadInboxMessageId" in topic) topic.lastReadInboxMessageId = effective.lastReadInboxMessageId;
       if ("unreadCount" in topic) topic.unreadCount = effective.unreadCount;
@@ -223,6 +246,7 @@ export const withLocalReadState = (base: TelegramTransport, onPolicyChanged: () 
   const loadAccount = (accountId: string) => {
     generation++;
     chats.clear(); topics.clear(); revisions.clear(); pending.clear(); active.clear();
+    publishedChatCounts.clear(); publishedTopicCounts.clear();
     state.load(accountId);
   };
   const localRead = async (chatId: string, cursor: ReadCursor, topicId?: string) => {

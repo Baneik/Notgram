@@ -18,6 +18,18 @@ const fixture = async (page: Page) => {
       {
         const connect = MockTelegramTransport.prototype.connect;
         globalThis.__localServerReads = [];
+        globalThis.__localForumQueryCount = 0;
+        const getTopics = MockTelegramTransport.prototype.getForumTopics;
+        MockTelegramTransport.prototype.getForumTopics = async function(input) {
+          const result = await getTopics.call(this, input);
+          if (input.chatId === "chat-forum") {
+            globalThis.__localForumQueryCount++;
+            // Model reply hydration after a topic preview refresh, as in TDLib.
+            const message = this.snapshot.messages.find(message => message.chatId === input.chatId && message.topicId === "12");
+            if (message) this.listener?.({ type: "message.upsert", message: structuredClone(message) });
+          }
+          return result;
+        };
         for (const name of ["markChatRead", "markForumTopicRead", "markMessageThreadRead", "viewChannelMessages", "markMessageAttentionRead", "markAllChatReactionsRead"]) {
           const original = MockTelegramTransport.prototype[name];
           MockTelegramTransport.prototype[name] = function(...args) {
@@ -103,3 +115,33 @@ test("the read receipt switch is opt-in, persists, and updates the main window f
   await expect(toggle).toBeChecked();
   await settings.close();
 });
+
+for (const width of [1366, 390]) {
+  test(`local forum counts settle while typing and switching topics at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await fixture(page);
+    await page.goto("/");
+    await page.locator('.chat-list[data-active=true] [data-chat-id="chat-forum"]').click();
+    await expect(page.locator('[data-message-id="forum-general-1"]')).toBeVisible();
+    const tab = (id: string) => page.locator(`.forum-topic-strip [data-topic-id="${id}"]`);
+    await tab("12").click();
+    const input = page.getByRole("textbox", { name: "消息" });
+    await expect(input).toBeFocused();
+    await expect.poll(() => page.evaluate(async () => {
+      const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+      return telegramStore.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12")?.unreadCount;
+    })).toBe(0);
+    await page.waitForTimeout(800);
+    const queries = () => page.evaluate(() => (globalThis as unknown as { __localForumQueryCount: number }).__localForumQueryCount);
+    const settled = await queries();
+    expect(settled).toBeGreaterThan(0);
+    await input.fill("Responsive local forum draft");
+    await tab("1").click();
+    await tab("12").click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText("Responsive local forum draft");
+    await page.waitForTimeout(1_200);
+    expect(await queries()).toBe(settled);
+    expect(await page.evaluate(() => (globalThis as unknown as { __localServerReads: string[] }).__localServerReads)).toEqual([]);
+  });
+}

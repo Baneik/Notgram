@@ -2365,7 +2365,7 @@ export const createTelegramStore = (
             scheduleCacheWrite();
           }
         }
-        if (get().chats.get(event.chatId)?.isForum) {
+        if (event.source !== "local" && get().chats.get(event.chatId)?.isForum) {
           void refreshForumConversation(event.chatId, true);
         }
         return;

@@ -2665,6 +2665,73 @@ describe("TauriTelegramTransport message operations", () => {
     }));
   });
 
+  it.each(["live", "topics", "history"])("preserves hydrated replies across repeated %s snapshots", async source => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    const reply = { ...rawMessage(12), reply_to: {
+      "@type": "messageReplyToMessage", chat_id: 7, message_id: 11,
+      content: null, origin_send_date: 0,
+    } };
+    const request = vi.fn(async (request: TdObject): Promise<TdObject> => {
+      if (request["@type"] === "getRepliedMessage") return { ...rawMessage(11), is_outgoing: true };
+      if (request["@type"] === "getForumTopics") return { topics: [{
+        info: { chat_id: 7, forum_topic_id: 12, name: "Topic" }, last_message: structuredClone(reply),
+      }] };
+      if (request["@type"] === "getChatHistory") return { messages: [structuredClone(reply)] };
+      return { "@type": "user", id: 11, first_name: "Author" };
+    });
+    internal.request = request;
+    internal.listener = event => events.push(event);
+    const refresh = async () => {
+      if (source === "topics") await transport.getForumTopics({ chatId: "7" });
+      else if (source === "history") await transport.getMessageContext("7", "12");
+      else internal.emitMessage(structuredClone(reply));
+    };
+    await refresh();
+    await vi.waitFor(() => expect(events.filter(event => event.type === "message.upsert").at(-1))
+      .toMatchObject({ message: { replyTo: { content: { text: "message 11" }, outgoing: true } } }));
+    for (let i = 0; i < 4; i++) {
+      await refresh();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(request.mock.calls.filter(([value]) => value["@type"] === "getRepliedMessage")).toHaveLength(1);
+  });
+
+  it.each(["message", "chat", "removed", "explicit"])("does not reuse reply hydration after a %s change", async change => {
+    const transport = new TauriTelegramTransport();
+    const internal = transport as unknown as TestableTransport;
+    const events: TelegramEvent[] = [];
+    const reply = { ...rawMessage(12), reply_to: {
+      "@type": "messageReplyToMessage", chat_id: 7, message_id: 11, content: null,
+    } };
+    let target = rawMessage(11);
+    const request = vi.fn(async (value: TdObject) => value["@type"] === "getRepliedMessage"
+      ? target : { "@type": "user", id: 11, first_name: "Author" });
+    internal.request = request;
+    internal.listener = event => events.push(event);
+    internal.emitMessage(reply);
+    await vi.waitFor(() => expect(events.filter(event => event.type === "message.upsert").at(-1))
+      .toMatchObject({ message: { replyTo: { content: { text: "message 11" } } } }));
+    if (change === "removed") internal.emitMessage(rawMessage(12));
+    else {
+      target = { ...rawMessage(change === "message" ? 13 : 11), chat_id: change === "chat" ? 8 : 7 };
+      internal.emitMessage({ ...reply, reply_to: { ...reply.reply_to,
+        chat_id: target.chat_id, message_id: target.id,
+        content: change === "explicit" ? rawMessage(99).content : null,
+      } });
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const latest = events.filter(event => event.type === "message.upsert").at(-1);
+    if (change === "removed") expect(latest?.type === "message.upsert" && latest.message.replyTo).toBeUndefined();
+    else expect(latest).toMatchObject({ message: { replyTo: {
+      chatId: change === "chat" ? "8" : "7", messageId: change === "message" ? "13" : "11",
+      content: { text: change === "explicit" ? "message 99" : change === "message" ? "message 13" : "message 11" },
+    } } });
+    expect(request.mock.calls.filter(([value]) => value["@type"] === "getRepliedMessage"))
+      .toHaveLength(change === "message" || change === "chat" ? 2 : 1);
+  });
+
   it("hydrates partial rich messages without duplicating requests", async () => {
     const transport = new TauriTelegramTransport();
     const internal = transport as unknown as TestableTransport;

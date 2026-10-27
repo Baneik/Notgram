@@ -7,7 +7,7 @@ import { compareReadCursors, LOCAL_READ_STATE_KEY, LocalReadState, readCursor } 
 import { withLocalReadState } from "./localReadTransport";
 import { assertReadReceiptAllowed, ReadReceiptPolicyChanged } from "./readReceiptPolicy";
 import type { TelegramEventListener } from "./transport";
-import type { Chat, ForumTopic, Message, TelegramSnapshot } from "./types";
+import type { Chat, ForumTopic, Message, TelegramEvent, TelegramSnapshot } from "./types";
 
 const sample = mockSnapshot.messages.find(message => !message.outgoing)!;
 const message = (id: number, overrides: Partial<Message> = {}): Message => ({ ...sample,
@@ -343,4 +343,51 @@ it("updates Store mention flags and counts together without awaiting a server re
   store.getState().dismissMessageAttention("7", ["1"]);
   await vi.waitFor(() => expect(store.getState().chats.get("7")?.unreadMentionCount).toBe(0));
   expect(store.getState().messages.get("7")?.find(row => row.id === "1")?.containsUnreadMention).toBe(false);
+});
+
+it("identifies local topic projections without asking the server to refresh them", async () => {
+  const raw = new ReadingTransport();
+  raw.rawChat = chat(1, { kind: "group", isForum: true });
+  raw.rawTopics = [topic("12", 1)];
+  raw.rows = [message(1, { topicId: "12" })];
+  const wrapped = withLocalReadState(raw, () => undefined);
+  instances.push(wrapped);
+  const events: TelegramEvent[] = [];
+  await wrapped.getAccountState();
+  await wrapped.connect(event => events.push(event));
+  await wrapped.getForumTopics({ chatId: "7" });
+  await wrapped.markForumTopicRead("7", "12", "1");
+  expect(events.filter(event => event.type === "forumTopics.changed").at(-1)).toMatchObject({
+    source: "local", topic: { id: "12", unreadCount: 0, lastReadInboxMessageId: "1" },
+  });
+});
+
+it("does not republish unchanged counts after reply metadata updates", async () => {
+  const raw = new ReadingTransport();
+  raw.rawChat = chat(1);
+  raw.rows = [message(1)];
+  const counts: number[] = [];
+  const wrapped = await open(raw, counts);
+  await wrapped.markChatRead("7");
+  await new Promise(resolve => setTimeout(resolve, 100));
+  counts.length = 0;
+  raw.feed?.({ type: "message.upsert", message: { ...raw.rows[0],
+    content: { kind: "text", text: "Updated reply presentation" } } });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(counts).toEqual([]);
+});
+
+it("writes durable read state only when its stored value changes", () => {
+  const state = new LocalReadState();
+  state.load("unchanged-state");
+  state.read("7", readCursor(message(1)));
+  state.save();
+  const writes = vi.spyOn(localStorage, "setItem");
+  state.save();
+  state.read("7", readCursor(message(1)));
+  state.save();
+  expect(writes).not.toHaveBeenCalled();
+  state.read("7", readCursor(message(2)));
+  state.save();
+  expect(writes).toHaveBeenCalledOnce();
 });

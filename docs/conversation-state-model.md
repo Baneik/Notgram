@@ -839,6 +839,13 @@ pagination, and retry on an update/reconnection. Repeated history records do not
 messages. Reaction acknowledgements include sender/type identity so a different reaction on the
 same message remains visible.
 
+Local topic count publications carry `source: "local"`. Apply their projected fields in the Store
+without scheduling a remote topic refresh: list results can hydrate replies and otherwise feed
+back into another unread recount. Publish only changed effective counts and persist local read
+metadata only when its serialized value changes. Remote topic updates retain the normal refresh
+path. Repeated live, history and topic-preview snapshots must preserve hydrated reply content for
+the same referenced chat/message; explicit content, a changed reference or removal takes precedence.
+
 Regression coverage includes all remote read entry points, activation during a queued request,
 restart after UI-cache deletion, multiple offline pages, duplicate updates, remote deletion/reads,
 independent topic and whole-forum reads, mention restoration, changed reactions, corrupted durable

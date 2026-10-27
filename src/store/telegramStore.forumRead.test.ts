@@ -7,6 +7,25 @@ const emit = (transport: MockTelegramTransport, event: TelegramEvent) => {
   (transport as unknown as { listener: (event: TelegramEvent) => void }).listener(event);
 };
 
+it("applies local topic counts without scheduling a remote topic refresh", async () => {
+  const transport = new MockTelegramTransport();
+  const store = createTelegramStore(transport);
+  const getTopics = vi.spyOn(transport, "getForumTopics");
+  await store.getState().initialize();
+  await store.getState().loadForumTopics("chat-forum");
+  getTopics.mockClear();
+  try {
+    emit(transport, { type: "forumTopics.changed", chatId: "chat-forum", source: "local",
+      topic: { id: "12", unreadCount: 0, lastReadInboxMessageId: "local-boundary" } });
+    expect(store.getState().forumTopics.get("chat-forum")?.find(topic => topic.id === "12"))
+      .toMatchObject({ unreadCount: 0, lastReadInboxMessageId: "local-boundary" });
+    await new Promise(resolve => setTimeout(resolve, 650));
+    expect(getTopics).not.toHaveBeenCalled();
+    emit(transport, { type: "forumTopics.changed", chatId: "chat-forum" });
+    await vi.waitFor(() => expect(getTopics).toHaveBeenCalled());
+  } finally { await transport.disconnect(); }
+});
+
 it("repairs a restarted forum badge despite metadata updates during the complete topic fetch", async () => {
   const transport = new MockTelegramTransport();
   const getTopics = transport.getForumTopics.bind(transport);

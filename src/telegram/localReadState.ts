@@ -54,7 +54,10 @@ export class LocalReadState {
     this.records = value;
   }
 
-  save() { writeAccountMetadata(LOCAL_READ_STATE_KEY, JSON.stringify(this.records)); }
+  save() {
+    const value = JSON.stringify(this.records);
+    if (value !== readAccountMetadata(LOCAL_READ_STATE_KEY)) writeAccountMetadata(LOCAL_READ_STATE_KEY, value);
+  }
   removeAccount(accountId: string) {
     this.records = this.records.filter(record => record.accountId !== accountId);
     this.save();

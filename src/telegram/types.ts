@@ -1215,6 +1215,7 @@ export type TelegramEvent =
   | {
       type: "forumTopics.changed";
       chatId: string;
+      source?: "local" | "remote";
       topic?: Pick<ForumTopic, "id"> & Partial<Pick<
         ForumTopic,
         | "id"

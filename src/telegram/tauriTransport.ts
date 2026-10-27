@@ -3005,9 +3005,23 @@ export class TauriTelegramTransport implements TelegramTransport {
 
   private preserveNewerMessageContent(raw: TdObject) {
     const existing = this.rawMessages.get(tdId(raw.chat_id))?.get(tdId(raw.id));
-    return existing && (tdNumber(existing.edit_date) ?? 0) > (tdNumber(raw.edit_date) ?? 0)
-      ? { ...raw, content: existing.content, edit_date: existing.edit_date, reply_markup: existing.reply_markup }
-      : raw;
+    if (!existing) return raw;
+    if ((tdNumber(existing.edit_date) ?? 0) > (tdNumber(raw.edit_date) ?? 0)) {
+      raw = { ...raw, content: existing.content, edit_date: existing.edit_date, reply_markup: existing.reply_markup };
+    }
+    const reply = asTdObject(raw.reply_to);
+    const previousReply = asTdObject(existing.reply_to);
+    if (reply?.["@type"] === "messageReplyToMessage" && previousReply?.["@type"] === "messageReplyToMessage" &&
+      !asTdObject(reply.content) && asTdObject(previousReply.content) &&
+      tdId(reply.message_id) === tdId(previousReply.message_id) &&
+      (tdId(reply.chat_id) || tdId(raw.chat_id)) === (tdId(previousReply.chat_id) || tdId(existing.chat_id))) {
+      // History and topic previews omit locally hydrated reply content. Keep it
+      // only while the referenced chat/message is unchanged, including on edits.
+      raw = { ...raw, reply_to: { ...reply, content: previousReply.content,
+        sender_id: previousReply.sender_id, origin_send_date: previousReply.origin_send_date,
+        is_outgoing: previousReply.is_outgoing } };
+    }
+    return raw;
   }
 
   private rawChatIdForBasicGroup(groupId: string) {
