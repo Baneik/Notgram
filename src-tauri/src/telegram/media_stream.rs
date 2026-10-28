@@ -518,11 +518,35 @@ impl MediaStreamRegistry {
     }
 
     fn check_policy(&self, path: &std::path::Path, exporting: bool) -> Result<(), String> {
-        let inner = self.inner.lock().map_err(|_| "File policy unavailable")?;
-        for (id, observed) in &inner.observed_files {
-            if (observed == path || observed.canonicalize().ok().as_deref() == Some(path))
-                && let Some((denied, expires)) = inner.file_policy.get(id)
-                && ((exporting && *denied)
+        self.check_policy_with(path, exporting, |observed| observed.canonicalize().ok())
+    }
+
+    fn check_policy_with(
+        &self,
+        path: &std::path::Path,
+        exporting: bool,
+        resolve: impl Fn(&std::path::Path) -> Option<PathBuf>,
+    ) -> Result<(), String> {
+        let policies: Vec<_> = {
+            let inner = self.inner.lock().map_err(|_| "File policy unavailable")?;
+            inner
+                .file_policy
+                .iter()
+                .filter(|(_, (denied, expires))| (exporting && *denied) || expires.is_some())
+                .filter_map(|(id, (denied, expires))| {
+                    inner
+                        .observed_files
+                        .get(id)
+                        .map(|observed| (observed.clone(), *denied, *expires))
+                })
+                .collect()
+        };
+        // Asset requests share this registry with synchronous window commands.
+        // Resolve only applicable restrictions, after releasing the registry:
+        // a cold thumbnail must not scan every observed file while holding it.
+        for (observed, denied, expires) in policies {
+            if (observed == path || resolve(&observed).as_deref() == Some(path))
+                && ((exporting && denied)
                     || expires.is_some_and(|time| time <= std::time::SystemTime::now()))
             {
                 return Err("This message cannot be saved or has expired".into());
@@ -1039,6 +1063,89 @@ mod tests {
         registry.clear();
         assert_ne!(original_generation, registry.generation());
         assert!(registry.inner.lock().unwrap().observed_files.is_empty());
+    }
+
+    #[test]
+    fn unrestricted_files_do_not_resolve_unrelated_paths() {
+        let registry = MediaStreamRegistry::default();
+        {
+            let mut inner = registry.inner.lock().unwrap();
+            for id in 0..10_000 {
+                inner
+                    .observed_files
+                    .insert(id, PathBuf::from(format!("ordinary-{id}.jpg")));
+                inner.file_policy.insert(id, (false, None));
+            }
+        }
+        let resolutions = std::cell::Cell::new(0);
+        for exporting in [false, true] {
+            registry
+                .check_policy_with(std::path::Path::new("requested.jpg"), exporting, |_| {
+                    resolutions.set(resolutions.get() + 1);
+                    None
+                })
+                .unwrap();
+        }
+        assert_eq!(resolutions.get(), 0);
+    }
+
+    #[test]
+    fn path_resolution_does_not_block_chat_focus() {
+        use std::{sync::mpsc, thread};
+        let registry = Arc::new(MediaStreamRegistry::default());
+        registry.observe_update(&serde_json::json!({"@type":"message", "id":1, "chat_id":20,
+            "can_be_saved":false, "content":{"file":{"id":42,"local":{"path":"original.jpg"}}}}));
+        let (entered, wait_for_resolution) = mpsc::channel();
+        let (release, wait_for_release) = mpsc::channel();
+        let checking = registry.clone();
+        let policy = thread::spawn(move || {
+            checking.check_policy_with(std::path::Path::new("alias.jpg"), true, |_| {
+                entered.send(()).unwrap();
+                wait_for_release.recv().unwrap();
+                Some(PathBuf::from("alias.jpg"))
+            })
+        });
+        wait_for_resolution
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        let (focused, wait_for_focus) = mpsc::channel();
+        let focusing = registry.clone();
+        let focus = thread::spawn(move || {
+            focusing.set_focus(Some(20));
+            focused.send(()).unwrap();
+        });
+        let progress = wait_for_focus.recv_timeout(Duration::from_millis(250));
+        release.send(()).unwrap();
+        let result = policy.join().unwrap();
+        focus.join().unwrap();
+        assert!(result.is_err());
+        assert_eq!(progress, Ok(()));
+        assert!(registry.protected_chat_ids().contains(&20));
+    }
+
+    #[test]
+    fn canonical_aliases_keep_export_and_expiry_restrictions() {
+        let root = env::temp_dir().join(format!("notgram-policy-alias-{}", std::process::id()));
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("media.jpg"), [1, 2, 3]).unwrap();
+        let observed = root.join("nested").join("..").join("media.jpg");
+        let canonical = observed.canonicalize().unwrap();
+        let registry = MediaStreamRegistry::default();
+        registry.observe_update(&serde_json::json!({"@type":"message", "id":1, "chat_id":20,
+            "can_be_saved":false, "content":{"file":{"id":42,"local":{"path":observed}}}}));
+        assert!(registry.check_export(&canonical).is_err());
+        assert!(registry.check_expiry(&canonical).is_ok());
+        registry
+            .inner
+            .lock()
+            .unwrap()
+            .file_policy
+            .insert(42, (false, Some(SystemTime::UNIX_EPOCH)));
+        assert!(registry.check_export(&canonical).is_err());
+        assert!(registry.check_expiry(&canonical).is_err());
+        registry.clear();
+        assert!(registry.check_export(&canonical).is_ok());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

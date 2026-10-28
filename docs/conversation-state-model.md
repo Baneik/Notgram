@@ -628,6 +628,12 @@ a warm-switch benchmark alone cannot validate cold entry or return after idle. T
 production switch benchmark supports `NOTGRAM_SWITCH_COLD_TEST=1` to exercise fresh
 conversations and a return after a full minute of idle without using a real account.
 
+The native media registry is also shared with synchronous chat-focus commands. Asset
+policy checks must snapshot applicable restrictions and release that registry before
+resolving filesystem paths. Ordinary files must not trigger a scan/canonicalization of
+all observed files on every thumbnail request. Keep canonical-alias matching, export
+denials, expiry deadlines and account/session revocation checks intact.
+
 Folder membership, creation, rename and deletion complete when the current account's transport
 and Store confirm the result. A subsequent snapshot failure marks cache health invalid without
 turning that confirmed result into an operation failure. Account changes invalidate late folder
