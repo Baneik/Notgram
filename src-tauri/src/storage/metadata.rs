@@ -21,19 +21,29 @@ fn path(app: &AppHandle, key: &str) -> Result<std::path::PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn telegram_read_account_metadata(
+pub async fn telegram_read_account_metadata(
     app: AppHandle,
     key: String,
 ) -> Result<Option<Vec<Value>>, String> {
-    super::persistence::read_json(&path(&app, &key)?, true)
+    tauri::async_runtime::spawn_blocking(move || {
+        super::persistence::read_json(&path(&app, &key)?, true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn telegram_write_account_metadata(
+pub async fn telegram_write_account_metadata(
     app: AppHandle,
     key: String,
     records: Vec<Value>,
 ) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_account_metadata(&app, &key, &records))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn write_account_metadata(app: &AppHandle, key: &str, records: &[Value]) -> Result<(), String> {
     if records.len() > 10_000
         || serde_json::to_vec(&records)
             .map_err(|e| e.to_string())?
@@ -42,14 +52,14 @@ pub fn telegram_write_account_metadata(
     {
         return Err("Account metadata exceeds storage budget".into());
     }
-    for record in &records {
+    for record in records {
         super::account::validate_account_id(
             record["accountId"]
                 .as_str()
                 .ok_or("Metadata account missing")?,
         )?;
     }
-    super::persistence::write_json(&path(&app, &key)?, &records, true)
+    super::persistence::write_json(&path(app, key)?, &records, true)
 }
 
 pub(super) fn remove_account(app: &AppHandle, account_id: &str) -> Result<(), String> {
@@ -66,10 +76,16 @@ pub(super) fn remove_account(app: &AppHandle, account_id: &str) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn telegram_locate_download(app: AppHandle, file_id: i64) -> Result<(), String> {
-    let account = super::account::active_account_id(&app)?;
-    let records =
-        telegram_read_account_metadata(app.clone(), KEYS[0].to_string())?.unwrap_or_default();
+pub async fn telegram_locate_download(app: AppHandle, file_id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || locate_download(&app, file_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn locate_download(app: &AppHandle, file_id: i64) -> Result<(), String> {
+    let account = super::account::active_account_id(app)?;
+    let records = super::persistence::read_json::<Vec<Value>>(&path(app, KEYS[0])?, true)?
+        .unwrap_or_default();
     let saved = records
         .iter()
         .find(|record| {

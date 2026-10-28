@@ -613,6 +613,21 @@ adequate assertion for this failure mode.
 
 ## Persistent snapshot capacity
 
+Native persistence serializes each primary record with its own backup/temporary-file
+rotation. Independent snapshot, account-registry and metadata records must not share a
+transaction lock: decrypting, validating or syncing a large cache must not delay small
+read-state/activity records. The lock registry holds weak references and no disk I/O.
+Metadata read/write and saved-download lookup commands run their blocking work on the
+native blocking pool, including path resolution and validation, rather than the window
+event thread. Keep durable-write errors, account ownership checks and recovery copies.
+
+WebView long-task/frame logs cover renderer work, not time spent waiting for the native
+window/IPC queue. Investigate reported multi-second freezes with native round-trip timing
+and input/presentation readiness as well as JS CPU profiles. A quiet request interval or
+a warm-switch benchmark alone cannot validate cold entry or return after idle. The
+production switch benchmark supports `NOTGRAM_SWITCH_COLD_TEST=1` to exercise fresh
+conversations and a return after a full minute of idle without using a real account.
+
 Folder membership, creation, rename and deletion complete when the current account's transport
 and Store confirm the result. A subsequent snapshot failure marks cache health invalid without
 turning that confirmed result into an operation failure. Account changes invalidate late folder

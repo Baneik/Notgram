@@ -5,6 +5,77 @@ import { installSessionSwitchFixture } from "./fixtures/sessionSwitchFixture";
 test.use({ trace: "off", screenshot: "only-on-failure" });
 test.describe.configure({ retries: 0 });
 
+test("cold conversations and return after idle stay responsive", { tag: "@performance" }, async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const production = process.env.NOTGRAM_PRODUCTION_SWITCH_TEST === "1";
+  if (production && process.env.NOTGRAM_SWITCH_COLD_TEST !== "1") test.skip();
+  if (!production) await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: `${await response.text()}\n(${installSessionSwitchFixture.toString()})(MockTelegramTransport, true);` });
+  });
+  const session = await page.context().newCDPSession(page);
+  await session.send("Profiler.enable");
+  await session.send("Profiler.start");
+  await page.addInitScript(() => {
+    const records: Array<{ start: number; duration: number }> = [];
+    new PerformanceObserver(list => records.push(...list.getEntries().map(entry => ({ start: entry.startTime, duration: entry.duration }))))
+      .observe({ type: "longtask", buffered: true });
+    Object.assign(window, { __coldSwitchLongTasks: records });
+  });
+  await page.goto(process.env.NOTGRAM_SWITCH_BENCHMARK_PATH ?? "/");
+  await expect(page.locator('.chat-list[data-active=true] [data-chat-id="chat-cold-7"]')).toBeVisible();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+  const sample = async (id: string) => {
+    return page.evaluate(async target => {
+      const row = document.querySelector<HTMLElement>(`.chat-list[data-active=true] [data-chat-id="${target}"]`)!;
+      const started = performance.now();
+      row.click();
+      const dispatchMs = performance.now() - started;
+      const input = document.querySelector<HTMLElement>(".composer-input")!;
+      const inputStarted = performance.now();
+      input.focus();
+      document.execCommand("insertText", false, "cold-switch");
+      const inputMs = performance.now() - inputStarted;
+      await new Promise<void>(resolve => {
+        const frame = () => {
+          const list = document.querySelector(".message-list");
+          if (list?.getAttribute("aria-busy") === "false") resolve();
+          else requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      });
+      return { id: target, started, dispatchMs, inputMs, positionedMs: performance.now() - started,
+        mounted: document.querySelectorAll(".message-list [data-message-id]").length };
+    }, id);
+  };
+  const cold = [];
+  for (let i = 0; i < 8; i++) {
+    cold.push(await sample(`chat-cold-${i}`));
+    await page.waitForTimeout(300);
+  }
+  await page.waitForTimeout(60_000);
+  const afterIdle = await sample("chat-cold-0");
+  await page.waitForTimeout(300);
+  const longTasks = await page.evaluate(() => (window as unknown as { __coldSwitchLongTasks: Array<{ start: number; duration: number }> }).__coldSwitchLongTasks);
+  const result = await session.send("Profiler.stop");
+  const profilePath = testInfo.outputPath("cold-switch.cpuprofile");
+  await writeFile(profilePath, JSON.stringify(result.profile));
+  await testInfo.attach("cold-switch-cpu", { path: profilePath, contentType: "application/json" });
+  await session.detach();
+  const report = { cold, afterIdle, longTasks };
+  await testInfo.attach("cold-switch-metrics", { body: JSON.stringify(report), contentType: "application/json" });
+  console.log("COLD_SWITCH_METRICS", JSON.stringify(report));
+  expect(cold).toHaveLength(8);
+  expect(afterIdle.mounted).toBeGreaterThan(0);
+  if (production) {
+    for (const sample of [...cold, afterIdle]) {
+      expect(sample.dispatchMs, JSON.stringify(report)).toBeLessThan(40);
+      expect(sample.inputMs, JSON.stringify(report)).toBeLessThan(8);
+      expect(sample.positionedMs, JSON.stringify(report)).toBeLessThan(150);
+    }
+  }
+});
+
 test("dense warm conversations stay responsive through thirty switches", { tag: "@performance" }, async ({ page }, testInfo) => {
   const production = process.env.NOTGRAM_PRODUCTION_SWITCH_TEST === "1";
   if (!production) await page.route(/\/src\/telegram\/mockTransport\.ts(?:\?.*)?$/, async route => {

@@ -15,7 +15,7 @@ const relativeImport = file => "./" + path.relative(directory, file).replaceAll(
 await writeFile(entry, `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><div id="root"></div><script type="module">
 import { MockTelegramTransport } from ${JSON.stringify(relativeImport(path.join(sourceRoot, "src/telegram/mockTransport.ts")))};
 import { installSessionSwitchFixture } from ${JSON.stringify(relativeImport(path.join(repository, "tests/e2e/fixtures/sessionSwitchFixture.ts")))};
-installSessionSwitchFixture(MockTelegramTransport);
+installSessionSwitchFixture(MockTelegramTransport, ${process.env.NOTGRAM_SWITCH_COLD_TEST === "1"});
 void import(${JSON.stringify(relativeImport(path.join(sourceRoot, "src/main.tsx")))});
 </script></body></html>`);
 process.env.VITE_TELEGRAM_TRANSPORT = "mock";

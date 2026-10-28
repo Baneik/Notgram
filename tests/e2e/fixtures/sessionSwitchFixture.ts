@@ -5,11 +5,15 @@ import type { TelegramEventListener } from "../../../src/telegram/transport";
 export function installSessionSwitchFixture(Transport: { prototype: {
   connect: (listener: TelegramEventListener) => Promise<TelegramSnapshot>;
   loadCachedSnapshot: () => Promise<unknown>;
-} }) {
+} }, cold = false) {
   const connect = Transport.prototype.connect;
   Transport.prototype.loadCachedSnapshot = async () => undefined;
   Transport.prototype.connect = async function(this: { snapshot: TelegramSnapshot }, listener) {
-    const ids = ["chat-product", "chat-mia"];
+    const ids = ["chat-product", "chat-mia", ...(cold ? Array.from({ length: 8 }, (_, i) => `chat-cold-${i}`) : [])];
+    if (cold) {
+      const template = this.snapshot.chats.find(chat => chat.id === "chat-product")!;
+      this.snapshot.chats.push(...ids.slice(2).map((id, i) => ({ ...template, id, title: `Cold conversation ${i}` })));
+    }
     const messages = ids.flatMap(chatId => Array.from({ length: 60 }, (_, i) => ({
       id: chatId + "-perf-" + i, chatId, senderId: i % 4 === 0 ? "self" : "u-mia", outgoing: i % 4 === 0,
       sentAt: new Date(1700000000000 + i * 1000).toISOString(), delivery: "read" as const,
