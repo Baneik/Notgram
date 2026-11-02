@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { translate } from "../i18n";
 import { usePreferencesStore } from "../store/preferencesStore";
 import { observeLayout } from "../utils/layoutObservation";
 import { useConversationGeometry } from "./ConversationSurface";
 import { telegramStore } from "../store/telegramStore";
+import { MessageTextLayoutContext, remeasureMessageText } from "./MessageTextFlow";
 
 interface QuoteLayout { lineCount: number; collapsedHeight: number; fingerprint: string }
 const quoteLayouts = new Map<string, Map<string, QuoteLayout>>();
@@ -69,6 +70,15 @@ export function CollapsibleBlockQuote({
   const [expanded, setExpanded] = useState(false);
   const collapsible = lineCount > threshold;
   const collapsed = collapsible && !expanded;
+  const onLayoutCommitted = useContext(MessageTextLayoutContext);
+
+  useLayoutEffect(() => {
+    // Automatic folding is a child-only commit. Finish the containing metadata
+    // layout now, before a mount callback or resize observer pins the viewport.
+    const flow = contentRef.current?.closest(".message-text-flow");
+    if (flow) remeasureMessageText(flow);
+    onLayoutCommitted?.();
+  }, [collapsed, collapsedHeight, onLayoutCommitted]);
 
   useLayoutEffect(() => {
     setExpanded(false);

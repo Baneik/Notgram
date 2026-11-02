@@ -152,7 +152,7 @@ export interface MessageBubbleProps {
     getCollapsedAnchor: () => Element | null,
   ) => void;
   onExpandQuote?: ExpandQuoteHandler;
-  onMount?: (onPinned?: () => void) => boolean;
+  onMount?: (onPinned?: (pinned: boolean) => void) => boolean;
   deferUntilPinned?: boolean;
   previousAudioPlaybackId?: string;
   nextAudioPlaybackId?: string;
@@ -615,7 +615,9 @@ function MessageBubbleComponent({
     let visibleAtPinnedEdge = false;
     let bottomPinned = !deferUntilPinned || !onMount;
     let started = false;
+    let waiting = true;
     const clearEntranceWait = () => {
+      waiting = false;
       observer?.disconnect();
       if (timeout !== undefined) globalThis.clearTimeout(timeout);
       if (entranceCleanupRef.current === clearEntranceWait) {
@@ -656,25 +658,26 @@ function MessageBubbleComponent({
       startWhenReady();
     }, { root: list, threshold: [0, 0.99, 1] });
     observer.observe(element);
-    const willPinAtBottom = onMount?.(() => {
+    const showWithoutEntrance = () => {
+      clearEntranceWait();
+      element.classList.remove(preparingClass);
+      consumeMessageEntrance(message);
+    };
+    const willPinAtBottom = onMount?.((pinned) => {
+      if (!waiting) return;
+      if (!pinned) { showWithoutEntrance(); return; }
       bottomPinned = true;
-      // The scroll owner has committed the first pin. Waiting for a second
+      // The scroll owner has committed the initial layout. Waiting for a second
       // asynchronous intersection delivery can hide an already placed bubble.
       if (deferUntilPinned) startEntrance();
       else startWhenReady();
     });
     if (started) return;
     if (willPinAtBottom === false) {
-      clearEntranceWait();
-      element.classList.remove(preparingClass);
-      consumeMessageEntrance(message);
+      showWithoutEntrance();
       return;
     }
-    timeout = globalThis.setTimeout(() => {
-      clearEntranceWait();
-      element.classList.remove(preparingClass);
-      consumeMessageEntrance(message);
-    }, MESSAGE_ENTRANCE_LIFETIME_MS);
+    timeout = globalThis.setTimeout(showWithoutEntrance, MESSAGE_ENTRANCE_LIFETIME_MS);
     entranceCleanupRef.current = clearEntranceWait;
   }, [
     deferUntilPinned,

@@ -184,6 +184,11 @@ not publish completion, write memory, or change the current scroll mode.
 Bottom following has one writer: the coordinator in `useConversationScroll`.
 
 - Resize, total-height, and message-mount callbacks only request reconciliation.
+- A new row's ref attaches before its layout-effect updates finish. Defer its first pin and
+  entrance release to the commit microtask, guarded by the current list, identity and generation.
+  Automatic quote folding must synchronously remeasure its containing text flow so metadata
+  wrapping joins that initial layout. Cancellation releases preparation without an entrance or
+  a stale scroll write; later media resizes continue through the same coordinator.
 - Requests with the same identity and generation are coalesced; notifications do not restart the
   quiet window.
 - The coordinator samples geometry until two quiet animation frames or an eight-frame bound.

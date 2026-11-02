@@ -1224,13 +1224,22 @@ export const useConversationScroll = ({
     writeMemory,
   ]);
 
-  const pinFollowingMessageMount = useCallback((onSettled?: () => void) => {
+  const pinFollowingMessageMount = useCallback((onPinned?: (pinned: boolean) => void) => {
     if (!currentScrollKey || searchActive) return false;
     if (conversationScrollMemory.get(currentScrollKey)?.followLatest !== true) return false;
-    // The mounted row is already measurable, so expose it after the first pin.
-    // The coordinator continues reconciling later Virtuoso measurements.
-    if (!scheduleBottomPin(undefined, "track")) return false;
-    onSettled?.();
+    const element = messageListRef.current;
+    const { identity, generation } = scrollControlRef.current;
+    // Refs attach before layout-effect updates finish folding quotes and
+    // wrapping metadata. Pin their committed geometry before releasing entrance.
+    queueMicrotask(() => {
+      const control = scrollControlRef.current;
+      if (!element?.isConnected || messageListRef.current !== element ||
+        control.identity !== identity || control.generation !== generation) {
+        onPinned?.(false);
+        return;
+      }
+      onPinned?.(scheduleBottomPin(undefined, "track"));
+    });
     return true;
   }, [currentScrollKey, scheduleBottomPin, searchActive]);
 
