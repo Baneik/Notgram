@@ -332,6 +332,23 @@ Native creation enters fullscreen before show,
 uses the main monitor placement helper, and grants only the window operations
 used by the viewer. Multi-monitor/DPI behavior still needs native acceptance.
 
+## Clipboard behavior
+
+Photo and static sticker copy actions write only PNG data. Never attach captions
+as a text alternative: paste targets can prefer that alternative and turn the
+first photo in an album into text. Copy text is a separate message-menu action;
+each photo in a single-caption album can use that same caption. Ordinary chats,
+channels and discussion comments share these actions, including native menus.
+Prefer the local original, then an available thumbnail or preview. Missing or
+failed image reads must report failure rather than silently copy a caption.
+
+The shared viewer supports Ctrl+C, Cmd+C and a copy button for the current photo.
+Copy original pixels, regardless of zoom, and keep native copying for selected
+caption text and editable fields. Check save restrictions for both image and text
+actions. Native image writes wait for the opener to regain document focus.
+Prevent overlapping viewer writes; copy feedback belongs to the image on which
+the operation started and must not follow navigation to another image.
+
 ## Verification and performance acceptance
 
 Unit regressions cover stale acquisition/revision rejection, late release,

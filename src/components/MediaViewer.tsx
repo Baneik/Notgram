@@ -1,7 +1,7 @@
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { getTdlibDataCenterLocation, parseTdlibRemoteFileDataCenter } from "../telegram/fileDataCenter";
 import { translate } from "../i18n";
-import { ChevronLeft, ChevronRight, Download, ImageOff, LoaderCircle, Play } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, ImageOff, LoaderCircle, Play } from "lucide-react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type WheelEvent } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useStableVisibility } from "../hooks/useStableVisibility";
@@ -10,6 +10,7 @@ import { adjacentPhotoId, photoThumbnailWindow, type ViewerMessage } from "../ut
 import { photoSources } from "../media/photoSources";
 import { canWarmViewerImage, hasViewerImage, retainViewerImage } from "../media/viewerImages";
 import { localMediaSource } from "../media/localMediaSource";
+import { copyMessageContent, messageClipboardImageSource } from "../utils/clipboard";
 import { logPerformance } from "../utils/performanceMonitor";
 import { MediaProgressRing } from "./MediaProgressRing";
 import { StableImage } from "./StableImage";
@@ -156,15 +157,40 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
   const [thumbnailLimit, setThumbnailLimit] = useState(1);
   const [actionError, setActionError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyingRef = useRef(false);
   const actionGeneration = useRef(0);
+  const canCopy = content.mediaType === "photo" && messageCanBeSaved(active) && Boolean(messageClipboardImageSource(active));
+  const copy = async () => {
+    if (!canCopy || copyingRef.current) return;
+    const generation = actionGeneration.current;
+    copyingRef.current = true;
+    setCopying(true); setCopied(false); setActionError(undefined);
+    try {
+      await copyMessageContent(active);
+      if (actionGeneration.current === generation) setCopied(true);
+    } catch {
+      if (actionGeneration.current === generation) setActionError(translate("复制失败，请重试"));
+    } finally {
+      copyingRef.current = false;
+      setCopying(false);
+    }
+  };
   const navigationId = useRef(activeMessageId);
-  const keyboard = useRef({ previousId, nextId, onActiveMessageChange, viewport, video });
-  useLayoutEffect(() => { keyboard.current = { previousId, nextId, onActiveMessageChange, viewport, video }; });
+  const keyboard = useRef({ previousId, nextId, onActiveMessageChange, viewport, video, copy, canCopy });
+  useLayoutEffect(() => { keyboard.current = { previousId, nextId, onActiveMessageChange, viewport, video, copy, canCopy }; });
   useLayoutEffect(() => {
     actionGeneration.current++;
     navigationId.current = activeMessageId;
-    setActionError(undefined); setSaving(false);
+    setActionError(undefined); setSaving(false); setCopied(false);
   }, [identity]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = globalThis.setTimeout(() => setCopied(false), 1500);
+    return () => globalThis.clearTimeout(timer);
+  }, [copied]);
 
   useLayoutEffect(() => {
     const element = thumbnailSlotRef.current;
@@ -181,9 +207,18 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
 
   useLayoutEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.altKey || event.metaKey) return;
-      if (event.target instanceof HTMLElement && event.target.matches("input, select, textarea")) return;
+      if (event.defaultPrevented || event.isComposing || event.altKey) return;
+      if (event.target instanceof HTMLElement && (event.target.closest("input, select, textarea") || event.target.isContentEditable)) return;
       const state = keyboard.current;
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && (event.key.toLowerCase() === "c" || event.code === "KeyC")) {
+        const selection = globalThis.getSelection();
+        const selectedText = selection?.toString() && dialogRef.current?.contains(selection.anchorNode) && dialogRef.current.contains(selection.focusNode);
+        if (!state.canCopy || selectedText) return;
+        event.preventDefault();
+        if (!event.repeat) void state.copy();
+        return;
+      }
+      if (event.metaKey) return;
       state.video?.interact();
       if (state.video && !event.ctrlKey) return;
       const id = event.key === "ArrowLeft" ? state.previousId : event.key === "ArrowRight" ? state.nextId : undefined;
@@ -272,7 +307,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
         <footer className="media-viewer-footer">
           {video?.controls}
           {content.caption && <div className="media-viewer-caption-wrap">
-            <p className="media-viewer-caption" aria-live="polite">{content.caption}</p>
+            <p className={`media-viewer-caption ${messageCanBeSaved(active) ? "is-copyable" : ""}`} aria-live="polite">{content.caption}</p>
           </div>}
           <div className="media-viewer-controls">
             <aside className="media-viewer-details" aria-label={video ? translate("媒体详细信息") : translate("图片详细信息")}>
@@ -285,6 +320,12 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
             </div>
             <div className="media-viewer-actions">
               <span className="media-viewer-counter">{messages.findIndex(message => message.id === activeMessageId) + 1} / {messages.length}</span>
+              {content.mediaType === "photo" && <button className="media-viewer-download" type="button"
+                aria-label={translate("复制图片")} aria-keyshortcuts="Control+C Meta+C"
+                title={copied ? translate("已复制") : `${translate("复制图片")} (Ctrl+C)`}
+                aria-busy={copying || undefined} disabled={!canCopy || copying} onClick={() => void copy()}>
+                {copying ? <LoaderCircle className="spin" size={19} /> : copied ? <Check size={19} /> : <Copy size={19} />}
+              </button>}
               <button className="media-viewer-download" type="button" aria-label={video ? translate("下载视频") : translate("下载图片")} aria-busy={content.isDownloading || saving || undefined}
                 title={content.isDownloading ? translate("下载中") : canSave ? translate("保存到下载目录") : video ? translate("下载视频") : translate("下载原图")}
                 disabled={saving || content.isDownloading || (!canSave && !canDownload)} onClick={() => void save()}>
@@ -293,6 +334,7 @@ function Viewer({ messages, activeMessageId, active, onActiveMessageChange, onCl
             </div>
           </div>
           {actionError && <div className="media-viewer-action-error" role="alert">{actionError}</div>}
+          {copied && <div className="media-viewer-action-status" role="status">{translate("已复制")}</div>}
         </footer>
       </main>
     </div>

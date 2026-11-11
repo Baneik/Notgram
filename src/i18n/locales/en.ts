@@ -775,6 +775,8 @@ export const en = {
   "复制已选消息": "Copy selected message",
   "复制所选消息": "Copy selected message",
   "复制文本": "Copy text",
+  "复制图片": "Copy image",
+  "复制失败，请重试": "Could not copy. Try again.",
   "复制链接": "Copy link",
   "外部脚本": "External script",
   "多选": "Multiple selection",

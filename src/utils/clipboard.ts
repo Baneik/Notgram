@@ -1,4 +1,4 @@
-import { convertFileSrc, isTauri } from "@tauri-apps/api/core";
+import { localMediaSource } from "../media/localMediaSource";
 import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message } from "../telegram/types";
@@ -74,11 +74,6 @@ export const writeClipboardText = async (text: string) => {
   if (!copied) throw new Error("Clipboard write failed");
 };
 
-const clipboardImageSource = (path?: string) => {
-  if (!path) return undefined;
-  return isTauri() ? convertFileSrc(path, "notgram-asset") : path;
-};
-
 const imageBlobAsPng = async (blob: Blob) => {
   if (blob.type === "image/png") return blob;
   if (typeof document === "undefined") throw new Error("Image conversion is unavailable");
@@ -116,7 +111,7 @@ export const rasterImageAsPng = async (source: string, signal: AbortSignal) => {
   });
 };
 
-export const writeClipboardImage = async (source: string, text?: string) => {
+export const writeClipboardImage = async (source: string) => {
   const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
   const ClipboardItemConstructor = (
     globalThis as typeof globalThis & { ClipboardItem?: typeof ClipboardItem }
@@ -127,32 +122,38 @@ export const writeClipboardImage = async (source: string, text?: string) => {
   const response = await fetch(source);
   if (!response.ok) throw new Error(`Unable to read image (${response.status})`);
   const png = await imageBlobAsPng(await response.blob());
-  const payload: Record<string, Blob> = { "image/png": png };
-  if (text?.trim()) payload["text/plain"] = new Blob([text], { type: "text/plain" });
-  await clipboard.write([new ClipboardItemConstructor(payload)]);
+  if (typeof document !== "undefined" && !document.hasFocus()) {
+    await waitForClipboardFocus(new AbortController().signal);
+  }
+  // A text representation makes paste targets prefer the caption over the image.
+  await clipboard.write([new ClipboardItemConstructor({ "image/png": png })]);
 };
 
-export const copyMessageContent = async (message: Message) => {
-  if (!messageCanBeSaved(message)) throw new Error("This message cannot be saved");
+export type MessageCopyKind = "content" | "text";
+
+export const isClipboardImageMessage = (message: Message) => {
   const content = message.content;
-  if (
-    content.kind === "media" &&
-    (content.mediaType === "photo" || (
-      content.mediaType === "sticker" &&
-      content.mimeType !== "video/webm" &&
-      content.mimeType !== "application/x-tgsticker"
-    ))
-  ) {
-    const source = clipboardImageSource(content.localPath) ??
-      clipboardImageSource(content.thumbnailPath) ??
-      content.previewDataUrl;
-    if (source) {
-      await writeClipboardImage(source, content.caption);
-      return;
-    }
+  return content.kind === "media" && (content.mediaType === "photo" || (
+    content.mediaType === "sticker" && content.mimeType !== "video/webm" && content.mimeType !== "application/x-tgsticker"
+  ));
+};
+
+export const messageClipboardImageSource = (message: Message) => {
+  const content = message.content;
+  if (!isClipboardImageMessage(message) || content.kind !== "media") return undefined;
+  return localMediaSource(content.localPath) ?? localMediaSource(content.thumbnailPath) ?? content.previewDataUrl;
+};
+
+export const copyMessageContent = async (message: Message, kind: MessageCopyKind = "content", textOverride?: string) => {
+  if (!messageCanBeSaved(message)) throw new Error("This message cannot be saved");
+  if (kind === "content" && isClipboardImageMessage(message)) {
+    const source = messageClipboardImageSource(message);
+    if (!source) throw new Error("Message image is unavailable");
+    await writeClipboardImage(source);
+    return;
   }
 
-  const text = messageContentText(content).trim();
+  const text = (textOverride ?? messageContentText(message.content)).trim();
   if (!text) throw new Error("Message has no copyable content");
   await writeClipboardText(text);
 };

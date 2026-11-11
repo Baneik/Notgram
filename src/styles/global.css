@@ -2241,7 +2241,8 @@ html.reduce-motion .audio-disc { animation: none; }
 .media-viewer-caption-wrap { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: min(820px, calc(100% - 32px)); padding: 6px 12px; border-radius: 5px; background: var(--color-media-backdrop); }
 .media-viewer-caption { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; margin: 0; overflow: hidden; color: var(--color-on-media); font-size: 13px; font-weight: 500; line-height: 1.65; text-align: center; overflow-wrap: anywhere; white-space: pre-wrap; text-shadow: 0 1px 3px var(--color-media-backdrop); }
 .media-viewer-zoom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 5px 10px; border-radius: 5px; background: var(--color-media-backdrop); color: var(--color-on-media); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; }
-.media-viewer-action-error { text-align: center; color: var(--color-on-media); font-size: 12px; }
+.media-viewer-caption.is-copyable { user-select: text; -webkit-user-select: text; }
+.media-viewer-action-error, .media-viewer-action-status { text-align: center; color: var(--color-on-media); font-size: 12px; }
 .media-viewer-thumbnail-play { position: absolute; inset: auto 4px 4px auto; filter: drop-shadow(0 1px 2px var(--color-bg-media)); }
 .media-viewer-video-stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px 48px; container-type: size; }
 .media-viewer-video { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }

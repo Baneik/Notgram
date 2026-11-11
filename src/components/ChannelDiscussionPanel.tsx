@@ -48,6 +48,8 @@ import type {
   User,
 } from "../telegram/types";
 import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
+import { mediaAlbumCaptionMessage, mediaAlbumMessagesFor } from "../utils/mediaAlbums";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import {
   mentionTextForUser,
   type ComposerTextInsertion,
@@ -340,6 +342,10 @@ export function ChannelDiscussionPanel({
   const actionAlbumMessageIds = actionMessage?.mediaAlbumId
     ? comments.filter((message) => message.mediaAlbumId === actionMessage.mediaAlbumId).map((message) => message.id)
     : [];
+  const actionCaptionMessage = actionMessage
+    ? mediaAlbumCaptionMessage(mediaAlbumMessagesFor(comments, actionMessage))
+    : undefined;
+  const actionCopyText = actionCaptionMessage && messageCanBeSaved(actionCaptionMessage) ? actionCaptionMessage.content.caption : undefined;
 
   const composerFocus = useComposerFocus(inputRef, `${activeAccountId}:${discussionChatId}:${draftKey}`,
     !forwarding.selectionMode);
@@ -845,8 +851,9 @@ export function ChannelDiscussionPanel({
             setDeleteTarget(actionMessage);
             setActionMenu(undefined);
           }}
-          onCopy={() => {
-            void copyMessageContent(actionMessage).then(closeActionMenu).catch(() => undefined);
+          copyText={actionCopyText}
+          onCopy={kind => {
+            void copyMessageContent(actionMessage, kind, kind === "text" ? actionCopyText : undefined).then(closeActionMenu).catch(() => undefined);
           }}
           onPin={actionMessage.permissions?.canPin ? () => void openPinDialog(actionMessage) : undefined}
           onUnpin={actionMessage.permissions?.canPin ? () => void unpinMessage(actionMessage) : undefined}

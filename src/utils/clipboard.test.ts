@@ -1,7 +1,69 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readClipboardContent, waitForClipboardFocus } from "./clipboard";
+import { copyMessageContent, readClipboardContent, waitForClipboardFocus } from "./clipboard";
+import type { Message } from "../telegram/types";
+import type { PhotoMessage } from "./mediaViewerModel";
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("message copying", () => {
+  const photo: PhotoMessage = {
+    id: "photo", chatId: "chat", senderId: "sender", outgoing: false, sentAt: "2026-11-11T00:00:00Z", delivery: "read",
+    content: { kind: "media", mediaType: "photo", fileName: "photo.png", sizeLabel: "1 KB",
+      localPath: "/original.png", thumbnailPath: "/thumbnail.png", caption: "Album caption" },
+  };
+
+  const clipboard = () => {
+    const write = vi.fn(async (_items: unknown[]) => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
+    const fetch = vi.fn(async () => ({ ok: true, blob: async () => new Blob(["pixels"], { type: "image/png" }) }));
+    vi.stubGlobal("navigator", { clipboard: { write, writeText } });
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("ClipboardItem", class { constructor(public data: Record<string, Blob>) {} });
+    return { write, writeText, fetch };
+  };
+
+  it("copies the original image without a text alternative even when it has a caption", async () => {
+    const { write, writeText, fetch } = clipboard();
+    await copyMessageContent(photo);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/original.png");
+    const item = write.mock.calls[0][0][0] as { data: Record<string, Blob> };
+    expect(Object.keys(item.data)).toEqual(["image/png"]);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("copies shared album text explicitly without fetching an image", async () => {
+    const { write, writeText, fetch } = clipboard();
+    await copyMessageContent(photo, "text", "Shared caption\nsecond line");
+    expect(writeText).toHaveBeenCalledExactlyOnceWith("Shared caption\nsecond line");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("reports an unavailable image instead of silently copying its caption", async () => {
+    const { writeText, write } = clipboard();
+    const message: Message = { ...photo, content: { ...photo.content, localPath: undefined, thumbnailPath: undefined } };
+    await expect(copyMessageContent(message)).rejects.toThrow("image is unavailable");
+    expect(writeText).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a failed image write with its caption", async () => {
+    const { write, writeText } = clipboard();
+    write.mockRejectedValueOnce(new Error("Clipboard denied"));
+    await expect(copyMessageContent(photo)).rejects.toThrow("Clipboard denied");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it.each<Message>([
+    { ...photo, canSave: false }, { ...photo, selfDestruct: true },
+    { ...photo, expiresAt: "2020-01-01T00:00:00Z" },
+  ])("preserves export restrictions for both image and explicit text", async message => {
+    const { write, writeText, fetch } = clipboard();
+    await expect(copyMessageContent(message)).rejects.toThrow("cannot be saved");
+    await expect(copyMessageContent(message, "text", "caption")).rejects.toThrow("cannot be saved");
+    expect(fetch).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled(); expect(writeText).not.toHaveBeenCalled();
+  });
+});
 
 describe("clipboard content", () => {
   it("falls back to text when a WebView denies the richer read API", async () => {

@@ -1,5 +1,7 @@
 import { translate } from "../i18n";
 import { isEditableMessageContent } from "../telegram/messageContent";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
+import { isClipboardImageMessage, messageClipboardImageSource, type MessageCopyKind } from "../utils/clipboard";
 import {
   AlertCircle,
   BellOff,
@@ -112,7 +114,8 @@ interface MessageActionMenuProps {
   onUnpin?: () => void;
   onPlayInWindow?: () => void;
   onDownload?: () => void;
-  onCopy: () => void;
+  onCopy: (kind: MessageCopyKind) => void;
+  copyText?: string;
   onDismiss: () => void;
   onClose: () => void;
   onReport?: () => void;
@@ -135,11 +138,28 @@ export function MessageActionMenu({
   onPlayInWindow,
   onDownload,
   onCopy,
+  copyText = message.content.kind === "media" ? message.content.caption : undefined,
   onDismiss,
   onClose,
   onReport,
 }: MessageActionMenuProps) {
   const permissions = message.permissions;
+  const copyImage = isClipboardImageMessage(message);
+  const copyLabel = copyImage ? translate("复制图片") : translate("复制");
+  const copyDisabled = !messageCanBeSaved(message) || (copyImage && !messageClipboardImageSource(message));
+  const hasCopyText = copyImage && Boolean(copyText?.trim());
+  const copyItems: NativeContextMenuItem[] = [
+    { id: "copy", label: copyLabel, icon: "copy", disabled: copyDisabled },
+    ...(hasCopyText ? [{ id: "copy-text", label: translate("复制文本"), icon: "copy" as const, disabled: !messageCanBeSaved(message) }] : []),
+  ];
+  const copyButtons = <>
+    <button key="copy" type="button" role="menuitem" disabled={copyDisabled} onClick={() => onCopy("content")}>
+      <ClipboardCopy size={17} strokeWidth={2.1} /><span>{copyLabel}</span>
+    </button>
+    {hasCopyText && <button key="copy-text" type="button" role="menuitem" disabled={!messageCanBeSaved(message)} onClick={() => onCopy("text")}>
+      <ClipboardCopy size={17} strokeWidth={2.1} /><span>{translate("复制文本")}</span>
+    </button>}
+  </>;
   const { status: permissionStatus, loading, retry: retryPermissions } = useMessageActionPermissions(message, onLoadPermissions);
   const permissionLabel = permissionStatus === "unavailable" ? translate("连接恢复后自动重试")
     : permissionStatus === "loading" ? translate("正在读取操作权限") : translate("无法读取操作权限");
@@ -177,7 +197,7 @@ export function MessageActionMenu({
       actionable: true,
       children: quickForwardItems.length > 0 ? quickForwardItems : undefined,
     }] : []),
-    { id: "copy", label: translate("复制"), icon: "copy" },
+    ...copyItems,
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(permissions.canEdit && isEditableMessageContent(message.content)
       ? [{ id: "edit", label: translate("编辑"), icon: "edit" as const }]
@@ -190,7 +210,7 @@ export function MessageActionMenu({
       : []),
     ...(onReport ? [{ id: "report", label: translate("举报"), icon: "flag" as const, danger: true }] : []),
   ] : [
-    { id: "copy", label: translate("复制"), icon: "copy" },
+    ...copyItems,
     ...(onDownload ? [{ id: "download", label: translate("下载"), icon: "download" as const }] : []),
     ...(onPlayInWindow ? [{ id: "play-window", label: translate("以小窗播放"), icon: "play-window" as const }] : []),
     {
@@ -216,7 +236,8 @@ export function MessageActionMenu({
       const target = quickForwardTargets.find((candidate) => candidate.id === targetId);
       if (target) onQuickForward(target);
     }
-    else if (actionId === "copy") onCopy();
+    else if (actionId === "copy") onCopy("content");
+    else if (actionId === "copy-text") onCopy("text");
     else if (actionId === "edit") onEdit();
     else if (actionId === "delete") onDelete();
     else if (actionId === "pin-message") onPin?.();
@@ -252,10 +273,7 @@ export function MessageActionMenu({
     >
       {!permissions ? (
         <>
-          <button key="copy" type="button" role="menuitem" onClick={onCopy}>
-            <ClipboardCopy size={17} strokeWidth={2.1} />
-            <span>{translate("复制")}</span>
-          </button>
+          {copyButtons}
           {onDownload && (
             <button key="download" type="button" role="menuitem" onClick={onDownload}>
               <Download size={16} strokeWidth={1.9} />
@@ -329,10 +347,7 @@ export function MessageActionMenu({
               <span>{translate("转发")}</span>
             </button>
           ) : null}
-          <button key="copy" type="button" role="menuitem" onClick={onCopy}>
-            <ClipboardCopy size={17} strokeWidth={2.1} />
-            <span>{translate("复制")}</span>
-          </button>
+          {copyButtons}
           {onDownload && (
             <button key="download" type="button" role="menuitem" onClick={onDownload}>
               <Download size={17} strokeWidth={2.1} />

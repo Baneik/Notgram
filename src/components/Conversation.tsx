@@ -135,7 +135,8 @@ import { motionLifecycleTiming } from "../utils/motionTokens";
 import { recentMentionUserIdsFor } from "../utils/mentionSuggestions";
 import { ForumTopicStrip } from "./ForumTopicStrip";
 import { FORUM_ALL_TOPIC_ID } from "../telegram/types";
-import { copyMessageContent, writeClipboardText } from "../utils/clipboard";
+import { copyMessageContent, writeClipboardText, type MessageCopyKind } from "../utils/clipboard";
+import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { formatSelectedMessages } from "../utils/messageClipboard";
 import {
   clampSelectionToMessageText,
@@ -1587,6 +1588,10 @@ export function Conversation({
   const actionAlbumMessageIds = actionMessage
     ? mediaAlbumMessagesFor(renderedMessages, actionMessage).map((message) => message.id)
     : [];
+  const actionCaptionMessage = actionMessage
+    ? mediaAlbumCaptionMessage(mediaAlbumMessagesFor(renderedMessages, actionMessage))
+    : undefined;
+  const actionCopyText = actionCaptionMessage && messageCanBeSaved(actionCaptionMessage) ? actionCaptionMessage.content.caption : undefined;
   const positioningFeedbackVisible = useStableVisibility(
     !pinnedViewOpen && positioning && hideUnpositionedEntry,
     { minimumVisible: 0 },
@@ -2092,9 +2097,9 @@ export function Conversation({
     });
   }, [activeAccountId]);
 
-  const copyMessage = async (message: Message) => {
+  const copyMessage = async (message: Message, kind: MessageCopyKind) => {
     try {
-      await copyMessageContent(message);
+      await copyMessageContent(message, kind, kind === "text" ? actionCopyText : undefined);
       closeActionMenu(false);
     } catch {
       // Keep the menu open so the user can retry or download an unavailable image.
@@ -3103,7 +3108,8 @@ export function Conversation({
                 );
               }
             : undefined}
-          onCopy={() => void copyMessage(actionMessageForMenu)}
+          copyText={actionCopyText}
+          onCopy={kind => void copyMessage(actionMessageForMenu, kind)}
           onReport={!actionMessageForMenu.isLocallyDeleted
             ? () => { setReportTarget(actionMessageForMenu); setActionMenu(undefined); }
             : undefined}

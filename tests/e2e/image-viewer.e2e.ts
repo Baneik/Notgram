@@ -18,6 +18,7 @@ async function openFixture(page: Page, previewOnly = false, options: {
   detailPattern?: boolean;
   native?: boolean;
   preparedPreview?: boolean;
+  canSave?: boolean;
 } = {}) {
   await page.route("**/viewer-fixture.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Viewer fixture</title>" }));
   await page.goto("/viewer-fixture.html");
@@ -54,7 +55,7 @@ async function openFixture(page: Page, previewOnly = false, options: {
     await route.fulfill({ contentType: !thumbnail && options.detailPattern ? "image/png" : "image/jpeg", body: Buffer.from(thumbnail ? images.thumbnail : images.original, "base64") });
   });
   const messages: PhotoMessage[] = Array.from({ length: 15 }, (_, index) => ({
-    id: `photo-${index}`, chatId: "viewer-fixture", senderId: "fixture", outgoing: false, sentAt: "2026-09-14T00:00:00Z", delivery: "read",
+    id: `photo-${index}`, chatId: "viewer-fixture", senderId: "fixture", outgoing: false, sentAt: "2026-09-14T00:00:00Z", delivery: "read", canSave: options.canSave,
     content: { kind: "media", mediaType: "photo", fileName: `image-${index}.jpg`, sizeLabel: "2 MB", ...originalSize,
       localPath: previewOnly && index === 6 ? undefined : `/viewer-image/original-${index}.jpg`,
       thumbnailPath: `/viewer-image/thumb-${index}.jpg`,
@@ -101,6 +102,98 @@ async function openFixture(page: Page, previewOnly = false, options: {
   await expect(page.locator(".media-viewer-thumbnails button")).toHaveCount(9);
   return { requests };
 }
+
+for (const width of [1280, 390]) {
+  test(`viewer copies the current original through shortcut and button (${width})`, async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const { requests } = await openFixture(page);
+    await page.setViewportSize({ width, height: 800 });
+    const assertImage = async () => {
+      await expect(page.getByRole("status", { name: "", exact: true }).filter({ hasText: "已复制" })).toBeVisible();
+      expect(await page.evaluate(async () => {
+        const [item] = await navigator.clipboard.read();
+        const image = await createImageBitmap(await item.getType("image/png"));
+        const result = { types: item.types, width: image.width, height: image.height };
+        image.close(); return result;
+      })).toEqual({ types: ["image/png"], width: 3200, height: 2000 });
+    };
+    await page.keyboard.press("Control+c");
+    await assertImage();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator('.media-viewer-image[src="/viewer-image/original-7.jpg"][data-image-state="ready"]')).toHaveCount(1);
+    const before = requests.filter(path => path === "/viewer-image/original-7.jpg").length;
+    await page.getByRole("button", { name: "复制图片", exact: true }).click();
+    await assertImage();
+    expect(requests.filter(path => path === "/viewer-image/original-7.jpg")).toHaveLength(before + 1);
+    await page.screenshot({ path: `logs/clipboard-viewer-${width}.png` });
+  });
+}
+
+test("viewer preserves native caption selection and copying", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await openFixture(page);
+  const caption = page.locator(".media-viewer-caption");
+  expect(await caption.evaluate(element => getComputedStyle(element).userSelect)).toBe("text");
+  await caption.evaluate(element => {
+    const range = document.createRange(); range.selectNodeContents(element);
+    const selection = getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+  });
+  await page.keyboard.press("Control+c");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Viewer caption");
+  expect(await page.evaluate(async () => (await navigator.clipboard.read())[0].types)).not.toContain("image/png");
+});
+
+test("viewer reports clipboard failure and allows retry", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await openFixture(page);
+  await page.evaluate(() => {
+    const write = navigator.clipboard.write.bind(navigator.clipboard);
+    let failed = false;
+    navigator.clipboard.write = async items => {
+      if (!failed) { failed = true; throw new DOMException("Denied", "NotAllowedError"); }
+      return write(items);
+    };
+  });
+  await page.keyboard.press("Control+c");
+  await expect(page.getByRole("alert")).toHaveText("复制失败，请重试");
+  await page.getByRole("button", { name: "复制图片", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".media-viewer-action-status")).toHaveText("已复制");
+});
+
+test("viewer disables image copying for protected messages", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await openFixture(page, false, { canSave: false });
+  await page.evaluate(() => navigator.clipboard.writeText("keep clipboard"));
+  await expect(page.getByRole("button", { name: "复制图片", exact: true })).toBeDisabled();
+  await page.keyboard.press("Control+c");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("keep clipboard");
+});
+
+test("viewer suppresses duplicate writes and discards feedback after navigation", async ({ page }) => {
+  await openFixture(page);
+  await page.evaluate(() => {
+    const state = { writes: 0, release: () => {} };
+    Object.assign(window, { viewerCopy: state });
+    navigator.clipboard.write = () => {
+      state.writes++;
+      return new Promise<void>(resolve => { state.release = resolve; });
+    };
+  });
+  const state = () => page.evaluate(() => (window as unknown as { viewerCopy: { writes: number } }).viewerCopy.writes);
+  await page.keyboard.press("Control+c");
+  await expect.poll(state).toBe(1);
+  await page.keyboard.press("Control+c");
+  expect(await state()).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await page.evaluate(() => (window as unknown as { viewerCopy: { release: () => void } }).viewerCopy.release());
+  await expect(page.getByRole("button", { name: "复制图片", exact: true })).toBeEnabled();
+  await expect(page.locator(".media-viewer-action-status")).toHaveCount(0);
+  await page.keyboard.press("Control+c");
+  await expect.poll(state).toBe(2);
+  await page.evaluate(() => (window as unknown as { viewerCopy: { release: () => void } }).viewerCopy.release());
+  await expect(page.locator(".media-viewer-action-status")).toHaveText("已复制");
+});
 
 test("a local original loads without waiting for a stalled thumbnail in a fresh viewer", async ({ page }) => {
   let release!: () => void;
