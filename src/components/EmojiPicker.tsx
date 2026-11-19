@@ -1,4 +1,5 @@
 import { translate } from "../i18n";
+import { useStickerSetRefresh } from "../hooks/useStickerSetRefresh";
 import { Clock3, Images, LoaderCircle, Search, Sticker, X } from "lucide-react";
 import {
   useCallback,
@@ -236,6 +237,9 @@ export function EmojiPicker({
     });
     return () => { active = false; };
   }, [emojiRevision, getCachedStickerSet, loadStickerSet, retryRevision, selectedStickerSetId, tab]);
+
+  useStickerSetRefresh(tab === "sticker" && !query.trim() && selectedStickerSetId !== RECENT_STICKERS
+    ? selectedStickerSetId : undefined);
 
   useEffect(() => {
     if (tab !== "sticker" || !query.trim()) {

@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 import type { EmojiPickerAsset, EmojiPickerCatalog, Message, StickerSet } from "../../src/telegram/types";
 
 type StoreModule = typeof import("../../src/store/telegramStore");
+type MockModule = typeof import("../../src/telegram/mockTransport");
+type PackRefreshAudit = { reads: number; added: number };
+type PackRefreshWindow = typeof globalThis & { packRefreshAudit: PackRefreshAudit };
 type Audit = { loads: number[]; recovered: boolean; searches: string[]; finishSearch?: (assets: EmojiPickerAsset[] | undefined) => void };
 const storePath = "/src/store/telegramStore.ts";
 const outline = "M40 180C40 70 120 20 256 20C392 20 472 70 472 180L472 332C472 442 392 492 256 492C120 492 40 442 40 332Z";
@@ -15,6 +18,66 @@ const ready = async (page: Page) => {
   await expect(page.getByRole("textbox", { name: "消息内容" })).toBeVisible();
 };
 const picker = (page: Page) => page.getByRole("dialog", { name: "表情、贴纸与 GIF" });
+
+for (const width of [1366, 390]) {
+  test(`installed pack and pack preview refresh without a push update at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.clock.install();
+    await ready(page);
+    const { id, title, count } = await page.evaluate(async (storePath) => {
+      const { telegramStore } = await import(storePath) as StoreModule;
+      const { MockTelegramTransport } = await import("/src/telegram/mockTransport.ts" as string) as MockModule;
+      const state = telegramStore.getState();
+      const catalog = (await state.loadEmojiPicker())!;
+      const pack = (await state.loadStickerSet(catalog.stickerSets[0].id))!;
+      const audit: PackRefreshAudit = { reads: 0, added: 1 };
+      Object.assign(globalThis, { packRefreshAudit: audit });
+      const readCached = MockTelegramTransport.prototype.getStickerSet;
+      MockTelegramTransport.prototype.getStickerSet = async function (id, refresh?: { name?: string }) {
+        if (!refresh || id !== pack.id) return readCached.call(this, id);
+        audit.reads++;
+        const stickers = [...pack.stickers, ...Array.from({ length: audit.added }, (_, index): EmojiPickerAsset => ({
+          id: `pack-refresh-${index + 1}`, kind: "sticker", fileId: 99600 + index, stickerSetId: pack.id,
+          fileName: "sticker.jpg", mimeType: "image/jpeg", localPath: "/mock-video-poster.jpg",
+        }))];
+        return { ...pack, isInstalled: true, isArchived: false, size: stickers.length, stickers };
+      };
+      return { id: pack.id, title: pack.title, count: pack.stickers.length };
+    }, storePath);
+    const add = (count: number) => page.evaluate((added) => {
+      (globalThis as PackRefreshWindow).packRefreshAudit.added = added;
+    }, count);
+    const reads = () => page.evaluate(() => (globalThis as PackRefreshWindow).packRefreshAudit.reads);
+
+    await page.getByRole("button", { name: "表情", exact: true }).click();
+    await picker(page).getByTitle(title, { exact: true }).click();
+    await expect(picker(page).locator('[data-asset-id="pack-refresh-1"]')).toBeVisible();
+    await add(2);
+    await page.clock.fastForward(60_000);
+    await expect(picker(page).locator('[data-asset-id="pack-refresh-2"]')).toBeVisible();
+    await picker(page).getByRole("button", { name: "关闭表情面板" }).click();
+    await expect(page.locator(".emoji-picker")).toHaveCount(0);
+
+    await add(3);
+    await page.evaluate(id => dispatchEvent(new CustomEvent("notgram:telegram-link-opened", {
+      detail: { kind: "stickerSet", stickerSet: { id } },
+    })), id);
+    const preview = page.getByRole("dialog", { name: title });
+    await expect(preview.locator(".sticker-set-list button")).toHaveCount(count + 3);
+    await preview.locator(".sticker-set-list button").nth(1).click();
+    const selection = await preview.locator(".sticker-set-stage .emoji-asset-visual").getAttribute("data-asset-id");
+    expect(selection).toBeTruthy();
+    await add(4);
+    await page.clock.fastForward(60_000);
+    await expect(preview.locator(".sticker-set-list button")).toHaveCount(count + 4);
+    await expect(preview.locator(".sticker-set-stage .emoji-asset-visual")).toHaveAttribute("data-asset-id", selection!);
+    await preview.getByRole("button", { name: "关闭贴纸包预览" }).click();
+    await expect(page.locator(".sticker-set-dialog")).toHaveCount(0);
+    const beforeClose = await reads();
+    await page.clock.fastForward(60_000);
+    expect(await reads()).toBe(beforeClose);
+  });
+}
 
 test("cached static stickers paint pack covers without downloading a thumbnail", async ({ page }) => {
   await ready(page);

@@ -351,7 +351,7 @@ export interface TelegramState {
   exportStickers: (target: import("../telegram/types").StickerExportTarget) => Promise<import("../telegram/types").StickerExportResult>;
   loadEmojiPicker: () => Promise<EmojiPickerCatalog | undefined>;
   getCachedStickerSet: (stickerSetId: string) => StickerSet | undefined;
-  loadStickerSet: (stickerSetId: string) => Promise<StickerSet | undefined>;
+  loadStickerSet: (stickerSetId: string, options?: { refresh?: boolean }) => Promise<StickerSet | undefined>;
   addStickerSet: (stickerSetId: string) => Promise<boolean>;
   removeStickerSet: (stickerSetId: string) => Promise<boolean>;
   searchStickers: (query: string, chatId: string) => Promise<EmojiPickerAsset[] | undefined>;

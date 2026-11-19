@@ -143,11 +143,11 @@ describe("emoji picker cache", () => {
     expect(transport.getEmojiPickerCatalog).toHaveBeenCalledTimes(2);
   });
 
-  it("does not let an older pack read overwrite a live update", async () => {
+  it.each([false, true])("does not let an older pack read overwrite a live update (refresh: %s)", async (refresh) => {
     const { controller, transport } = createHarness();
     const old = deferred<StickerSet>();
     transport.getStickerSet.mockReturnValueOnce(old.promise);
-    const loading = controller.loadStickerSet("set-1");
+    const loading = controller.loadStickerSet("set-1", { refresh });
     const updated = { ...stickerSet, title: "Updated", isInstalled: true };
     controller.handleUpdate({ type: "stickerSet.updated", stickerSet: updated });
     old.resolve(stickerSet);
@@ -206,6 +206,55 @@ describe("emoji picker cache", () => {
     expect(transport.getStickerSet).toHaveBeenCalledTimes(1);
     expect(controller.getCachedEmojiPicker()).toBe(catalog);
     expect(controller.getCachedStickerSet("set-1")).toBe(stickerSet);
+  });
+
+  it("shares a live refresh and keeps the previous pack usable until new contents arrive", async () => {
+    const { controller, transport } = createHarness();
+    const original = { ...stickerSet, isInstalled: true };
+    transport.getEmojiPickerCatalog.mockResolvedValueOnce({ ...catalog, stickerSets: [original] });
+    transport.getStickerSet.mockResolvedValueOnce(original);
+    await controller.loadEmojiPicker();
+    await controller.loadStickerSet(original.id);
+    const pending = deferred<StickerSet>();
+    transport.getStickerSet.mockReturnValueOnce(pending.promise);
+    const refresh = controller.loadStickerSet(original.id, { refresh: true });
+    expect(controller.loadStickerSet(original.id, { refresh: true })).toBe(refresh);
+    expect(transport.getStickerSet).toHaveBeenLastCalledWith(original.id, { name: original.name });
+    expect(controller.getCachedStickerSet(original.id)).toBe(original);
+    const updated = { ...original, size: 2, stickers: [asset, { ...asset, id: "sticker:2", fileId: 2 }] };
+    pending.resolve(updated);
+    await expect(refresh).resolves.toBe(updated);
+    expect(controller.getCachedStickerSet(original.id)).toBe(updated);
+    expect(controller.getCachedEmojiPicker()?.stickerSets[0]).toMatchObject({ size: 2 });
+    expect(controller.getCachedEmojiPicker()?.stickerSets[0]).not.toHaveProperty("stickers");
+
+    transport.getStickerSet.mockRejectedValueOnce(new Error("offline"));
+    await expect(controller.loadStickerSet(original.id, { refresh: true })).resolves.toBe(updated);
+    expect(controller.getCachedStickerSet(original.id)).toBe(updated);
+  });
+
+  it("revalidates after an in-flight cached read and drops queued refreshes on account reset", async () => {
+    const { controller, transport } = createHarness();
+    const cached = deferred<StickerSet>();
+    const next = deferred<StickerSet>();
+    transport.getStickerSet.mockReturnValueOnce(cached.promise).mockReturnValueOnce(next.promise);
+    const first = controller.loadStickerSet(stickerSet.id);
+    const refresh = controller.loadStickerSet(stickerSet.id, { refresh: true });
+    cached.resolve(stickerSet);
+    await first;
+    await vi.waitFor(() => expect(transport.getStickerSet).toHaveBeenLastCalledWith(stickerSet.id, { name: stickerSet.name }));
+    next.resolve({ ...stickerSet, title: "Fresh" });
+    await expect(refresh).resolves.toMatchObject({ title: "Fresh" });
+
+    controller.reset();
+    const old = deferred<StickerSet>();
+    transport.getStickerSet.mockReturnValueOnce(old.promise);
+    const oldRead = controller.loadStickerSet(stickerSet.id);
+    const oldRefresh = controller.loadStickerSet(stickerSet.id, { refresh: true });
+    controller.reset();
+    old.resolve(stickerSet);
+    await expect(Promise.all([oldRead, oldRefresh])).resolves.toEqual([undefined, undefined]);
+    expect(transport.getStickerSet).toHaveBeenCalledTimes(3);
   });
 
   it("deduplicates concurrent asset loads and serves the cached path", async () => {

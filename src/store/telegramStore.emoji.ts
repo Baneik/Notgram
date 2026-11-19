@@ -19,7 +19,7 @@ const WARM_STICKER_SETS = 2;
 const MAX_ASSET_PATHS = 2_048;
 const previewKey = (asset: EmojiPickerAsset) => asset.remoteUniqueId ?? asset.remoteId ?? String(asset.fileId);
 const summarizeSet = ({ id, title, name, size, covers, isInstalled, isArchived }: StickerSetSummary): StickerSetSummary =>
-  ({ id, title, name, size, covers, isInstalled, isArchived });
+  ({ id, title, name, size, covers: covers.slice(0, 5), isInstalled, isArchived });
 type PickerSnapshot = Pick<CachedTelegramSnapshot, "emojiPickerCatalog" | "emojiPickerSets" | "emojiPickerPreviews">;
 
 interface CachedValue<T> {
@@ -66,7 +66,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
   let catalog: CachedValue<EmojiPickerCatalog> | undefined;
   let catalogRequest: Promise<EmojiPickerCatalog | undefined> | undefined;
   const stickerSets = new Map<string, CachedValue<StickerSet>>();
-  const stickerSetRequests = new Map<string, Promise<StickerSet | undefined>>();
+  const stickerSetRequests = new Map<string, { promise: Promise<StickerSet | undefined>; refresh: boolean }>();
   // An explicit undefined tombstone overrides a stale localPath after file eviction.
   const assetPaths = new Map<number, string | undefined>();
   const assetRequests = new Map<number, Promise<string | undefined>>();
@@ -211,7 +211,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     const request = Promise.all(Array.from({ length: Math.min(2, ids.length) }, async () => {
       while (ids.length && isCurrent() && !isMemoryBackground()) {
         const id = ids.shift()!;
-        await loadStickerSet(id, true);
+        await loadStickerSet(id, { background: true });
       }
     })).then(() => undefined).finally(() => { if (warmingSets === request) warmingSets = undefined; });
     warmingSets = request;
@@ -274,6 +274,16 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     if (catalog) catalog = { ...catalog, loadedAt: -Infinity };
   };
 
+  const updateCatalogStickerSet = (value: StickerSet) => {
+    if (catalog) {
+      const sets = catalog.value.stickerSets;
+      const next = value.isInstalled === false ? sets.filter((set) => set.id !== value.id)
+        : sets.some((set) => set.id === value.id) ? sets.map((set) => set.id === value.id ? summarizeSet(value) : set)
+        : value.isInstalled ? [...sets, summarizeSet(value)] : sets;
+      catalog = { ...catalog, value: { ...catalog.value, stickerSets: next } };
+    }
+  };
+
   const rememberStickerSet = (value: StickerSet) => {
     stickerSetRequests.delete(value.id);
     stickerSets.delete(value.id);
@@ -282,13 +292,7 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
       if (outlines.get(asset.fileId)?.value === "") outlines.delete(asset.fileId);
     }
     invalidateCatalog(true);
-    if (catalog) {
-      const sets = catalog.value.stickerSets;
-      const next = value.isInstalled === false ? sets.filter((set) => set.id !== value.id)
-        : sets.some((set) => set.id === value.id) ? sets.map((set) => set.id === value.id ? summarizeSet(value) : set)
-        : value.isInstalled ? [...sets, summarizeSet(value)] : sets;
-      catalog = { ...catalog, value: { ...catalog.value, stickerSets: next } };
-    }
+    updateCatalogStickerSet(value);
     trimStickerSets();
     notify();
     queuePreviews([...value.covers, ...value.stickers]);
@@ -351,33 +355,40 @@ export const createEmojiPickerController = ({ transport, get, set, onError, onCa
     if (changed) notify();
   };
 
-  const loadStickerSet = (id: string, background = false): Promise<StickerSet | undefined> => {
+  const loadStickerSet = (id: string, { background = false, refresh = false } = {}): Promise<StickerSet | undefined> => {
     const cached = read(stickerSets, id);
-    if (cached && Date.now() - cached.loadedAt < STICKER_SET_TTL_MS) {
+    if (cached && !refresh && Date.now() - cached.loadedAt < STICKER_SET_TTL_MS) {
       queuePreviews(cached.value.stickers);
       return Promise.resolve(cached.value);
     }
     const pending = stickerSetRequests.get(id);
-    if (pending) return pending;
     const isCurrent = currentRequest();
-    const request = transport.getStickerSet(id).then((value) => {
+    if (pending) {
+      if (!refresh || pending.refresh) return pending.promise;
+      return pending.promise.then(() => isCurrent() ? loadStickerSet(id, { refresh }) : undefined);
+    }
+    const name = cached?.value.name || catalog?.value.stickerSets.find((pack) => pack.id === id)?.name;
+    const reading = refresh ? transport.getStickerSet(id, { name }) : transport.getStickerSet(id);
+    const request = reading.then((value) => {
       if (!isCurrent()) return undefined;
-      if (stickerSetRequests.get(id) !== request) return stickerSets.get(id)?.value;
+      if (stickerSetRequests.get(id)?.promise !== request) return stickerSets.get(id)?.value;
       // The catalog retains all installed summaries; full packs are a bounded LRU.
+      stickerSets.delete(id);
       stickerSets.set(id, { value, loadedAt: Date.now() });
+      if (refresh) updateCatalogStickerSet(value);
       trimStickerSets();
       queuePreviews([...value.covers, ...value.stickers]);
       notify();
       return value;
     }).catch((error: unknown) => {
       if (!isCurrent()) return undefined;
-      if (stickerSetRequests.get(id) !== request) return stickerSets.get(id)?.value;
-      if (!cached && !background) set({ operationError: onError(error, translate("无法读取贴纸包")) });
-      return cached?.value;
+      if (stickerSetRequests.get(id)?.promise !== request) return stickerSets.get(id)?.value;
+      if (!cached && !background && !refresh) set({ operationError: onError(error, translate("无法读取贴纸包")) });
+      return stickerSets.get(id)?.value ?? cached?.value;
     }).finally(() => {
-      if (stickerSetRequests.get(id) === request) stickerSetRequests.delete(id);
+      if (stickerSetRequests.get(id)?.promise === request) stickerSetRequests.delete(id);
     });
-    stickerSetRequests.set(id, request);
+    stickerSetRequests.set(id, { promise: request, refresh });
     return request;
   };
   const trimStickerSets = () => {

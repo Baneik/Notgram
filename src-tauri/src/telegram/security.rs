@@ -309,7 +309,10 @@ pub(super) fn validate_webview_tdlib_request(request: &Value) -> Result<(), Stri
                 || !name
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-                || request.get("ignore_cache").and_then(Value::as_bool) != Some(false)
+                || request
+                    .get("ignore_cache")
+                    .and_then(Value::as_bool)
+                    .is_none()
             {
                 return Err("Invalid sticker set search".to_string());
             }
@@ -2300,6 +2303,11 @@ mod tests {
         }
         let search = json!({ "@type": "searchStickerSet", "name": "test_pack", "ignore_cache": false, "@extra": EXTRA });
         assert!(validate_webview_tdlib_request(&search).is_ok());
+        let mut refresh = search.clone();
+        refresh["ignore_cache"] = json!(true);
+        assert!(validate_webview_tdlib_request(&refresh).is_ok());
+        refresh["ignore_cache"] = json!("true");
+        assert!(validate_webview_tdlib_request(&refresh).is_err());
         for name in ["", "../private", "https://example.com", &"x".repeat(65)] {
             let mut invalid = search.clone();
             invalid["name"] = json!(name);

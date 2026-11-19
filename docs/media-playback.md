@@ -81,6 +81,12 @@ it from cached or asynchronously loaded pack contents. Keep manual selection
 during refresh and reset it for a new opening target. Pack links without a
 target, or targets absent from the pack, fall back to the first sticker.
 
+Selecting an installed pack or opening its preview shows the cached contents
+immediately and revalidates by short name with TDLib's cache bypass. While the
+pack stays open and visible, refresh it once a minute. Both surfaces share
+pending refreshes and accept live TDLib updates. Keep the last usable contents
+when a refresh fails.
+
 Sticker export is shared by the pack preview's footer, picker pack context menus,
 and individual sticker context menus in both surfaces (including the enlarged
 preview). Right-clicking exports its own target without sending it or changing

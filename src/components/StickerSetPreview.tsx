@@ -2,6 +2,7 @@ import { translate } from "../i18n";
 import { Download, LoaderCircle, Plus, Sticker, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useStickerSetRefresh } from "../hooks/useStickerSetRefresh";
 import { useTelegramStore } from "../store/telegramStore";
 import type { StickerPreviewTarget, StickerSet } from "../telegram/types";
 import { matchesFileIdentity } from "../telegram/messageFileState";
@@ -53,6 +54,8 @@ export function StickerSetPreview({ stickerSetId, initialSticker, onClose, onRes
     });
     return () => { active = false; };
   }, [emojiRevision, getCachedStickerSet, loadStickerSet, retryRevision, stickerSetId]);
+
+  useStickerSetRefresh(stickerSetId);
 
   const selectedSticker = useMemo(() => {
     const selected = stickerSet?.stickers.find((sticker) => sticker.id === selectedStickerId);

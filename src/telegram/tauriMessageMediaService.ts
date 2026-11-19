@@ -515,11 +515,20 @@ export class TauriMessageMediaService {
     };
   }
 
-  async getStickerSet(stickerSetId: string): Promise<StickerSet> {
+  async getStickerSet(stickerSetId: string, refresh?: { name?: string }): Promise<StickerSet> {
     if (!/^[1-9]\d*$/.test(stickerSetId)) throw new Error(translate("无效的贴纸包标识符"));
-    const response = await this.context.request({ "@type": "getStickerSet", set_id: stickerSetId });
-    const stickerSet = mapEmojiStickerSet(response);
-    if (!stickerSet) throw new Error(translate("找不到贴纸包"));
+    const validName = (name?: string): name is string => /^[a-z0-9_]{1,64}$/i.test(name ?? "");
+    let name = refresh?.name;
+    let stickerSet: StickerSet | undefined;
+    if (!validName(name)) {
+      stickerSet = mapEmojiStickerSet(await this.context.request({ "@type": "getStickerSet", set_id: stickerSetId }));
+      name = stickerSet?.name;
+    }
+    // TDLib's ID lookup can serve its own cached contents even after the UI cache expires.
+    if (refresh && validName(name)) {
+      stickerSet = mapEmojiStickerSet(await this.context.request({ "@type": "searchStickerSet", name, ignore_cache: true }));
+    }
+    if (stickerSet?.id !== stickerSetId) throw new Error(translate("找不到贴纸包"));
     return stickerSet;
   }
 

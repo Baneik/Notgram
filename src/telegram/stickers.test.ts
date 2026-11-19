@@ -77,6 +77,26 @@ describe("sticker contracts", () => {
     expect(request).toHaveBeenCalledExactlyOnceWith({ "@type": "getFile", file_id: 72 });
   });
 
+  it.each([true, false])("revalidates a pack with the server (short name already known: %s)", async (knownName) => {
+    const { transport, request } = harness();
+    const added = { ...rawSet.stickers[0], sticker: { id: 73, local: {} } };
+    request.mockImplementation(async (input) => input["@type"] === "searchStickerSet"
+      ? { ...rawSet, stickers: [...rawSet.stickers, added] }
+      : rawSet);
+    await expect(transport.getStickerSet(rawSet.id, { name: knownName ? rawSet.name : undefined }))
+      .resolves.toMatchObject({ size: 2, stickers: [{ fileId: 71 }, { fileId: 73 }] });
+    expect(request.mock.calls.map(([input]) => input)).toEqual([
+      ...(!knownName ? [{ "@type": "getStickerSet", set_id: rawSet.id }] : []),
+      { "@type": "searchStickerSet", name: rawSet.name, ignore_cache: true },
+    ]);
+  });
+
+  it("rejects a refresh if the short name now resolves to a different pack", async () => {
+    const { transport, request } = harness();
+    request.mockResolvedValueOnce({ ...rawSet, id: "5368324170671202289" });
+    await expect(transport.getStickerSet(rawSet.id, { name: rawSet.name })).rejects.toThrow("找不到贴纸包");
+  });
+
   it("reads a locally cached sticker while all download slots are occupied", async () => {
     const { transport, internal, request } = harness();
     const queue = (internal as unknown as { fileDownloads: import("./fileDownloadQueue").FileDownloadQueue }).fileDownloads;
