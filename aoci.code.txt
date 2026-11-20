@@ -1,0 +1,546 @@
+#AOCI-CODE-VOLUME: 1
+
+===/<repository>/===
+.env.example[FC4T]: F:展示浏览器 Mock 与 Tauri 运行模式及 Rust TDLib 所需的 API、路径、数据库密钥、测试 DC 和系统语言变量 | R:code:package.json,code:src-tauri/src/lib.rs,code:scripts/publish-portable.ps1 | A:VITE_TELEGRAM_TRANSPORT,NOTGRAM_API_ID,NOTGRAM_API_HASH,NOTGRAM_TDLIB_PATH,NOTGRAM_DATABASE_KEY_BASE64,NOTGRAM_USE_TEST_DC | S:VITE_TELEGRAM_TRANSPORT 控制前端运行时，其他变量由原生侧或发布脚本读取
+.gitattributes[FV2T]: F:统一仓库文本文件的检出换行策略并保持 AOCI 基线的原始字节稳定 | R:- | A:* text=auto eol=lf | S:AOCI 基线按原始字节比较，跨平台检出必须保持 LF
+.gitignore[FS4T]: F:排除凭据、运行数据、构建产物、TDLib 源码、测试输出和本机 Agent 配置 | R:code:.env.example,code:package.json | A:secrets,build-output,runtime-data,tdlib-source,test-output,.codex/config.toml | S:.codex/config.toml 是机器绑定的 MCP 配置，不能进入版本库
+AGENTS.md[SQ5S]: F:规定代理读取、建立、维护和校验 AOCI 仓库认知的会话约定 | R:code:aoci.txt | A:aoci_rules,aoci_overview,aoci_maintain,aoci_update_entry | S:条目语义必须绑定真实源码与证据，由模型创作而非扫描器生成
+CHANGELOG.md[SB6M]: F:记录 Notgram 候选版本的新增、变更和修复，供发布回溯 | R:code:version.json,code:docs/release-versioning.md,code:README.md | A:Unreleased,SemVer,release-candidate | S:候选版本使用 SemVer 预发布标识，发布说明需与版本标题对应
+LICENSE[SZ3T]: F:声明 Notgram 源码及文档按 MIT License 授权的版权和责任条款 | R:- | A:MIT License,copyright,permission,warranty | S:-
+README.md[SB7M]: F:说明 Notgram 桌面 Telegram 客户端的产品范围、技术架构、运行方式和验证边界 | R:code:package.json,code:src/app/App.tsx,code:src-tauri/src/lib.rs,code:docs/testing.md | A:React,TypeScript,Zustand,Tauri,TDLib,Mock | S:-
+index.html[EU4T]: F:提供 Vite 主应用的 HTML 入口和 React 挂载根节点 | R:code:src/main.tsx,code:vite.config.ts | A:#root,module-script | S:-
+package.json[FV7T]: F:声明前端、Tauri、Markdown、媒体和测试依赖，并提供开发、检查、构建、发布和 E2E 入口 | R:code:package-lock.json,code:vite.config.ts,code:scripts/check.ps1,code:src-tauri/Cargo.toml | A:dev,build,test,check,tauri,e2e | S:生产前端构建由 TypeScript 项目构建和 Vite 构建共同完成
+playwright.config.ts[FQ6T]: F:配置 Mock 浏览器 E2E 的套件筛选、快照路径、超时、诊断、服务和 Chromium 运行参数 | R:code:docs/testing.md,code:tests/e2e/helpers.ts | A:suite,grep,workers,webServer,snapshots | S:固定单 worker、headless Chromium 和 --mute-audio 以保持几何与时序测试可比
+release-policy.json[FC7T]: F:机器化声明 Notgram 版本兼容、缓存 schema、发布渠道、降级策略和保留回滚窗口 | R:code:version.json,code:docs/release-versioning.md,code:scripts/verify-release-policy.mjs | A:minVersion,cacheSchema,channels,rollback | S:自动和安装器降级被关闭，回滚只能以前向更高版本发布替代
+tsconfig.app.json[FQ4T]: F:配置前端源码的 ES2022、DOM、严格类型检查和 Bundler 模块解析 | R:code:tsconfig.json,code:package.json | A:compilerOptions,include | S:前端类型检查不生成 JavaScript
+tsconfig.e2e.json[FQ4T]: F:配置 Playwright 测试与配置文件的独立严格类型检查 | R:code:playwright.config.ts,code:package.json | A:compilerOptions,include | S:-
+tsconfig.json[FQ4T]: F:为 TypeScript 构建声明前端和 Vite 配置项目引用 | R:code:tsconfig.app.json,code:tsconfig.node.json | A:references | S:-
+tsconfig.node.json[FQ4T]: F:定义 Vite 配置的复合 TypeScript 检查与 Bundler 模块解析 | R:code:tsconfig.json,code:vite.config.ts | A:compilerOptions,include | S:-
+version.json[FV6T]: F:提供同步到 npm、Cargo 与 Tauri 清单的应用版本 | R:code:scripts/sync-version.mjs,code:docs/release-versioning.md | A:version | S:这是唯一手工编辑的应用版本源
+vite.config.ts[FV6T]: F:配置 React 编译、开发服务、Vitest、构建环境和主窗口及辅助窗口 HTML 入口 | R:code:package.json,code:index.html,code:tsconfig.node.json | A:defineConfig,htmlEntry | S:忽略原生构建与本地验收目录的监视事件
+
+===/<repository>/docs/===
+accessibility-matrix.md[SQ6T]: F:定义自动化与原生 Windows 无障碍验收门禁及待验证表面 | R:code:tests/e2e/accessibility.e2e.ts,code:docs/native-smoke.md | A:automated-gate,native-windows-gate,keyboard,focus | S:-
+conversation-state-model.md[SD9L]: F:定义会话选择、历史窗口、虚拟视口、底部跟随、诊断和持久化的状态模型与不变量 | R:code:src/app/App.tsx,code:src/components/Conversation.tsx,code:src/hooks/useConversationScroll.ts,code:src/store/telegramStore.ts | A:activeChatId,activeTopicId,ConversationScrollRequest,positioned,history-window | S:底部 scrollTop 只由协调器写入，异步历史结果必须受 generation 和目标身份约束
+development-pitfalls.md[SR8M]: F:记录缓存历史、会话切换、媒体生命周期、原生窗口、已读状态和性能回归的防复发规则 | R:code:docs/conversation-state-model.md,code:src/store/telegramStore.ts,code:src/media/mediaPlayback.ts | A:症状,错误模型,最终修复,防复发规则 | S:历史失败记录供回归定位，当前行为以源码和测试为准
+focus-management.md[SU7M]: F:规定导航、快捷键、编辑器、模态、多选和外部预览之间的焦点所有权与返回时机 | R:code:src/utils/focusPolicy.ts,code:src/hooks/useComposerFocus.ts,code:src/hooks/useModalFocus.ts,code:tests/e2e/focus.e2e.ts | A:request,capture,editor,modal,window-return | S:异步工作开始前必须 capture，窗口返回只恢复未被其他编辑器认领的焦点
+forum-topics.md[SB8S]: F:描述论坛话题从 TDLib 类型映射、传输安全、Store 隔离到响应式 UI 和自动化验证的完整方案 | R:code:src/store/telegramStore.forum.ts,code:src/telegram/tauriForumTopicService.ts,code:src/components/ForumTopicsView.tsx,code:tests/e2e/forum-topics.e2e.ts | A:ForumTopic,topicId,topic-order,permissions,all-topic | S:话题草稿、回复、输入状态、搜索和附件必须按 activeTopicId 隔离
+media-playback.md[SP8M]: F:定义共享媒体查看器、音频消息、视频播放、原生租约、Range 调度、剪贴板和性能验收的所有权 | R:code:src/media/mediaPlayback.ts,code:src/media/audioPlayback.ts,code:src/media/videoPlayback.ts,code:src/components/MediaViewer.tsx | A:audio-video-viewer,lease,range,download,recovery | S:媒体播放器、下载队列和原生流必须共享文件级所有权，避免并发 Range 互相覆盖
+motion-system.md[SP7M]: F:规定 Notgram 动效层级、时长 token、存在性、异步稳定、消息删除和视觉快照时序 | R:code:src/utils/motionTokens.ts,code:src/components/MotionPresence.tsx,code:tests/e2e/motion.e2e.ts | A:modal,drawer,toast,popover,status,reduced-motion | S:动效只能表达已确定的状态，不能承担业务状态或几何完成信号
+native-smoke.md[SH7T]: F:列出 Tauri 原生冒烟的 Clean 与 Existing 配置、启动路径、恢复验证和证据记录要求 | R:code:scripts/native-smoke.ps1,code:src-tauri/src/lib.rs | A:Clean,Existing,Prepare,Verify,checklist | S:冒烟记录不得包含凭据、账号标识、聊天标识、消息文本或本机敏感路径
+release-versioning.md[SV7T]: F:规定版本同步、干净提交、签名凭据、TDLib 运行时、渠道清单和前向回滚流程 | R:code:version.json,code:scripts/sync-version.mjs,code:scripts/release-preflight.ps1,code:release-policy.json | A:SemVer,version-sync,tag,signing,channels,rollback | S:version.json 是唯一手工编辑版本，凭据只从进程环境读取且发布标签不可移动
+settings-backup.md[SC7T]: F:定义设置备份与 WebDAV 恢复的隐私边界、版本合并、ETag 写入和请求代际生命周期 | R:code:src/backup/settingsBackup.ts,code:src/backup/settingsSync.ts,code:src/backup/webdavBridge.ts,code:tests/e2e/settings-backup.e2e.ts | A:allowlist,revision,ETag,generation,WebDAV | S:云端只同步允许列表设置，诊断和系统动效等非备份状态必须被忽略
+testing.md[SQ6T]: F:说明 Vitest、Mock Playwright、视觉与性能套件的选择和诊断证据 | R:code:package.json,code:playwright.config.ts,code:docs/native-smoke.md | A:unit,smoke,regression,visual,performance,diagnostics | S:浏览器套件默认无头静音且单 worker，原生验收单独执行
+theme-system.md[SC8T]: F:规定主题注册表、语义颜色 token、data-theme 选择、迁移和对比度资格审查 | R:code:src/theme/theme.ts,code:src/styles/themes.css,code:tests/e2e/visual.e2e.ts | A:ThemeId,data-theme,THEME_COLOR_TOKENS,color-scheme | S:组件只能使用语义 token，不能直接选择明暗色值或依赖主题专用 class
+
+===/<repository>/docs/archive/===
+channel-discussion-coverage-audit-2026-08-30.md[SB6S]: F:审计频道帖子讨论区的展示、操作、消息路由、发送和自动化覆盖范围 | R:code:src/components/ChannelDiscussionPanel.tsx,code:src/store/telegramStore.ts,code:tests/e2e/channel-discussion.e2e.ts | A:coverage,TDLib-limit,discussion-chatId,validation | S:频道和讨论组可能复用同一 messageId，评论操作必须按讨论组 chatId 路由
+project-analysis-2026-08-11.md[SB8M]: F:汇总项目架构、功能模块、状态所有权、验证证据和未闭合的发布风险 | R:code:README.md,code:docs/conversation-state-model.md,code:src/store/telegramStore.ts,code:src/telegram/tauriTransport.ts | A:architecture,data-flow,feature-audit,verification,risk | S:报告区分已实现能力与尚未取得的 E2E、原生和发布证据
+
+===/<repository>/scripts/===
+build-portable.mjs[XV6T]: F:加载本机开发环境并调用 Windows 脚本构建带提交标识的便携制品目录 | R:code:.env.example,code:scripts/publish-portable.ps1,code:package.json | A:build:portable | S:发布子进程移除继承的 PSModulePath，并使用单独的制品目录
+build-tdlib.ps1[XV8S]: F:按固定 TDLib 提交使用 Visual Studio、CMake 和 vcpkg 构建 tdjson 并复制运行库和许可证 | R:code:scripts/tdlib/version.json,code:scripts/tdlib/vcpkg.json,code:src-tauri/tdlib/README.md | A:Jobs | S:已有源码目录必须处于元数据指定的提交
+check.ps1[XQ8T]: F:串联版本、发布策略、主题、动效、翻译、前端测试构建、E2E 类型、Rust 格式、Clippy 和测试门禁 | R:code:package.json,code:scripts/verify-theme-contract.mjs,code:src-tauri/Cargo.toml | A:version,policy,theme-motion,i18n,frontend,rust | S:Release 模式在常规门禁后额外执行路径重映射和 Tauri 无 bundle 构建
+fetch-tdlib.ps1[XV7S]: F:校验并安装固定版本的预构建 TDLib Windows 运行时和许可证文件 | R:code:scripts/verify-tdlib.ps1,code:scripts/tdlib/version.json,code:src-tauri/tdlib/README.md | A:ArchivePath,Force | S:预构建归档和每个运行库均需匹配固定 SHA-256
+generate-dependency-report.mjs[XV5T]: F:从 package-lock 和 Cargo 元数据生成包含版本、许可证和来源的依赖报告 | R:code:package-lock.json,code:src-tauri/Cargo.toml,code:src-tauri/Cargo.lock | A:--output,npm,cargo,license | S:Cargo 元数据使用 --locked 和 Windows x64 目标筛选，输出路径相对仓库根解析
+native-smoke.ps1[OH7M]: F:准备或验证 Clean 与 Existing Tauri 原生冒烟运行并生成受控清单与证据 | R:code:docs/native-smoke.md,code:src-tauri/src/lib.rs | A:Prepare,Verify,Clean,Existing,Launch,RunDirectory | S:清单明确禁止记录凭据、账号或聊天标识，运行目录必须受脚本边界保护
+new-signing-config.ps1[XV7T]: F:从进程环境生成临时 Tauri Windows 签名和更新器配置 | R:code:scripts/sign-windows-files.ps1,code:scripts/publish-installer.ps1,code:version.json | A:OutputPath,SkipWindowsSigning,certificateThumbprint,timestampUrl,updateBaseUrl,updaterPublicKey | S:证书指纹、更新地址和公钥均经格式校验，密钥值不写入跟踪文件
+publish-installer.ps1[OV8S]: F:验证 Windows NSIS 安装器、发布版本、隐私和 TDLib 运行时并生成发布目录 | R:code:release-policy.json,code:scripts/verify-release-privacy.ps1,code:scripts/verify-tdlib.ps1,code:LICENSE | A:DestinationRoot,InstallerPath,AllowDirty | S:默认拒绝脏工作树，未指定安装器时要求本版本有唯一匹配制品
+publish-portable.ps1[OV8M]: F:构建或复用 Tauri 便携发布输出，校验运行时、音频、许可证并生成 ZIP 和元数据 | R:code:scripts/build-portable.mjs,code:scripts/verify-tdlib.ps1,code:release-policy.json,code:LICENSE | A:DestinationRoot,SkipBuild,SkipChecks,ChecksPassed,AllowDirty | S:便携发布要求 Windows、版本同步、发布策略通过和固定 TDLib 运行时存在
+publish-tdlib-runtime.ps1[OV7S]: F:将校验过的 TDLib DLL 与许可证归档为可复现 ZIP，并写入哈希文件 | R:code:scripts/verify-tdlib.ps1,code:scripts/tdlib/version.json,code:src-tauri/tdlib/README.md | A:DestinationRoot,RuntimeDirectory,SkipPinnedArchiveCheck | S:ZIP 条目采用固定时间戳，已有归档和校验文件时拒绝覆盖
+publish-update-channel.ps1[OV7S]: F:生成 stable 或 candidate 更新渠道清单、部署归档和哈希文件 | R:code:release-policy.json,code:scripts/verify-release-policy.mjs,code:docs/release-versioning.md | A:DestinationRoot,BaseDownloadUrl,UpdateArtifact,SignaturePath,manifest,sha256 | S:部署失败时不覆盖上一份 latest.json
+release-preflight.ps1[OV6T]: F:检查版本、标签、干净提交、签名和发布环境变量 | R:code:version.json,code:release-policy.json,code:scripts/sync-version.mjs | A:RequireTag,RequireSigning,environment,clean-commit | S:签名检查只验证发布条件，不写入凭据
+set-release-path-remapping.ps1[XV4T]: F:设置 Windows 发布构建的稳定源码路径映射和 vcpkg 环境变量 | R:code:scripts/build-tdlib.ps1,code:scripts/publish-portable.ps1 | A:USERPROFILE,Source,Destination,VCPKG_KEEP_ENV_VARS | S:映射消除本机路径差异
+sign-windows-files.ps1[XV4T]: F:使用证书存储和时间戳服务为 Windows 文件执行 Authenticode 签名 | R:code:scripts/new-signing-config.ps1,code:scripts/verify-windows-signatures.ps1 | A:Path,certificateThumbprint,digestAlgorithm,timestampUrl | S:签名失败立即返回非零
+sync-version.mjs[XV6S]: F:把 version.json 的 SemVer 同步到 npm、Cargo 和 Tauri 清单并支持漂移检查 | R:code:version.json,code:package.json,code:src-tauri/Cargo.toml,code:src-tauri/tauri.conf.json | A:version:sync,version:check,SemVer,manifest,lockfile | S:--check 只报告漂移
+test-e2e.ps1[XQ6S]: F:按套件、诊断和透传参数启动 Playwright Mock 浏览器测试 | R:code:playwright.config.ts,code:docs/testing.md | A:Suite,Diagnostics,PlaywrightArgs | S:进程环境变量在结束时恢复
+test-release-lifecycle.ps1[XQ8M]: F:验证安装器和便携包的启动、迁移、升级、回滚、卸载和证据 | R:code:scripts/publish-installer.ps1,code:scripts/publish-portable.ps1,code:docs/release-versioning.md | A:InstallerPath,PortableArchive,PreviousVersion,ExecuteInstaller,EvidencePath | S:真实安装器需显式开关且证据需哈希
+test-session-switch-performance.mjs[XP6T]: F:生成生产测试入口并运行会话切换基准 | R:code:tests/e2e/session-switch-performance.e2e.ts,code:vite.config.ts | A:NOTGRAM_BENCHMARK_ROOT,test:performance:switch | S:基准通过独立制品目录启动 Vite 预览
+verify-i18n.mjs[XQ6S]: F:扫描源码和本地化文件校验翻译键、占位符和受保护字面量 | R:code:src/i18n/index.ts,code:src/i18n/locales/en.ts,code:src/i18n/locales/ja.ts,code:src/i18n/locales/zh-CN.ts | A:sourceKeys,locales,placeholders,protectedTokens,errors | S:允许的本地化字面量不应误报
+verify-motion-contract.mjs[XQ5T]: F:校验全局样式的动效声明、keyframe、时长和 reduced-motion 合同 | R:code:src/styles/global.css,code:docs/motion-system.md | A:keyframes,duration,easing,reduced-motion,failures | S:契约缺失时返回非零
+verify-release-policy.mjs[XQ6T]: F:校验版本、生命周期配置、缓存 schema、渠道和前向回滚规则 | R:code:release-policy.json,code:version.json,code:src-tauri/tauri.conf.json,code:src/store/telegramStore.cache.ts | A:SemVer,cacheVersion,channels,rollback,lifecycle | S:降级关闭且拒绝替换既有标签
+verify-release-privacy.ps1[XQ6T]: F:扫描发布文件以拒绝凭据、私钥及敏感环境值泄露 | R:code:scripts/publish-installer.ps1,code:scripts/publish-portable.ps1,code:.env.example | A:Path,sensitivePatterns,wideText,privacy | S:同时检查单字节和宽字符内容
+verify-tdlib.ps1[XQ6T]: F:验证 TDLib 运行库、许可证和哈希与 version.json 一致 | R:code:scripts/tdlib/version.json,code:scripts/fetch-tdlib.ps1,code:scripts/publish-tdlib-runtime.ps1 | A:RuntimeDirectory,RequirePinnedHashes,runtime,licenses,sha256 | S:固定哈希缺失或不匹配会阻断发布
+verify-theme-contract.mjs[XQ7T]: F:验证主题 token、palette、组件变量引用和原始颜色声明 | R:code:src/theme/theme.ts,code:src/styles/themes.css,code:src/styles/global.css,code:docs/theme-system.md | A:THEME_COLOR_TOKENS,palettes,usedTokens,rawColors,duplicates | S:组件层禁止原始颜色和未知 token
+verify-windows-signatures.ps1[XQ5T]: F:检查 Windows 文件的 Authenticode 签名、证书链和时间戳 | R:code:scripts/sign-windows-files.ps1,code:scripts/publish-installer.ps1 | A:Path,signature,certificate,timestamp | S:缺少时间戳的文件不通过
+
+===/<repository>/scripts/tdlib/===
+vcpkg.json[FV4T]: F:锁定 TDLib 构建所需 gperf、OpenSSL 和 zlib 及 vcpkg 基线 | R:code:scripts/tdlib/version.json,code:scripts/build-tdlib.ps1 | A:builtin-baseline,gperf,openssl,zlib | S:依赖解析必须使用声明的 baseline
+version.json[FV6T]: F:记录 TDLib 提交、vcpkg 基线、预构建资产、运行库哈希和许可证 | R:code:scripts/build-tdlib.ps1,code:scripts/fetch-tdlib.ps1,code:scripts/verify-tdlib.ps1 | A:commit,vcpkgBaseline,prebuilt,runtime,sha256,license | S:目标限定 Windows x64 且文件必须匹配固定哈希
+
+===/<repository>/src-tauri/===
+Cargo.toml[FV7T]: F:声明 Rust/Tauri 包、Windows 集成、存储、网络、压缩和测试依赖 | R:code:src-tauri/Cargo.lock,code:src-tauri/src/lib.rs,code:scripts/check.ps1 | A:package,lib,build-dependencies,dependencies,windows-features | S:Windows 依赖集中在 cfg(windows)，发布使用锁文件
+build.rs[XV3T]: F:提供 Tauri Rust 构建阶段入口 | R:code:src-tauri/Cargo.toml,code:src-tauri/src/lib.rs | A:main | S:-
+tauri.conf.json[FV6T]: F:声明 Tauri 应用标识、窗口、构建目录、资源、打包和更新器配置 | R:code:package.json,code:src-tauri/Cargo.toml,code:src-tauri/capabilities/default.json | A:productName,identifier,build,bundle,plugins | S:窗口能力通过独立 capability 文件授予
+tauri.lifecycle.conf.json[FV4T]: F:定义当前发布生命周期的安装、更新和数据路径策略 | R:code:src-tauri/tauri.lifecycle.previous.conf.json,code:docs/release-versioning.md,code:release-policy.json | A:version,installer,updater,data | S:配置必须与发布策略版本和渠道一致
+tauri.lifecycle.previous.conf.json[FV4T]: F:保留上一发布生命周期配置供兼容性和回滚校验 | R:code:src-tauri/tauri.lifecycle.conf.json,code:scripts/verify-release-policy.mjs | A:version,previous,rollback | S:旧配置只作为比较基线
+tauri.smoke.conf.json[FV3T]: F:提供原生冒烟环境使用的最小 Tauri 配置覆盖 | R:code:scripts/native-smoke.ps1,code:src-tauri/tauri.conf.json | A:smoke,identifier,windows | S:-
+
+===/<repository>/src-tauri/capabilities/===
+context-menu-window.json[FS4T]: F:限制上下文菜单窗口的关闭和主题权限 | R:code:src-tauri/src/context_menu_window.rs,code:windows/context-menu-window.html | A:identifier,windows,close,theme | S:能力只匹配 context-menu-* 窗口
+default.json[FS6T]: F:声明主窗口和设置窗口的窗口、缩放、重启和更新器权限 | R:code:src-tauri/src/lib.rs,code:src-tauri/src/settings_window.rs,code:src-tauri/tauri.conf.json | A:identifier,windows,window,webview,process,updater | S:默认能力只绑定 main 与 settings
+media-viewer-window.json[FS5T]: F:限制媒体查看器窗口的关闭、尺寸、焦点、全屏和主题权限 | R:code:src-tauri/src/media_viewer_window.rs,code:windows/media-viewer-window.html | A:identifier,windows,close,size,fullscreen | S:能力只匹配 media-viewer-* 窗口
+notification-window.json[FS5T]: F:为桌面通知窗口提供基础 Tauri 能力 | R:code:src-tauri/src/desktop_notification.rs,code:windows/notification-window.html | A:identifier,windows,core:default | S:通知窗口不继承主窗口特权
+video-window.json[FS5T]: F:限制视频窗口的关闭、全屏、尺寸、焦点、拖动和主题权限 | R:code:src-tauri/src/video_window.rs,code:windows/video-window.html | A:identifier,windows,fullscreen,size,focus,theme | S:能力只匹配 video-player-* 窗口
+
+===/<repository>/src-tauri/src/===
+context_menu_window.rs[IU7M]: F:管理共享上下文菜单窗口的创建、准备、显示、尺寸约束和关闭命令 | R:code:src-tauri/src/lib.rs,code:src/components/ContextMenuWindow.tsx,code:src/contextMenu/nativeContextMenuBridge.ts | A:state,size,validate,open,resize,close | S:窗口尺寸和菜单标识在原生边界校验
+desktop_lifecycle.rs[OH8M]: F:实现 Windows 桌面生命周期、托盘菜单、开机启动、窗口隐藏和通知区域恢复 | R:code:src-tauri/src/lib.rs,code:src/components/DesktopStartupSettings.tsx,code:src-tauri/tauri.conf.json | A:tray,autostart,window-event,Run-key,notify-icon | S:开机启动只在 Windows 注册表边界内变更
+desktop_notification.rs[OH8L]: F:构建脱敏桌面通知模型、通知窗口、声音资源和点击路由 | R:code:src/notifications/desktopNotifications.ts,code:src/notifications/notificationRouting.ts,code:src-tauri/src/lib.rs,code:windows/notification-window.html | A:route,item,avatar,window,sound | S:通知标题、正文、头像和路由 ID 均有长度上限
+development.rs[XR3T]: F:在调试构建中加载环境文件并提供环境变量读取入口 | R:code:src-tauri/src/lib.rs,code:.env.example | A:load_environment,environment_value,debug_assertions | S:发布构建不读取调试环境文件
+diagnostics.rs[SO8L]: F:维护诊断偏好、脱敏崩溃记录、日志筛选和受限 ZIP 导出 | R:code:src/release/diagnostics.ts,code:src/components/DiagnosticsSettings.tsx,code:src-tauri/src/distribution.rs | A:settings,crash-report,redaction,log-limit,zip-export | S:路径、凭据、消息、邮箱和密钥不会写入诊断导出
+display_metrics.rs[OH6T]: F:读取窗口显示器刷新率并转换为前端性能计时模型 | R:code:src/components/PerformanceMonitor.tsx,code:src-tauri/src/lib.rs | A:DisplayTiming,refresh_rate,command | S:无效或非 Windows 刷新率回退到 60Hz
+distribution.rs[OV8M]: F:判定安装版与便携版并计算配置、数据、WebView 和 TDLib 缓存路径 | R:code:src-tauri/src/lib.rs,code:src-tauri/src/storage/paths.rs,code:scripts/publish-portable.ps1 | A:kind,portable,installed,app-data,webview,tdlib-cache | S:便携版数据固定在可执行文件旁目录
+external_links.rs[IS7S]: F:校验并打开允许的 http、https、mailto、tel 和 tg 链接 | R:code:src/release/telegramProtocol.ts,code:src/utils/externalLinks.ts,code:src-tauri/src/lib.rs | A:max-length,schemes,validate,open | S:拒绝 javascript、file、空白、换行和超长 URL
+lib.rs[EI8S]: F:组装 Tauri 应用、窗口、原生命令和事件 | R:code:src-tauri/src/main.rs,code:src-tauri/src/telegram.rs,code:src-tauri/src/storage.rs | A:run,window,commands,events,plugins | S:原生桥接命令在此注册并受能力文件约束
+main.rs[EI4T]: F:提供桌面进程入口并调用 Tauri 运行函数 | R:code:src-tauri/src/lib.rs | A:main | S:-
+media_viewer_window.rs[IU7S]: F:管理媒体查看器窗口的打开、显示、关闭和 owner 校验 | R:code:src-tauri/src/lib.rs,code:src/components/MediaViewerWindow.tsx,code:src/media/mediaViewerWindowBridge.ts | A:open,show,close,owner,id,frame | S:窗口 ID 与 owner 必须匹配
+memory.rs[IP4T]: F:按窗口可见和最小化状态切换 WebView2 的内存用量目标 | R:code:src-tauri/src/lib.rs,code:src/media/memoryLifecycle.ts | A:sync_memory_target,notgram_sync_memory_target | S:低内存目标仍保留 JavaScript 和通知，旧 WebView2 保持默认值
+proxy.rs[IN8L]: F:维护 Telegram 代理模式、端点、配置持久化和恢复入口 | R:code:src-tauri/src/proxy/recovery.rs,code:src-tauri/src/proxy/system.rs,code:src/telegram/proxySettings.ts | A:mode,kind,endpoint,profile,settings,recovery | S:代理凭据只在受控配置路径与请求边界内处理
+settings_backup.rs[PC8L]: F:实现 WebDAV 配置、设置备份下载上传、ETag 和校验 | R:code:src/components/BackupSettings.tsx,code:src/backup/settingsSync.ts,code:src-tauri/src/lib.rs | A:config,settings,request,ETag,validate,limit | S:请求只允许受控 WebDAV，大小受限且内容通过白名单校验
+settings_window.rs[EU5T]: F:创建独立设置窗口并设置尺寸、主题和页面加载 | R:code:src/windows/settingsWindowEntry.tsx,code:src-tauri/src/lib.rs | A:open,width,height,theme | S:-
+shortcuts.rs[EU6S]: F:解析快捷键、检测保留组合和键盘布局可用性 | R:code:src/hooks/useAppShortcuts.ts,code:src/shortcuts/shortcuts.ts | A:shortcut,availability,key,reserved,probe | S:不可映射组合必须返回不可用
+storage.rs[PD9L]: F:编排账号存储、缓存清理、快照分块、上传文件和持久化设置 | R:code:src-tauri/src/storage/account.rs,code:src-tauri/src/storage/cache.rs,code:src-tauri/src/storage/persistence.rs,code:src-tauri/src/storage/file_actions.rs | A:settings,cache,snapshot,upload,cleanup | S:快照事务限制暂存数量与大小，提交前失败不覆盖旧快照
+telegram.rs[IN9L]: F:编排 TDLib runtime、请求命令、事件、媒体上传和性能日志 | R:code:src-tauri/src/telegram/tdlib_runtime.rs,code:src-tauri/src/telegram/security.rs,code:src-tauri/src/telegram/media_stream.rs,code:src/telegram/transport.ts | A:runtime,commands,events,uploads,performance,security | S:WebView 请求先经过 allowlist 和字段校验
+telegram_links.rs[IN7M]: F:解析 Telegram 链接并路由聊天、消息、邀请和协议动作 | R:code:src/release/telegramProtocol.ts,code:src/release/telegramLinkReceiver.ts,code:src-tauri/src/lib.rs | A:chat,message,invite,route | S:外部链接先经过允许协议和目标校验
+video_window.rs[IS7S]: F:管理独立视频播放窗口的打开、显示、尺寸、主题和关闭 | R:code:src/components/VideoWindow.tsx,code:src/media/videoWindowBridge.ts,code:src-tauri/src/lib.rs | A:open,show,size,theme,close | S:窗口操作只接受受控视频窗口标识
+webview_security.rs[IS8S]: F:设置 WebView 安全策略、资源请求保护和外部内容边界 | R:code:src-tauri/src/lib.rs,code:src/utils/webviewGuards.ts,code:src-tauri/capabilities/default.json | A:security,origin,resource,headers,guard | S:外部来源和资源请求必须通过 allowlist
+window_placement.rs[OH8L]: F:保存、校验和恢复多显示器窗口位置、尺寸和缩放 | R:code:src-tauri/src/storage/metadata.rs,code:src-tauri/src/lib.rs,code:src/windows/settingsWindow.ts | A:placement,display,bounds,scale,restore | S:恢复位置限制在当前显示器可见范围
+
+===/<repository>/src-tauri/src/proxy/===
+recovery.rs[IR8L]: F:协调代理连接发现、状态、超时、探测和 TDLib 恢复 | R:code:src-tauri/src/proxy.rs,code:src-tauri/src/proxy/recovery/outgoing.rs,code:src-tauri/src/telegram.rs | A:stage,grace,probe,timeout,recover | S:迟到探测不能覆盖更新代际
+system.rs[IN6S]: F:检测系统代理并转换为 Notgram 代理端点 | R:code:src-tauri/src/proxy.rs | A:system,detect,resolve | S:系统代理读取不直接暴露凭据
+
+===/<repository>/src-tauri/src/proxy/recovery/===
+outgoing.rs[IR7M]: F:监视恢复期间待发请求并有界重放 | R:code:src-tauri/src/proxy/recovery.rs,code:src-tauri/src/telegram.rs | A:watchdog,pending,timeout,replay | S:已执行请求不能被无界重复发送
+tests.rs[IQ6L]: F:覆盖代理恢复阶段、超时、探测和请求重放的 Rust 测试 | R:code:src-tauri/src/proxy/recovery.rs | A:recovery,timeout,probe,watchdog | S:测试验证状态转移
+
+===/<repository>/src-tauri/src/storage/===
+account.rs[PI8L]: F:计算账号隔离的配置、数据库、缓存和状态目录 | R:code:src-tauri/src/storage.rs,code:src-tauri/src/storage/paths.rs,code:src-tauri/src/storage/database_key.rs | A:account,cache,database,state,path | S:账号目录身份必须规范化
+assets.rs[IS6M]: F:按当前账号登记和授权 notgram-asset 本地资源请求，处理头像和照片预览 | R:code:src-tauri/src/storage/photo_preview.rs,code:src-tauri/src/telegram/assets.rs | A:AccountAssets,allow,respond,reset_session | S:每次请求重新检查当前账号授权，旧 URL 不具备持久访问权
+blobs.rs[PP8L]: F:处理本地 blob 的写入、读取、临时文件和原子替换 | R:code:src-tauri/src/storage.rs,code:src-tauri/src/storage/persistence.rs | A:blob,temp,atomic,read,write | S:临时文件完成后才替换目标
+cache.rs[PD7M]: F:维护缓存容量、保护项、清理计划和磁盘统计 | R:code:src-tauri/src/storage.rs,code:src-tauri/src/storage/paths.rs | A:category,usage,cleanup,protection,quota | S:受保护媒体和活动快照不能被普通清理删除
+database_key.rs[PS8S]: F:通过受保护字符串生成、读取和持久化账号数据库密钥 | R:code:src-tauri/src/storage/account.rs,code:src-tauri/src/storage.rs | A:key,DPAPI,legacy,generate,file | S:密钥不进入普通快照或日志
+file_actions.rs[PS7M]: F:规范化上传文件，打开受信缓存文件，并复制已下载文件到用户选择或默认目标 | R:code:src-tauri/src/storage.rs,code:src/utils/fileTransfer.ts,code:src-tauri/src/telegram/security.rs | A:telegram_save_downloaded_file,telegram_open_cached_file,telegram_save_cached_file_as,prepare_upload_file | S:打开缓存须校验真实路径位于受信任根，默认保存冲突时分配带编号的文件名
+inventory.rs[PO6S]: F:扫描本地存储对象并生成缓存和媒体清单 | R:code:src-tauri/src/storage.rs,code:src-tauri/src/storage/paths.rs | A:inventory,scan,files,usage | S:清单不替代 Telegram 事实
+local_state.rs[PD6T]: F:读取和写入账号的耐久草稿、附件草稿与离线发件箱 | R:code:src-tauri/src/storage/persistence.rs,code:src-tauri/src/storage.rs | A:telegram_read_local_state,telegram_write_local_state,LOCAL_FIELDS | S:与可重建 UI 快照独立，存盘只接收白名单字段
+metadata.rs[PD5S]: F:为白名单账号元数据提供读写、清理和定位下载入口 | R:code:src-tauri/src/storage/persistence.rs,code:src/store/accountMetadata.ts | A:telegram_read_account_metadata,telegram_write_account_metadata,telegram_locate_download | S:键映射到固定编号的数据文件，任意键不能拼接成存储路径
+paths.rs[PP8L]: F:集中计算配置、数据、WebView、TDLib、缓存和临时路径 | R:code:src-tauri/src/distribution.rs,code:src-tauri/src/storage/account.rs,code:src-tauri/src/storage.rs | A:config,data,webview,tdlib,cache | S:路径由分发身份确定
+persistence.rs[PD8M]: F:为小型持久记录提供按路径加锁的 JSON 读取和原子写入 | R:code:src-tauri/src/storage/local_state.rs,code:src-tauri/src/storage/metadata.rs | A:read_json,write_json,atomic_write | S:读取或解析失败及磁盘错误不能删除唯一可读副本
+photo_preview.rs[KP6M]: F:解码并缩放照片，维护有容量限制的原生预览缓存 | R:code:src-tauri/src/storage/assets.rs,code:src/media/photoPreview.ts | A:PhotoPreviews,parse_size,MAX_EDGE | S:预览缓存同时受对象数量和字节约束
+sticker_export.rs[PZ7L]: F:导出贴纸资源并处理格式转换和目标文件 | R:code:src-tauri/src/storage.rs,code:src/components/StickerExportMenu.tsx,code:src/telegram/stickerExport.ts | A:sticker,export,format,file | S:导出路径和文件名经过原生安全校验
+
+===/<repository>/src-tauri/src/telegram/===
+assets.rs[IP6S]: F:提供 TDLib 原生资源的受信任根和访问判断 | R:code:src-tauri/src/telegram.rs,code:src-tauri/src/storage/assets.rs | A:trusted-roots,allow,asset | S:只允许预声明资源根
+media_stream.rs[IP9L]: F:管理 TDLib 媒体流、Range、播放租约、进度和 MIME 响应 | R:code:src-tauri/src/telegram.rs,code:src/media/mediaStream.ts,code:src/media/mediaPlayback.ts | A:registry,lease,range,progress,mime,response | S:响应字节和租约受上限约束
+runtime_log.rs[IO7L]: F:记录并导出脱敏 TDLib runtime 日志和运行事件 | R:code:src-tauri/src/telegram.rs,code:src-tauri/src/diagnostics.rs | A:logger,batch,redaction,records | S:日志字段受白名单与容量限制
+security.rs[IS9L]: F:校验 WebView 到 TDLib 的请求、身份、媒体、权限和上传参数 | R:code:src-tauri/src/telegram.rs,code:src-tauri/src/storage/file_actions.rs,code:src/telegram/transport.ts | A:allowlist,identifiers,permissions,uploads,captions | S:拒绝未知类型、越界 ID、超量文件和错误上下文目标
+stream_scheduler.rs[IW7S]: F:按文件键与世代调度 TDLib 媒体范围工作并约束并发和候选队列 | R:code:src-tauri/src/telegram/media_stream.rs | A:dispatch,WORKERS,MAX_QUEUED,MAX_QUEUED_PER_FILE | S:单文件存在独立队列上限，淘汰的工作收到取消结果
+tdlib_runtime.rs[IN8S]: F:加载固定 TDLib 动态库并管理 tdjson 客户端、请求和关闭 | R:code:src-tauri/src/telegram.rs,code:scripts/verify-tdlib.ps1,code:src-tauri/tdlib/README.md | A:load,client,request,shutdown | S:运行库路径必须通过受信任资源校验
+update_delivery.rs[IM8L]: F:分发 TDLib 更新和账号范围内的增量状态 | R:code:src-tauri/src/telegram.rs,code:src/telegram/tdUpdateRouter.ts,code:src/telegram/tdUpdateStream.ts | A:update,batch,account,events,ack | S:事件批次保持顺序并在关闭时停止投递
+
+===/<repository>/src-tauri/tdlib/===
+README.md[SL4T]: F:说明仓库内 TDLib 运行时文件、许可证和验证方式 | R:code:scripts/tdlib/version.json,code:scripts/verify-tdlib.ps1,code:src-tauri/src/telegram/tdlib_runtime.rs | A:runtime,licenses,hashes | S:运行库必须匹配固定版本元数据
+
+===/<repository>/src-tauri/tdlib/licenses/===
+OpenSSL.txt[SZ3S]: F:随 TDLib 运行时分发 OpenSSL 许可证文本 | R:code:scripts/tdlib/version.json,code:scripts/publish-tdlib-runtime.ps1 | A:license,OpenSSL | S:-
+TDLib-LICENSE_1_0.txt[SZ3T]: F:随 TDLib 运行时分发 TDLib 许可证文本 | R:code:scripts/tdlib/version.json,code:scripts/publish-tdlib-runtime.ps1 | A:license,TDLib | S:-
+zlib.txt[SZ3T]: F:随 TDLib 运行时分发 zlib 许可证文本 | R:code:scripts/tdlib/version.json,code:scripts/publish-tdlib-runtime.ps1 | A:license,zlib | S:-
+
+===/<repository>/src/app/===
+App.tsx[EG9L]: F:编排账号恢复、导航、会话选择、通知、窗口桥接和全局布局 | R:code:src/store/telegramStore.ts,code:src/components/Conversation.tsx,code:src/hooks/useConversationScroll.ts,code:src/telegram/createTransport.ts | A:accounts,navigation,conversation,notifications,windows,layout | S:Store 保有活动会话事实，App 协调入口和视口意图
+
+===/<repository>/src/backup/===
+backupRuntime.ts[PC4T]: F:管理设置备份运行时的启停、状态和窗口事件桥 | R:code:src/backup/settingsBackup.ts,code:src/backup/settingsSync.ts,code:src/components/BackupSettings.tsx | A:runtime,state,events,start,stop | S:-
+settingsBackup.ts[PC6S]: F:定义设置备份数据结构、白名单、导出和恢复转换 | R:code:src/backup/settingsSync.ts,code:src/backup/backupRuntime.ts,code:src/components/BackupSettings.tsx | A:schema,allowlist,export,restore,revision | S:备份只包含允许的非敏感偏好
+settingsSync.ts[PC6T]: F:执行 WebDAV 设置同步、版本合并、ETag 和代际失效 | R:code:src/backup/settingsBackup.ts,code:src/backup/webdavBridge.ts,code:src/components/BackupSettings.tsx | A:sync,revision,ETag,generation,merge | S:迟到响应不能覆盖较新的本地修订
+webdavBridge.ts[PN5T]: F:封装前端到 Tauri WebDAV 请求的受控桥接 | R:code:src/backup/settingsSync.ts,code:src-tauri/src/settings_backup.rs | A:request,config,headers,response | S:桥接只转发设置同步请求
+
+===/<repository>/src/components/===
+AccountSwitcherMenu.tsx[EU7S]: F:展示账号列表并执行切换、退出和账号管理操作 | R:code:src/store/telegramStore.accounts.ts,code:src/app/App.tsx | A:accounts,switch,logout,menu | S:切换前后账号状态必须隔离
+AudioPlaybackHost.tsx[EP8L]: F:协调音频播放器、全局媒体租约、消息来源和播放恢复 | R:code:src/media/audioPlayback.ts,code:src/components/AudioPlayer.tsx,code:src/store/telegramStore.ts | A:host,lease,queue,playback,recovery | S:同一时刻只能有一个全局音频所有者
+AudioPlayer.tsx[EP7M]: F:渲染音频消息控制、进度、加载、错误和播放操作 | R:code:src/media/audioPlayback.ts,code:src/components/AudioPlaybackHost.tsx,code:src/components/AudioTrackInfo.tsx | A:play,pause,seek,progress,error | S:播放状态来自共享音频控制器
+AudioSpectrum.tsx[EP6S]: F:把音频波形和实时频谱值渲染为动效条形 | R:code:src/components/AudioPlayer.tsx,code:src/utils/motionPreference.ts | A:spectrum,bars,seed,animate | S:无实时数据时使用稳定的确定性回退
+AudioTrackInfo.tsx[EP4T]: F:展示音频标题、表演者和文件名回退信息 | R:code:src/components/AudioPlayer.tsx,code:src/telegram/messageContent.ts | A:title,performer,filename | S:-
+AuthorizationScreen.tsx[EI8M]: F:承载 Telegram 授权、验证码、密码、二维码和错误恢复流程 | R:code:src/store/telegramStore.accounts.ts,code:src/telegram/transport.ts,code:src/components/PhoneNumberField.tsx | A:phone,code,password,qr,error | S:授权输入只提交当前账号会话
+AutoplayVideo.tsx[EP5T]: F:渲染带可见性和静音策略的自动播放视频预览 | R:code:src/media/videoPlayback.ts,code:src/components/VideoPreview.tsx | A:autoplay,muted,visibility,poster | S:自动播放遵循浏览器策略和用户音频偏好
+Avatar.tsx[EU4T]: F:渲染用户、聊天和群组头像的加载、占位和失败回退 | R:code:src/store/profileState.ts,code:src/media/photoSources.ts | A:avatar,placeholder,loading,error | S:-
+BackupSettings.tsx[EC6S]: F:提供 WebDAV 设置、启停、立即同步和备份状态反馈 | R:code:src/backup/settingsBackup.ts,code:src/backup/settingsSync.ts,code:src/backup/backupRuntime.ts | A:webdav,enable,sync,status,form | S:界面不展示备份凭据原文
+CachedMediaPreview.tsx[EP3T]: F:显示本地缓存媒体的轻量预览和加载状态 | R:code:src/media/localAssetCache.ts,code:src/media/mediaPreviewCache.ts | A:preview,cache,loading,error | S:-
+ChannelDiscussionPanel.tsx[EB8L]: F:展示频道帖子讨论区并处理评论历史、消息操作、回复和发送 | R:code:src/store/telegramStore.ts,code:src/telegram/tauriTransport.ts,code:src/components/ConversationComposer.tsx,code:tests/e2e/channel-discussion.e2e.ts | A:discussion,history,comments,composer,actions | S:评论上下文使用关联讨论组 chatId
+ChatActionMenu.tsx[EU6S]: F:呈现会话菜单并分发置顶、已读、静音、归档和删除操作 | R:code:src/store/telegramStore.ts,code:src/telegram/chatListActions.ts | A:menu,pin,read,mute,archive,delete | S:菜单项按当前权限和状态计算
+ChatFolderList.tsx[EB8L]: F:渲染文件夹内的会话行、草稿、预览、未读标识并处理会话排序交互 | R:code:src/store/telegramStore.ts,code:src/store/telegramStore.selectors.ts,code:src/hooks/useFlipListMotion.ts | A:ChatFolderList,folderId,activeChatId | S:置顶归属于当前文件夹，隐藏发送者的消息不得进入普通列表预览
+ChatInviteDialog.tsx[EI6T]: F:展示邀请链接和加入会话的确认对话框 | R:code:src/telegram/chatJoin.ts,code:src/telegram/chatManagement.ts | A:invite,join,confirm,error | S:邀请链接提交前经过校验
+ChatManagementDialog.tsx[EB6S]: F:提供聊天管理入口和成员、设置、邀请等管理面板切换 | R:code:src/components/ManagementSettingsPanel.tsx,code:src/components/ManagementMemberPanel.tsx,code:src/store/telegramStore.ts | A:dialog,management,tabs,permissions | S:管理动作按当前聊天权限显示
+ChatMembershipBar.tsx[EI5T]: F:显示当前用户加入、离开、邀请和成员状态操作 | R:code:src/store/telegramStore.ts,code:src/telegram/chatManagement.ts | A:membership,join,leave,invite | S:-
+ChatSidebar.tsx[EU8L]: F:渲染会话列表、文件夹、搜索、未读、拖拽和导航侧栏 | R:code:src/store/telegramStore.ts,code:src/components/ChatFolderList.tsx,code:src/app/App.tsx | A:chats,folders,search,unread,navigation | S:可见列表与会话成员关系分开维护
+CollapsibleBlockQuote.tsx[EU6S]: F:渲染可折叠引用文本并保持展开状态和可访问操作 | R:code:src/components/MessageBubble.tsx,code:src/utils/messageMetadata.ts | A:quote,collapse,expand,aria | S:-
+ComposerContextMenu.tsx[EU5T]: F:提供编辑器右键菜单、插入和文本操作入口 | R:code:src/components/ComposerInput.tsx,code:src/utils/composerFormatting.ts | A:menu,insert,format,selection | S:-
+ComposerInput.tsx[EU8M]: F:承载文本输入、格式化、提及、回复编辑目标、附件和自动调整高度 | R:code:src/components/ConversationComposer.tsx,code:src/hooks/useComposerAutoResize.ts,code:src/hooks/useComposerMessageContext.ts,code:src/store/telegramStore.drafts.ts | A:text,mentions,format,attachments,reply,resize | S:编辑器焦点和草稿目标按账号与话题隔离
+ConfirmActionDialog.tsx[EU4T]: F:呈现可复用确认、取消和危险操作提示对话框 | R:code:src/components/ChatActionMenu.tsx,code:src/components/MessageSelectionDeleteAction.tsx | A:confirm,cancel,danger,dialog | S:-
+ConnectionStatusIndicator.tsx[ER5T]: F:显示授权、连接和代理恢复状态及重试提示 | R:code:src/store/telegramStore.session.ts,code:src/telegram/connectionState.ts | A:authorization,connection,proxy,retry | S:显示状态来自 Store，不直接推断 TDLib 状态
+ContactsView.tsx[EI7S]: F:分页展示联系人、搜索、资料入口和新聊天操作 | R:code:src/store/telegramStore.profile.ts,code:src/telegram/tauriProfileService.ts | A:contacts,search,paging,profile | S:联系人分页游标由 Store 管理
+ContextMenuSurface.tsx[EU6S]: F:渲染可定位、可键盘操作和可关闭的上下文菜单表面 | R:code:src/components/ChatActionMenu.tsx,code:src/hooks/useContextMenuDismiss.ts,code:src/contextMenu/nativeContextMenuLayout.ts | A:surface,anchor,keyboard,dismiss | S:-
+ContextMenuWindow.tsx[EU7M]: F:连接 WebView 上下文菜单与 Tauri 窗口桥并处理尺寸和关闭 | R:code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuBridge.ts | A:window,bridge,resize,close | S:原生窗口尺寸约束在 Rust 边界再次校验
+Conversation.tsx[EB9L]: F:编排会话头部、消息虚拟列表、历史、定位、操作、媒体和服务提示 | R:code:src/components/ConversationSurface.tsx,code:src/components/ConversationComposer.tsx,code:src/store/telegramStore.ts,code:src/hooks/useConversationScroll.ts | A:history,messages,viewport,actions,composer,media | S:活动会话由 Store 选择，视口命令只通过协调器提交
+ConversationComposer.tsx[EU9L]: F:协调会话编辑器、回复编辑状态、附件、提及、发送和焦点恢复 | R:code:src/components/ComposerInput.tsx,code:src/store/telegramStore.drafts.ts,code:src/store/telegramStore.outbox.ts | A:composer,draft,reply,send,attachments,focus | S:草稿与回复目标按当前会话和话题隔离
+ConversationOverlays.tsx[EU8L]: F:承载会话中的搜索、跳转、置顶、选择、媒体和状态覆盖层 | R:code:src/components/Conversation.tsx,code:src/store/globalSearchState.ts,code:src/store/chatMessageSearchState.ts | A:search,jump,pin,selection,media,status | S:覆盖层不拥有会话或消息事实
+ConversationPhoto.tsx[EP6S]: F:展示会话消息照片的预览、加载、失败和查看器入口 | R:code:src/media/photoPreview.ts,code:src/components/MediaViewer.tsx,code:src/media/photoSources.ts | A:photo,preview,loading,error,viewer | S:-
+ConversationSurface.tsx[EU4T]: F:提供会话主体表面和消息列表布局容器 | R:code:src/components/Conversation.tsx,code:src/components/ConversationViewportBoundary.tsx | A:surface,layout,messages | S:-
+ConversationViewportBoundary.tsx[ER4T]: F:定义会话视口边界、滚动容器和可见区域测量 | R:code:src/components/Conversation.tsx,code:src/hooks/useConversationScroll.ts,code:docs/conversation-state-model.md | A:viewport,scroll,measure,boundary | S:边界测量不能直接竞争底部 scrollTop 写入
+DesktopNotificationWindow.tsx[EO7M]: F:渲染桌面通知窗口、通知列表、头像、路由和关闭动作 | R:code:src-tauri/src/desktop_notification.rs,code:src/notifications/notificationRouting.ts | A:notification,route,avatar,window,dismiss | S:通知内容和路由由原生限长与脱敏边界保护
+DesktopStartupSettings.tsx[EO5T]: F:提供开机启动和托盘相关桌面设置 | R:code:src-tauri/src/desktop_lifecycle.rs,code:src/store/preferencesStore.ts | A:startup,tray,setting,toggle | S:-
+DiagnosticsSettings.tsx[EO6S]: F:管理诊断开关、日志导出、崩溃报告和性能记录选项 | R:code:src/release/diagnostics.ts,code:src-tauri/src/diagnostics.rs | A:diagnostics,logs,crash,performance,export | S:界面不显示脱敏前的敏感字段
+DiscussionErrorBoundary.tsx[ER3T]: F:隔离讨论区渲染异常并提供可恢复的错误界面 | R:code:src/components/ChannelDiscussionPanel.tsx | A:error-boundary,retry,fallback | S:-
+DownloadManagerDialog.tsx[EP7M]: F:展示下载队列、进度、失败、取消和重试操作 | R:code:src/utils/downloadManager.ts,code:src/store/messageFileIndex.ts,code:src/telegram/fileDownloadQueue.ts | A:queue,progress,cancel,retry,files | S:下载进度不应改变消息持久化事实
+EmojiAssetVisual.tsx[EL5S]: F:渲染本地 emoji 资源、占位和加载失败回退 | R:code:src/hooks/useCachedEmojiSource.ts,code:src/media/emojiAssetPreview.ts | A:emoji,asset,loading,fallback | S:-
+EmojiPicker.tsx[EU8L]: F:提供 emoji、贴纸、收藏、搜索、分类和插入交互 | R:code:src/components/ComposerInput.tsx,code:src/store/telegramStore.emoji.ts,code:src/store/telegramStore.emojiCache.ts | A:emoji,sticker,search,categories,insert | S:资源加载与编辑器插入通过受控命令完成
+FolderManagerDialog.tsx[EB8M]: F:管理聊天文件夹创建、编辑、排序和包含规则 | R:code:src/components/ChatFolderList.tsx,code:src/store/telegramStore.ts,code:src/utils/folderChatSelection.ts | A:FolderManagerDialog | S:持久顺序以确认结果为准
+ForumTopicManagerDialog.tsx[EU5T]: F:通过可关闭模态包装论坛话题管理视图并绑定焦点 | R:code:src/components/ForumTopicsView.tsx,code:src/hooks/useModalFocus.ts | A:ForumTopicManagerDialog,onClose | S:-
+ForumTopicStrip.tsx[EB6S]: F:渲染论坛话题横向切换栏、未读标记和排序交互 | R:code:src/components/ForumTopicsView.tsx,code:src/store/forumTopicOrder.ts,code:src/store/forumUnreadState.ts | A:topics,strip,order,unread,switch | S:话题切换保留当前群组上下文
+ForumTopicsView.tsx[EB8M]: F:展示论坛话题列表、分页、进入话题和管理入口 | R:code:src/store/telegramStore.forum.ts,code:src/components/ForumTopicManagerDialog.tsx,code:src/components/Conversation.tsx | A:topics,paging,select,manage,all | S:话题消息、草稿和搜索由 activeTopicId 隔离
+ForwardMessagesDialog.tsx[EB7M]: F:选择转发目标会话、话题和消息并提交转发 | R:code:src/store/telegramStore.outbox.ts,code:src/telegram/chatManagement.ts,code:src/components/ChatSidebar.tsx | A:forward,target,topic,selection,send | S:论坛目标必须先选择可发送的话题上下文
+GlobalSearchView.tsx[EA8L]: F:编排全局消息搜索、过滤、分页、资料结果和精确跳转 | R:code:src/store/globalSearchState.ts,code:src/store/chatMessageSearchState.ts,code:src/telegram/tauriSearchService.ts | A:search,filters,paging,profiles,jump | S:搜索结果跳转必须保留来源聊天和消息身份
+InlineKeyboard.tsx[EU6S]: F:渲染 Telegram inline keyboard 按钮并处理回调和外部链接 | R:code:src/telegram/messageContent.ts,code:src/utils/externalLinks.ts | A:buttons,callback,url,layout | S:外部链接仍需经过统一 URL 校验
+ManagementInvitesPanel.tsx[EI6S]: F:管理聊天邀请链接的创建、复制、撤销和权限反馈 | R:code:src/components/ChatManagementDialog.tsx,code:src/telegram/chatManagement.ts | A:invites,create,revoke,permissions | S:邀请操作按当前聊天权限执行
+ManagementMemberPanel.tsx[EI7S]: F:分页展示和管理聊天成员、权限、角色和移除操作 | R:code:src/components/ChatManagementDialog.tsx,code:src/telegram/chatManagement.ts,code:src/store/telegramStore.ts | A:members,paging,roles,permissions,remove | S:成员操作必须带目标聊天身份
+ManagementSettingsPanel.tsx[EC6S]: F:编辑聊天标题、描述、权限、隐私和管理设置 | R:code:src/components/ChatManagementDialog.tsx,code:src/telegram/chatManagement.ts | A:settings,title,permissions,privacy,save | S:设置项按聊天类型和权限裁剪
+MarkdownText.tsx[EL4T]: F:解析并渲染受支持 Markdown 和 GFM 文本 | R:code:src/utils/markdownParseCache.ts,code:src/components/RichMessageContent.tsx | A:markdown,gfm,render,cache | S:-
+MediaProgressRing.tsx[EP3T]: F:显示媒体加载、下载和失败进度环 | R:code:src/components/CachedMediaPreview.tsx,code:src/utils/downloadManager.ts | A:progress,loading,error | S:-
+MediaViewer.tsx[EP7M]: F:渲染照片、视频和混合媒体查看器的导航、缩放、下载和错误恢复 | R:code:src/media/mediaPlayback.ts,code:src/media/mediaViewerWindowBridge.ts,code:src/components/ViewerImage.tsx | A:viewer,navigation,zoom,download,recovery | S:媒体所有权由共享播放和查看器模型协调
+MediaViewerWindow.tsx[EP7M]: F:连接媒体查看器页面与独立 Tauri 查看器窗口 | R:code:src-tauri/src/media_viewer_window.rs,code:src/media/mediaViewerWindowBridge.ts,code:src/components/MediaViewer.tsx | A:window,bridge,theme,close | S:窗口 owner 和媒体身份必须匹配
+MessageBubble.tsx[EB9L]: F:编排消息气泡布局、文本、媒体、操作、回复、反应和选择状态 | R:code:src/components/Conversation.tsx,code:src/components/MessageRichText.tsx,code:src/store/telegramStore.messages.ts | A:message,content,actions,reply,media,selection | S:消息身份和聊天上下文必须同时传递
+MessageDeliveryStatus.tsx[EM4T]: F:显示消息发送中、成功、失败和已读状态 | R:code:src/store/telegramStore.pendingSends.ts,code:src/telegram/types.ts | A:sending,sent,failed,read | S:-
+MessageMetadata.tsx[EM4T]: F:渲染消息时间、发送者、编辑和来源元数据 | R:code:src/utils/messageMetadata.ts,code:src/components/MessageBubble.tsx | A:time,author,edited,forwarded | S:-
+MessagePreformatted.tsx[EL4T]: F:渲染代码块和预格式化消息并提供复制入口 | R:code:src/components/MessageRichText.tsx,code:src/utils/messageClipboard.ts | A:preformatted,code,copy | S:-
+MessageReactions.tsx[EB6M]: F:展示消息 reaction 列表、计数、选择和加载状态 | R:code:src/store/telegramStore.messages.ts,code:src/telegram/types.ts,code:src/components/MessageBubble.tsx | A:reactions,count,select,loading | S:reaction 操作携带聊天和消息身份
+MessageRichText.tsx[EB8L]: F:渲染实体、链接、提及、数学、spoiler 和富文本消息内容 | R:code:src/components/MarkdownText.tsx,code:src/components/RichMessageContent.tsx,code:src/telegram/messageContent.ts | A:entities,links,mentions,spoiler,math | S:外部链接统一经过安全 URL 校验
+MessageSelectionDeleteAction.tsx[EU5T]: F:提供多选消息删除确认和批量操作入口 | R:code:src/store/telegramStore.messages.ts,code:src/components/ConfirmActionDialog.tsx | A:selection,delete,confirm,batch | S:删除前保持选择集合和聊天身份一致
+MessageTextFlow.tsx[EL6S]: F:处理消息文本测量、换行、实体和可选折叠布局 | R:code:src/components/MessageRichText.tsx,code:src/utils/textHighlight.tsx | A:text,flow,measure,highlight | S:-
+MotionPresence.tsx[EP6S]: F:控制组件进入、退出和 reduced-motion 存在性动画 | R:code:src/utils/motionTokens.ts,code:src/utils/motionPreference.ts,code:docs/motion-system.md | A:presence,enter,exit,reduced-motion | S:动效生命周期不能替代业务状态
+MotionSelectionIndicator.tsx[EP4T]: F:渲染消息选择状态的轻量动效指示器 | R:code:src/components/MotionPresence.tsx,code:src/utils/motionTokens.ts | A:selection,indicator,motion | S:-
+NavigationRail.tsx[EU7M]: F:渲染主导航、账户入口、设置和页面切换 | R:code:src/app/App.tsx,code:src/store/telegramStore.session.ts | A:navigation,accounts,settings,sections | S:导航切换不直接拥有会话数据
+NewChatDialog.tsx[EI7M]: F:搜索联系人和用户名并创建或打开新聊天 | R:code:src/store/telegramStore.profile.ts,code:src/telegram/tauriProfileService.ts,code:src/app/App.tsx | A:search,contacts,username,create | S:创建目标经过账号和权限上下文解析
+PerformanceMonitor.tsx[EO8L]: F:采集窗口、帧率、布局、资源和会话切换性能指标并展示诊断 | R:code:src-tauri/src/display_metrics.rs,code:src/telegram/transport.ts,code:src/utils/performanceMonitor.ts | A:frames,layout,metrics,trace,export | S:性能记录受字段、频率和容量上限约束
+PhoneNumberField.tsx[EI6M]: F:用国家与区号信息格式化、解析和验证登录电话号码 | R:code:src/components/AuthorizationScreen.tsx,code:src/components/phoneCountries.ts,code:package.json | A:PhoneNumberField | S:-
+PinnedMessageBanner.tsx[EB4T]: F:展示当前会话置顶消息摘要并提供跳转和关闭操作 | R:code:src/store/telegramStore.messages.ts,code:src/hooks/usePinnedMessages.ts | A:pinned,jump,dismiss | S:-
+PollMessage.tsx[EB6S]: F:渲染投票选项、投票状态、结果和截止信息 | R:code:src/telegram/messageContent.ts,code:src/components/MessageBubble.tsx | A:poll,options,vote,results | S:投票提交使用消息所属聊天上下文
+ProfileDrawer.tsx[EI8L]: F:展示账号、用户、群组和频道资料、成员、媒体与操作 | R:code:src/store/telegramStore.profile.ts,code:src/telegram/tauriProfileService.ts,code:src/components/SharedMediaBrowser.tsx | A:profile,members,media,actions,paging | S:资料和成员分页状态按账号与目标身份隔离
+ProfilePlaylist.tsx[EU4T]: F:展示资料页共享媒体播放列表入口 | R:code:src/components/ProfileDrawer.tsx,code:src/components/SharedMediaBrowser.tsx | A:playlist,media,select | S:-
+ProxySettingsEditor.tsx[IN7M]: F:编辑系统和自定义 Telegram 代理模式、端点、凭据和测试 | R:code:src-tauri/src/proxy.rs,code:src/store/preferencesStore.ts,code:src/telegram/proxySettings.ts | A:mode,endpoint,credentials,test,save | S:凭据输入不回显且只提交受控命令
+ReportDialog.tsx[IS7M]: F:选择举报原因、附加说明和目标消息并提交举报 | R:code:src/telegram/chatReport.ts,code:src/components/ReportMessagePicker.tsx | A:report,reason,message,submit | S:举报目标和文本受长度与权限校验
+ReportMessagePicker.tsx[IS5T]: F:在消息列表中选择举报目标并显示当前选择 | R:code:src/components/ReportDialog.tsx,code:src/store/telegramStore.messages.ts | A:message,select,target | S:-
+RichMathExpression.tsx[EL3T]: F:用 KaTeX 渲染行内或块级数学表达式并通知文本布局协调器 | R:code:src/components/MessageTextFlow.tsx,code:src/components/MessageRichText.tsx,code:package.json | A:RichMathExpression,displayMode | S:KaTeX 禁止 trusted 扩展，解析错误由渲染器容错
+RichMessageContent.tsx[EB8L]: F:渲染富消息内容中的媒体、文件、投票、联系人和服务对象 | R:code:src/components/MessageBubble.tsx,code:src/telegram/messageContent.ts,code:src/components/MessageRichText.tsx | A:rich-content,media,file,poll,service | S:内容类型由领域模型决定，不能从本地文件名猜测
+SafetySettings.tsx[IS7M]: F:管理广告过滤、屏蔽用户、隐私和安全相关偏好 | R:code:src/utils/adBlocking.ts,code:src/store/localUserBlocks.ts,code:src/telegram/chatManagement.ts | A:ad-block,blocked-users,privacy,safety | S:安全设置按账号隔离并在输入边界校验
+ServiceMessageContent.tsx[EB4T]: F:渲染 Telegram 服务消息 | R:code:src/telegram/serviceMessages.ts,code:src/components/MessageBubble.tsx | A:service,participants,call,payment | S:服务消息由领域类型决定
+SettingsDialog.tsx[EC9L]: F:编排主题、隐私、代理、通知、备份、诊断、更新和账户设置 | R:code:src/store/preferencesStore.ts,code:src/components/SettingsWindow.tsx,code:src/app/App.tsx | A:settings,sections,account,privacy,updates | S:敏感设置通过专用原生桥接
+SettingsWindow.tsx[EU3T]: F:连接独立设置窗口入口和主题元数据 | R:code:src/windows/settingsWindowEntry.tsx,code:src/components/SettingsDialog.tsx | A:window,theme,mount | S:-
+SharedMediaBrowser.tsx[EP7M]: F:分页展示聊天共享媒体、文件、链接和相册 | R:code:src/store/sharedMediaIndex.ts,code:src/components/MediaViewer.tsx | A:media,files,links,albums,paging | S:索引按聊天身份维护
+ShortcutSettings.tsx[EU6S]: F:展示和编辑应用快捷键并反馈冲突 | R:code:src/shortcuts/shortcuts.ts,code:src-tauri/src/shortcuts.rs | A:shortcuts,edit,conflict,availability | S:保存前经过原生校验
+SidebarContextMenus.tsx[EU7M]: F:提供侧栏会话、文件夹和账户上下文菜单 | R:code:src/components/ChatActionMenu.tsx,code:src/components/ChatFolderList.tsx,code:src/store/telegramStore.ts | A:chat,folder,account,menu,actions | S:动作使用当前对象身份
+Spoiler.tsx[EU5S]: F:渲染可点击显示隐藏的剧透内容 | R:code:src/components/MessageRichText.tsx,code:src/utils/motionPreference.ts | A:spoiler,reveal,keyboard | S:状态不改变消息原文
+StableImage.tsx[EP5S]: F:加载图片并保持尺寸、占位、解码和失败回退稳定 | R:code:src/media/photoSources.ts,code:src/media/decodedImages.ts | A:image,decode,placeholder,error | S:失败不能破坏消息布局
+StickerExportMenu.tsx[EB5S]: F:提供贴纸导出格式和目标文件选择 | R:code:src/telegram/stickerExport.ts,code:src-tauri/src/storage/sticker_export.rs | A:sticker,export,format,menu | S:目标路径由原生校验
+StickerPlaceholder.tsx[EP3T]: F:显示贴纸加载和缺失资源占位 | R:code:src/components/TgsSticker.tsx,code:src/store/telegramStore.emojiCache.ts | A:sticker,placeholder,loading | S:-
+StickerSetPreview.tsx[EB6S]: F:展示贴纸包元数据、缩略图和选择入口 | R:code:src/store/telegramStore.emoji.ts,code:src/components/StickerPlaceholder.tsx | A:sticker-set,preview,select | S:-
+StorageDataPanel.tsx[PC6S]: F:展示缓存、下载、快照和本地数据用量并提供清理 | R:code:src-tauri/src/storage.rs,code:src/store/preferencesStore.ts | A:storage,usage,cleanup,cache | S:清理尊重受保护路径
+TelegramProtocolSettings.tsx[IN4T]: F:配置 tg 链接协议接收和路由偏好 | R:code:src/release/telegramProtocol.ts,code:src/release/telegramLinkReceiver.ts | A:protocol,links,route | S:-
+TgsSticker.tsx[EP6S]: F:加载和渲染 TGS 动画贴纸并处理资源回退 | R:code:src/media/tgsAnimationCache.ts,code:src/components/StickerPlaceholder.tsx | A:tgs,animation,cache,fallback | S:资源受缓存和动效偏好约束
+UnauthenticatedSettingsDialog.tsx[EI5S]: F:在未授权状态展示可用设置和登录入口 | R:code:src/components/SettingsDialog.tsx,code:src/components/AuthorizationScreen.tsx | A:settings,login,unauthenticated | S:未授权界面不读取私有数据
+UpdateSettings.tsx[OV6S]: F:展示更新渠道、检查状态、下载和重启安装操作 | R:code:src/release/appUpdater.ts,code:src-tauri/tauri.conf.json | A:update,channel,check,download,restart | S:更新结果须通过签名和渠道校验
+VideoPlaybackView.tsx[EP7M]: F:渲染视频播放、缓冲、控制、全屏和错误恢复 | R:code:src/media/videoPlayback.ts,code:src/components/VideoPreview.tsx | A:video,playback,buffer,fullscreen,recovery | S:播放和下载进度由共享媒体状态协调
+VideoPreview.tsx[EP5T]: F:显示视频海报、加载状态和播放入口 | R:code:src/media/videoPlayback.ts,code:src/components/AutoplayVideo.tsx | A:video,poster,preview,play | S:-
+VideoWindow.tsx[EP3T]: F:把旧视频子窗口入口映射到共享媒体查看器 | R:code:src/components/MediaViewerWindow.tsx,code:src/windows/videoWindowEntry.tsx | A:VideoWindow | S:保留独立入口以兼容升级时已存在的原生窗口
+ViewerImage.tsx[EP4T]: F:渲染查看器中的可缩放图片和加载回退 | R:code:src/components/MediaViewer.tsx,code:src/media/imageViewport.ts | A:image,zoom,viewport,loading | S:-
+VoiceWaveform.tsx[EP4T]: F:渲染语音消息波形和播放进度 | R:code:src/media/voiceWaveform.ts,code:src/components/AudioPlayer.tsx | A:waveform,voice,progress | S:-
+WindowChrome.tsx[EU4T]: F:提供桌面窗口标题栏、拖动和窗口操作外观 | R:code:src-tauri/src/window_placement.rs,code:src/app/App.tsx | A:chrome,drag,minimize,close | S:-
+chatManagement.css[SZ5S]: F:定义聊天管理面板、成员、权限和邀请样式 | R:code:src/components/ChatManagementDialog.tsx,code:src/components/ManagementSettingsPanel.tsx | A:management,member,dialog,form | S:使用语义主题 token
+conversationMessages.ts[EB6M]: F:组合会话消息列表的可见数据、分组和行模型 | R:code:src/components/Conversation.tsx,code:src/store/telegramStore.messages.ts,code:src/utils/messageGrouping.ts | A:messages,groups,rows,virtualization | S:行模型不拥有持久化事实
+messageMetadata.css[SZ3T]: F:定义消息元数据、时间、发送者和状态样式 | R:code:src/components/MessageMetadata.tsx | A:metadata,time,status | S:使用语义主题 token
+phoneCountries.ts[EI3T]: F:提供电话国家和区号选择数据 | R:code:src/components/PhoneNumberField.tsx | A:countries,dial-codes,locale | S:-
+searchMessagePresentation.ts[EA4T]: F:把搜索命中消息转换为摘要和高亮模型 | R:code:src/components/GlobalSearchView.tsx,code:src/utils/textHighlight.tsx | A:search,summary,highlight | S:-
+
+===/<repository>/src/contextMenu/===
+nativeContextMenuBridge.ts[IM7M]: F:连接前端上下文菜单模型与 Tauri 原生窗口命令 | R:code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuLayout.ts | A:prepare,open,show,resize,close | S:请求包含菜单和窗口身份
+nativeContextMenuLayout.ts[IM6S]: F:计算原生上下文菜单尺寸、位置和边界 | R:code:src/contextMenu/nativeContextMenuBridge.ts,code:src-tauri/src/context_menu_window.rs | A:layout,size,position,bounds | S:两侧都校验尺寸边界
+
+===/<repository>/src/hooks/===
+conversationBottomState.ts[CR4T]: F:派生会话是否贴底、跟随或脱离的纯状态 | R:code:src/hooks/useConversationScroll.ts,code:docs/conversation-state-model.md | A:bottom,following,detached,viewport | S:被动位移不能重置用户脱离状态
+conversationJumpHistory.ts[CR3T]: F:保存和恢复会话跳转目标与返回历史 | R:code:src/hooks/useConversationNavigation.ts,code:src/components/ConversationOverlays.tsx | A:jump,history,target,return | S:-
+conversationScrollState.ts[CR7M]: F:维护会话滚动命令、代际、定位完成和底部协调状态 | R:code:src/hooks/useConversationScroll.ts,code:src/components/ConversationViewportBoundary.tsx,code:docs/conversation-state-model.md | A:request,generation,positioned,follow,settle | S:单一协调器拥有 scrollTop 写入权
+useAppShortcuts.ts[EU5T]: F:绑定应用级快捷键并路由导航、搜索和窗口命令 | R:code:src/shortcuts/shortcuts.ts,code:src/app/App.tsx | A:shortcuts,commands,route | S:快捷键处理尊重当前焦点和输入目标
+useAttachmentDragSwitch.ts[EU5T]: F:处理拖拽附件跨会话切换和目标会话保持 | R:code:src/components/Conversation.tsx,code:src/utils/attachmentDrag.ts | A:drag,attachment,chat-switch | S:-
+useCachedEmojiSource.ts[EP3T]: F:解析缓存 emoji 资源并提供加载状态 | R:code:src/components/EmojiAssetVisual.tsx,code:src/media/emojiAssetPreview.ts | A:emoji,cache,source | S:-
+useChannelDiscussionHistory.ts[EB4T]: F:加载频道讨论区历史和分页状态 | R:code:src/components/ChannelDiscussionPanel.tsx,code:src/store/telegramStore.ts | A:discussion,history,paging | S:历史请求绑定讨论组身份
+useChannelMessageViews.ts[EM5T]: F:观察频道帖子实际进入视口并批量报告浏览，失败时允许重试 | R:code:src/components/Conversation.tsx,code:src/store/telegramStore.ts | A:useChannelMessageViews | S:预挂载和后台文档不会登记浏览，去重状态绑定会话身份
+useComposerAutoResize.ts[EU3T]: F:同步 Composer 文本高度和编辑器布局通知 | R:code:src/components/ComposerInput.tsx,code:src/hooks/conversationScrollState.ts | A:resize,height,layout | S:-
+useComposerFocus.ts[EU6S]: F:管理编辑器焦点请求、捕获、恢复和异步返回 | R:code:src/components/ConversationComposer.tsx,code:src/utils/focusPolicy.ts,code:docs/focus-management.md | A:focus,capture,restore,reason | S:异步工作开始前必须捕获焦点
+useComposerMessageContext.ts[EB5T]: F:解析回复和编辑消息上下文并保持目标身份 | R:code:src/components/ComposerInput.tsx,code:src/store/telegramStore.drafts.ts | A:reply,edit,target,context | S:目标按账号、聊天和话题隔离
+useComposerPanelLayout.ts[EU3T]: F:测量 Composer 面板和附件区域布局 | R:code:src/components/ConversationComposer.tsx,code:src/hooks/useComposerAutoResize.ts | A:panel,layout,attachments | S:-
+useContentMotion.ts[EP3T]: F:为内容表面提供动效偏好和存在性状态 | R:code:src/components/MotionPresence.tsx,code:src/utils/motionPreference.ts | A:motion,presence,reduced-motion | S:-
+useContextMenuDismiss.ts[EU3T]: F:处理上下文菜单外部点击、Escape 和窗口失焦关闭 | R:code:src/components/ContextMenuSurface.tsx | A:dismiss,escape,blur | S:-
+useConversationActivityTracker.ts[EO4T]: F:跟踪会话活动和可见性以支持性能与通知策略 | R:code:src/components/Conversation.tsx,code:src/utils/performanceMonitor.ts | A:activity,visibility,tracking | S:-
+useConversationFileDrop.ts[EB5S]: F:接收会话文件拖放并转换为附件发送输入 | R:code:src/components/Conversation.tsx,code:src/utils/fileTransfer.ts,code:src/store/telegramStore.outbox.ts | A:drop,file,attachment,send | S:文件动作经过统一路径校验
+useConversationNavigation.ts[EB6S]: F:解析会话、话题、消息和历史导航目标 | R:code:src/app/App.tsx,code:src/components/Conversation.tsx,code:src/hooks/conversationJumpHistory.ts | A:navigation,chat,topic,message,history | S:导航目标包含账号和会话身份
+useConversationScroll.ts[CR9L]: F:协调会话选择、虚拟列表定位、底部跟随和稳定性测量 | R:code:src/components/Conversation.tsx,code:src/hooks/conversationScrollState.ts,code:docs/conversation-state-model.md | A:request,position,follow,settle,generation,viewport | S:唯一协调器写 scrollTop，迟到异步结果按代际失效
+useDiscussionRead.ts[EB4T]: F:提交讨论区已读位置并处理当前讨论上下文 | R:code:src/components/ChannelDiscussionPanel.tsx,code:src/store/telegramStore.ts | A:discussion,read,chat,topic | S:-
+useDocumentVisibility.ts[ER3T]: F:监听文档可见性并暂停高成本观察工作 | R:code:src/components/PerformanceMonitor.tsx,code:src/utils/conversationTrace.ts | A:visibility,pause,resume | S:-
+useEditVisibleMessage.ts[EB4T]: F:提交可见消息编辑并同步草稿和消息状态 | R:code:src/components/ConversationComposer.tsx,code:src/store/telegramStore.messages.ts | A:edit,message,draft,submit | S:编辑目标必须仍属于当前会话
+useElementVisibility.ts[ER4T]: F:通过 IntersectionObserver 派生元素可见状态 | R:code:src/components/Conversation.tsx,code:src/components/AutoplayVideo.tsx | A:visibility,observer,element | S:-
+useFlipListMotion.ts[EP5S]: F:测量列表项前后位置并执行 FLIP 动效 | R:code:src/components/MotionPresence.tsx,code:src/utils/motionTokens.ts | A:flip,layout,motion,measure | S:动效测量不改变业务顺序
+useFolderListWarmup.ts[EB3T]: F:预热当前文件夹会话和头像资源 | R:code:src/components/ChatFolderList.tsx,code:src/store/telegramStore.ts | A:folder,warmup,preload | S:-
+useFolderNavigation.ts[EB3T]: F:提供文件夹间键盘和程序化导航 | R:code:src/components/ChatFolderList.tsx,code:src/app/App.tsx | A:folder,navigation,keyboard | S:-
+useFolderReorder.ts[EB7M]: F:计算文件夹拖拽重排、边界和持久化提交 | R:code:src/components/ChatFolderList.tsx,code:src/store/telegramStore.ts | A:folder,drag,order,commit | S:本地顺序等待确认后才成为持久事实
+useImageViewport.ts[EP6S]: F:管理图片缩放、平移、边界和双击状态 | R:code:src/components/ViewerImage.tsx,code:src/components/MediaViewer.tsx | A:image,zoom,pan,bounds | S:-
+useMessageActionPermissions.ts[EI5T]: F:为已挂载消息菜单获取可执行权限，并展示加载、失败和重试状态 | R:code:src/components/MessageBubble.tsx,code:src/utils/messageActionPermissions.ts,code:src/utils/messagePermissionRevision.ts | A:useMessageActionPermissions,MessagePermissionStatus | S:菜单关闭时取消重试与界面状态写入
+useMessageDragSelection.ts[EU6S]: F:处理消息区域拖拽选择和选择范围更新 | R:code:src/components/MessageBubble.tsx,code:src/store/telegramStore.messages.ts | A:selection,drag,range | S:-
+useMessageForwarding.ts[EB7M]: F:协调消息转发目标、话题选择和发送提交 | R:code:src/components/ForwardMessagesDialog.tsx,code:src/store/telegramStore.outbox.ts | A:forward,target,topic,send | S:转发保留原消息身份和目标上下文
+useModalFocus.ts[EU6S]: F:管理模态焦点捕获、陷阱、返回和 Escape | R:code:src/components/ConfirmActionDialog.tsx,code:src/utils/focusPolicy.ts,code:docs/focus-management.md | A:modal,focus,trap,restore | S:模态关闭后只恢复未被新编辑器认领的焦点
+usePinnedMessages.ts[EB5S]: F:读取置顶消息并提供跳转、关闭和更新状态 | R:code:src/components/PinnedMessageBanner.tsx,code:src/store/telegramStore.messages.ts | A:pinned,load,jump,dismiss | S:-
+useSidebarSearch.ts[EA5T]: F:管理侧栏会话搜索输入、过滤和结果导航 | R:code:src/components/ChatSidebar.tsx,code:src/store/globalSearchState.ts | A:search,filter,query,navigate | S:-
+useStableVisibility.ts[ER4T]: F:在异步布局变化中提供稳定的可见状态 | R:code:src/components/ConversationViewportBoundary.tsx,code:src/utils/layoutObservation.ts | A:visibility,stable,layout | S:-
+useStickerSetRefresh.ts[EP3T]: F:刷新当前贴纸包并避免重复请求 | R:code:src/components/StickerSetPreview.tsx,code:src/store/telegramStore.emoji.ts | A:sticker-set,refresh,dedupe | S:-
+useVisibleFile.ts[EP3T]: F:从可见区域请求文件资源 | R:code:src/telegram/fileDataCenter.ts | A:visible,file,resource | S:-
+useVisibleResource.ts[EP3T]: F:管理可见资源请求和取消 | R:code:src/utils/visibleResourceRequest.ts | A:visible,resource,cancel | S:-
+
+===/<repository>/src/i18n/===
+index.ts[SL4T]: F:初始化本地化资源和翻译函数 | R:code:src/i18n/language.ts,code:src/i18n/locales/en.ts | A:i18n,t,resources | S:-
+language.ts[SL4T]: F:管理语言选择和本地化切换 | R:code:src/i18n/index.ts,code:src/store/preferencesStore.ts | A:language,locale,change | S:-
+
+===/<repository>/src/i18n/locales/===
+en.ts[SL5L]: F:提供英文翻译资源 | R:code:src/i18n/index.ts | A:locale,translations | S:-
+ja.ts[SL5L]: F:提供日文翻译资源 | R:code:src/i18n/index.ts | A:locale,translations | S:-
+zh-CN.ts[FL3T]: F:从英文资源表的中文键构建简体中文同名翻译 | R:code:src/i18n/locales/en.ts,code:src/i18n/index.ts | A:zhCN | S:-
+
+===/<repository>/src/===
+main.tsx[EI4T]: F:挂载 React 主应用并初始化全局样式和本地化 | R:code:src/app/App.tsx,code:src/i18n/index.ts | A:mount,App,styles | S:-
+vite-env.d.ts[FV3T]: F:声明 Vite 客户端环境及传输选择、WebView 压测的类型 | R:code:src/telegram/createTransport.ts,code:vite.config.ts | A:ImportMetaEnv,VITE_TELEGRAM_TRANSPORT,VITE_WEBVIEW_STRESS | S:-
+
+===/<repository>/src/media/===
+audioFloatingPosition.ts[EP3T]: F:计算音频浮动控件位置 | R:code:src/components/AudioPlaybackHost.tsx | A:position,viewport | S:-
+audioMessageQueue.ts[EP3T]: F:定义音频消息播放队列 | R:code:src/media/audioPlayback.ts | A:queue,audio | S:-
+audioPlayback.ts[EP7M]: F:协调音频播放、暂停、进度和媒体租约 | R:code:src/components/AudioPlaybackHost.tsx,code:src/media/mediaPlayback.ts | A:audio,playback,lease,progress | S:-
+autoDownload.ts[EP4T]: F:计算媒体自动下载策略 | R:code:src/store/preferencesStore.ts,code:src/telegram/fileDownloadQueue.ts | A:auto-download,policy | S:-
+decodedImages.ts[EP3T]: F:缓存和复用已解码图片 | R:code:src/media/photoSources.ts | A:decoded,cache | S:-
+emojiAssetPreview.ts[EP3T]: F:加载 emoji 资源预览 | R:code:src/components/EmojiAssetVisual.tsx | A:emoji,preview | S:-
+imageViewport.ts[EP4T]: F:计算图片查看器缩放和平移视口 | R:code:src/components/ViewerImage.tsx,code:src/components/MediaViewer.tsx | A:viewport,zoom,pan | S:-
+localAssetCache.ts[EP6S]: F:维护本地媒体资产缓存和租约 | R:code:src/media/mediaPreviewCache.ts,code:src/components/CachedMediaPreview.tsx | A:cache,asset,lease | S:-
+localMediaSource.ts[EP3T]: F:提供本地媒体来源适配 | R:code:src/media/mediaStream.ts | A:source,media | S:-
+mediaPlayback.ts[EP8M]: F:协调跨音频视频媒体播放所有权和状态 | R:code:src/media/audioPlayback.ts,code:src/media/videoPlayback.ts,code:src/components/MediaViewer.tsx | A:media,owner,playback,recovery | S:-
+mediaPreviewCache.ts[EP6S]: F:缓存媒体预览并处理过期 | R:code:src/media/localAssetCache.ts,code:src/components/CachedMediaPreview.tsx | A:preview,cache,evict | S:-
+mediaStream.ts[EP6T]: F:封装媒体流请求和 Range 响应 | R:code:src-tauri/src/telegram/media_stream.rs,code:src/media/mediaPlayback.ts | A:stream,range,media | S:-
+mediaViewerWindowBridge.ts[EP7M]: F:连接媒体查看器前端与原生窗口 | R:code:src-tauri/src/media_viewer_window.rs,code:src/components/MediaViewerWindow.tsx | A:window,bridge,viewer | S:-
+memoryCacheBudget.ts[EP5T]: F:计算媒体内存缓存预算和淘汰 | R:code:src/media/memoryLifecycle.ts,code:src/media/localAssetCache.ts | A:memory,budget,evict | S:-
+memoryLifecycle.ts[EP4T]: F:管理媒体解码资源生命周期 | R:code:src/media/memoryCacheBudget.ts,code:src/media/decodedImages.ts | A:memory,lifecycle,release | S:-
+outgoingAttachments.ts[EB7M]: F:分组和整理待发送附件与相册 | R:code:src/store/telegramStore.outbox.ts,code:src/components/ConversationComposer.tsx | A:attachments,albums,caption | S:-
+photoPreview.ts[EP6M]: F:生成照片预览和尺寸信息 | R:code:src/media/photoPreview.worker.ts,code:src/components/ConversationPhoto.tsx | A:photo,preview,size | S:-
+photoPreview.worker.ts[EP4T]: F:在 worker 中生成照片预览 | R:code:src/media/photoPreview.ts | A:worker,preview,decode | S:-
+photoSources.ts[EP4T]: F:解析照片媒体来源和尺寸 | R:code:src/media/photoPreview.ts,code:src/components/StableImage.tsx | A:photo,source,size | S:-
+stickerOutline.ts[EP3T]: F:提供贴纸轮廓资源 | R:code:src/components/TgsSticker.tsx | A:sticker,outline | S:-
+stickerPickerPreview.ts[EP4S]: F:生成贴纸选择器预览 | R:code:src/components/StickerSetPreview.tsx | A:sticker,preview | S:-
+tgsAnimationCache.ts[EP5T]: F:缓存 TGS 动画资源 | R:code:src/components/TgsSticker.tsx,code:src/media/memoryLifecycle.ts | A:tgs,cache,animation | S:-
+videoPlayback.ts[EP7M]: F:协调视频播放、缓冲、Range 和全屏状态 | R:code:src/components/VideoPlaybackView.tsx,code:src/media/mediaPlayback.ts | A:video,playback,buffer,range | S:-
+videoWindowBridge.ts[EP5T]: F:连接视频播放与原生窗口 | R:code:src-tauri/src/video_window.rs,code:src/components/VideoWindow.tsx | A:video,window,bridge | S:-
+viewerImages.ts[EP5S]: F:管理查看器图片列表和导航 | R:code:src/components/MediaViewer.tsx,code:src/media/imageViewport.ts | A:viewer,images,navigation | S:-
+voiceWaveform.ts[EP3T]: F:解析语音波形数据 | R:code:src/components/VoiceWaveform.tsx,code:src/media/audioPlayback.ts | A:voice,waveform | S:-
+
+===/<repository>/src/notifications/===
+desktopNotifications.ts[IO6S]: F:向原生通知窗口提交含主题和路由的通知，解析点击事件与会话身份 | R:code:src-tauri/src/desktop_notification.rs,code:src/notifications/messageNotificationPolicy.ts | A:showDesktopNotification,listenForDesktopNotificationOpen,parseDesktopNotificationRoute | S:同一账号、会话和话题的新通知取消旧通知的迟到重试
+messageNotificationPolicy.ts[DO7S]: F:判定消息通知资格并按预览设置生成标题和正文 | R:code:src/app/App.tsx,code:src/notifications/desktopNotifications.ts | A:shouldNotifyMessage,MessageNotificationStreamTracker,notificationPresentation | S:实时流式消息需等到内容完整，话题静音可以覆盖群组默认值
+notificationRouting.ts[PO6T]: F:保存、读取和清除待恢复的桌面通知路由 | R:code:src/notifications/desktopNotifications.ts,code:src/app/App.tsx | A:savePendingNotificationRoute,readPendingNotificationRoute,clearPendingNotificationRoute | S:-
+notificationWindowBridge.ts[IO6T]: F:在通知子窗口读取快照、监听窗口更新并提交展开、关闭及路由点击 | R:code:src-tauri/src/desktop_notification.rs,code:src/components/DesktopNotificationWindow.tsx | A:readDesktopNotificationWindowSnapshot,listenForDesktopNotificationWindowChanges,openDesktopNotificationWindowItem | S:-
+notificationWindowStore.ts[DO6S]: F:校验通知窗口的主题、路由、头像及修订快照，并发布到 React 订阅 | R:code:src/notifications/desktopNotifications.ts,code:src/components/DesktopNotificationWindow.tsx | A:replaceDesktopNotificationWindowSnapshot,removeDesktopNotificationWindowItem,desktopNotificationWindowStore | S:删除通知时核对更新时间，避免旧操作移除刚刷新的卡片
+
+===/<repository>/src/release/===
+appUpdater.ts[IV7S]: F:封装原生更新检查、安装进度、重启和下载句柄管理 | R:code:src/components/UpdateSettings.tsx,code:src-tauri/src/distribution.rs | A:AppUpdater,AppUpdaterBridge,appUpdater | S:仅安装版允许原生更新，重新检查前关闭旧更新句柄
+desktopSettings.ts[IH6T]: F:提供分发形态、启动行为和托盘设置的前端原生桥接 | R:code:src-tauri/src/desktop_lifecycle.rs,code:src/components/DesktopStartupSettings.tsx | A:AppDesktopSettings,desktopSettings | S:-
+diagnostics.ts[IO6T]: F:封装诊断开关、日志导出与相关原生调用 | R:code:src-tauri/src/diagnostics.rs,code:src/components/DiagnosticsSettings.tsx | A:AppDiagnostics,DiagnosticsBridge,appDiagnostics | S:-
+telegramLinkInbox.ts[DR6T]: F:为原生 Telegram 链接排队去重并在接收者就绪后串行打开 | R:code:src/release/telegramLinkReceiver.ts | A:TelegramLinkInbox,wake,attach | S:队列跨登录、账号切换和 StrictMode 重挂载存续
+telegramLinkReceiver.ts[IN6T]: F:订阅原生 Telegram 链接与登录连接状态，唤醒队列并调用应用内导航 | R:code:src-tauri/src/telegram_links.rs,code:src/release/telegramLinkInbox.ts,code:src/utils/externalLinks.ts | A:installTelegramLinkReceiver | S:在账号切换或连接准备期间保持待处理链接
+telegramProtocol.ts[IN6T]: F:读取系统 tg 协议支持与默认状态，并调用原生注册接口 | R:code:src-tauri/src/telegram_links.rs,code:src/components/TelegramProtocolSettings.tsx | A:telegramProtocol,TelegramProtocolSettings | S:-
+
+===/<repository>/src/shortcuts/===
+shortcutAvailability.ts[IU5T]: F:解析快捷键并调用原生可用性检测返回冲突或不支持状态 | R:code:src/shortcuts/shortcuts.ts,code:src-tauri/src/shortcuts.rs | A:checkShortcutAvailability,ShortcutAvailability | S:-
+shortcuts.ts[CU6S]: F:声明快捷键动作和默认绑定，解析按键事件、检测冲突并迁移偏好 | R:code:src/hooks/useAppShortcuts.ts,code:src/store/preferencesStore.ts | A:shortcutActions,shortcutValidationError,shortcutActionForEvent,normalizeShortcutBindings | S:修饰键组合展开后再与单个命令检查冲突
+
+===/<repository>/src/store/===
+accountMetadata.ts[PD7T]: F:维护白名单内的本机账号元数据并串行持久化、迁移旧记录与同步子窗口 | R:code:src-tauri/src/storage/metadata.rs,code:src/telegram/localReadState.ts | A:ACCOUNT_METADATA_KEYS,initializeAccountMetadata,writeAccountMetadata,flushAccountMetadata | S:持久化字段加载前忽略挂载写入，迟到跨窗重读不能覆盖本窗新编辑
+attachmentOutbox.ts[PD7M]: F:管理附件发件箱、文件指纹、持久化记录和可恢复的未发送批次 | R:code:src/store/nativeBlobs.ts,code:src/store/attachmentRecovery.ts,code:src/store/telegramStore.outboxController.ts | A:AttachmentOutboxStore,describeOutgoingAttachments,fingerprintOutgoingFile | S:发送与清理前需确认附件批次是否仍被持久草稿或队列引用
+attachmentRecovery.ts[AR6T]: F:将可恢复附件批次放回所属会话编辑器，并在设置窗口与主窗口间传递恢复请求 | R:code:src/store/attachmentOutbox.ts,code:src/store/telegramStore.ts | A:restoreAttachmentBatch,requestAttachmentRecovery,listenForAttachmentRecovery | S:未发送状态只由主窗口修改，已被引用或账号已切换的批次拒绝恢复
+cacheProtection.ts[DP6T]: F:从账户、头像、会话和消息中的当前文件引用收集缓存保护路径 | R:code:src/store/telegramStore.cache.ts,code:src-tauri/src/storage.rs | A:protectedCachePaths | S:-
+chatMessageSearchState.ts[DD6T]: F:构建会话搜索状态和条件键，按消息身份合并分页结果 | R:code:src/store/telegramStore.search.ts,code:src/telegram/messageSearch.ts | A:emptyChatMessageSearch,chatMessageSearchInputKey,mergeChatMessageSearchPage | S:-
+chatPresentation.ts[PD6T]: F:按账号与聊天保存是否隐藏入站头像，并向会话组件发布状态 | R:code:src/store/accountMetadata.ts,code:src/components/Conversation.tsx | A:chatPresentationStore,useMessageAvatarsHidden,removeAccountChatPresentation | S:仅保存隐藏项，恢复显示时移除记录
+conversationActivity.ts[PD6S]: F:按账号记录会话活动时长和发送数量，派生排序与快捷转发推荐 | R:code:src/store/accountMetadata.ts,code:src/hooks/useConversationActivityTracker.ts | A:conversationActivityStore,conversationActivityScore,quickForwardChatsAt | S:-
+conversationHistory.ts[AD8L]: F:维护最新窗口、历史阅读区间和消息上下文的独立游标，投影当前展示段 | R:code:src/store/telegramStore.ts,code:src/store/telegramStore.messages.ts,code:src/telegram/historyPager.ts | A:ConversationHistory,projectHistoryWindow,historyScopeKey | S:进入和重连刷新头部，向旧方向修补由阅读请求驱动
+forumTopicOrder.ts[PD6T]: F:保存账号与论坛群组的本地话题顺序，并过滤隐藏话题 | R:code:src/store/accountMetadata.ts,code:src/components/ForumTopicStrip.tsx | A:reconcileForumTopicOrder,visibleForumTopicIds,forumTopicOrderStore | S:活动或置顶更新不移动已有标签，新话题追加
+forumUnreadState.ts[DD6S]: F:根据已确认的话题已读边界协调 TDLib 独立返回的群组未读数 | R:code:src/store/telegramStore.forum.ts,code:src/store/telegramStore.ts | A:ForumUnreadState | S:-
+globalSearchState.ts[DD6T]: F:初始化全局搜索条件并去重合并聊天、消息和分页偏移 | R:code:src/store/telegramStore.search.ts,code:src/components/GlobalSearchView.tsx | A:GlobalSearchState,emptyGlobalSearch,mergeGlobalSearchPage | S:-
+historyRetention.ts[DP7T]: F:按界面阅读窗口和容量选择保留的普通历史段及最新尾部 | R:code:src/store/conversationHistory.ts,code:src/store/telegramStore.ts | A:retainedHistoryMessages,protectedHistoryMessages,HISTORY_MESSAGE_LIMIT | S:引用或本地保留的消息只保护所需对象，不能让整个闲置聊天常驻
+incomingMediaAlbums.ts[DM6S]: F:收集分散到达的入站相册成员并成批发布 | R:code:src/store/telegramStore.ts,code:src/utils/mediaAlbums.ts | A:IncomingMediaAlbums,IncomingAlbumBatch | S:TDLib 没有相册完成标记，聚合必须可有界释放
+localUserBlocks.ts[PS6S]: F:持久化账号级屏蔽记录、遮罩与隐藏模式及展示别名 | R:code:src/store/accountMetadata.ts,code:src/utils/localBlockedMessages.ts | A:localUserBlocksStore,useLocalHiddenUserIds,nextAnimalIdentity | S:-
+mediaFileRestorer.ts[AP7M]: F:根据持久媒体身份协调消息文件恢复、共享查找与优先级 | R:code:src/store/messageFileIndex.ts,code:src/telegram/tauriMessageMediaService.ts | A:MediaFileRestorer | S:优先级调度为后台任务保留每四个中的一个位置
+messageFileIndex.ts[DP7S]: F:从消息正文、富媒体和缩略图维护文件到消息的反向索引 | R:code:src/telegram/messageFileState.ts,code:src/store/mediaFileRestorer.ts | A:MessageFileIndex | S:本地保留消息可在原生历史索引清除后继续接收对应文件更新
+nativeBlobs.ts[IP6T]: F:分块写入与恢复原生附件 Blob，并核对账号和大小 | R:code:src-tauri/src/storage/blobs.rs,code:src/store/attachmentOutbox.ts | A:persistNativeBlob,restoreNativeBlob,ATTACHMENT_CHUNK_BYTES,MAX_ATTACHMENT_BATCH_BYTES | S:-
+preferencesStore.ts[PC7M]: F:管理主题、通知、下载、动效和交互等应用偏好的默认值、迁移、持久化与订阅 | R:code:src/theme/theme.ts,code:src/backup/settingsBackup.ts | A:AppPreferences,preferencesStore,usePreferencesStore | S:设置备份对持久偏好另行应用白名单
+profileState.ts[DD6T]: F:定义资料目标、分页加载和错误状态，构造空资料状态 | R:code:src/store/telegramStore.profile.ts,code:src/components/ProfileDrawer.tsx | A:ProfileTarget,ProfileState,emptyProfileState | S:-
+sharedMediaIndex.ts[DP6S]: F:缓存会话共享媒体分页，合并更新并响应消息删除和缓存清理 | R:code:src/store/telegramStore.ts,code:src/components/SharedMediaBrowser.tsx | A:SharedMediaIndex,mergeSharedMediaMessages | S:-
+telegramStore.accounts.ts[AI6T]: F:生成当前账号注册和账号状态补丁，处理未注册账户及头像水合 | R:code:src/store/telegramStore.ts,code:src/telegram/tauriAccountStorage.ts | A:preserveUserAvatarMedia,currentAccountRegistration,accountStatePatch,shouldDiscardUnregisteredAccount | S:-
+telegramStore.cache.ts[PD8L]: F:迁移和生成会话 UI 快照及未发送记录，按持久化规则筛选消息和引用 | R:code:src/store/telegramStore.ts,code:src/telegram/snapshotCache.ts,code:src/telegram/messageLifecycle.ts | A:TELEGRAM_CACHE_VERSION,migrateCachedSnapshot,migrateLocalUnsentState,cachedSnapshotFrom | S:普通可重建历史与耐久未发送记录采用独立恢复边界
+telegramStore.drafts.ts[AM7M]: F:按会话和话题防抖同步草稿与回复，比较结构化实体并协调原生回显 | R:code:src/store/telegramStore.ts,code:src/utils/formattedText.ts | A:DraftSyncController,draftForSync,draftSignature | S:服务端异步回显不能撤销更新的本地草稿意图
+telegramStore.emoji.ts[AB7L]: F:管理账号级表情和贴纸目录、资源水合、贴纸包缓存及刷新 | R:code:src/store/telegramStore.ts,code:src/store/telegramStore.emojiCache.ts,code:src/telegram/tauriMessageMediaService.ts | A:createEmojiPickerController | S:缓存跨编辑器重挂载复用，贴纸播放器无需常驻
+telegramStore.emojiCache.ts[PD6T]: F:校验并迁移快照中的 Emoji 资源、贴纸包与选择器目录 | R:code:src/store/telegramStore.cache.ts,code:src/store/telegramStore.emoji.ts | A:isEmojiPickerAsset,migrateEmojiPickerCache | S:可选选择器区段损坏时保留消息和耐久草稿
+telegramStore.forum.ts[AB7M]: F:在 Store 内集中维护论坛话题列表、分页、增量更新和管理动作 | R:code:src/telegram/tauriForumTopicService.ts,code:src/store/forumUnreadState.ts,code:src/store/telegramStore.ts | A:ForumController,createForumController | S:-
+telegramStore.messages.ts[DM8M]: F:按稳定顺序归并消息、替换发送身份、更新反应并投影频道讨论区 | R:code:src/store/telegramStore.ts,code:src/store/conversationHistory.ts,code:src/telegram/types.ts | A:compareMessages,findIndexedMessage,replaceIndexedMessages,upsertMessages | S:只改变文件或正文的替换保留集合顺序，可复用不可变历史的位置索引
+telegramStore.outbox.ts[DM6S]: F:将耐久离线发件箱条目转换成聊天时间线的本地消息投影与计数 | R:code:src/store/telegramStore.outboxController.ts,code:src/telegram/types.ts | A:outboxCounts,outboxMessageId,messageFromOutbox,messagesWithOutbox | S:-
+telegramStore.outboxController.ts[AR8M]: F:串行持久化和排空离线消息及附件队列，发布投递结果和重试状态 | R:code:src/store/telegramStore.outbox.ts,code:src/store/attachmentOutbox.ts,code:src/telegram/sendErrors.ts | A:createOutboxController,outboxRetryState | S:只对已标记安全重发的错误退避，账号切换使旧排空过程失效
+telegramStore.pendingSends.ts[AM7S]: F:在 TDLib 确认前投影本地待发消息和附件组，并匹配后续确认 | R:code:src/store/telegramStore.ts,code:src/media/outgoingAttachments.ts | A:createPendingSends | S:仅拥有 TDLib 生成待发消息前的呈现状态
+telegramStore.profile.ts[AB6M]: F:编排资料读取、成员分页、头像和资料更新，并更新 Store 目标状态 | R:code:src/store/profileState.ts,code:src/telegram/tauriProfileService.ts | A:ProfileController,createProfileController | S:-
+telegramStore.search.ts[AB7M]: F:协调全局搜索及会话内搜索请求、分页和结果投影 | R:code:src/store/globalSearchState.ts,code:src/store/chatMessageSearchState.ts,code:src/telegram/tauriSearchService.ts | A:SearchController,createSearchController | S:已切换查询或会话的迟到结果不能覆盖当前目标
+telegramStore.selectors.ts[CD6T]: F:按文件夹成员关系、可见位次、置顶和过滤条件选择及排序会话 | R:code:src/store/telegramStore.ts,code:src/components/ChatSidebar.tsx | A:selectVisibleChats,groupChatsByFolder,isChatVisibleInFolder,compareChatsInFolder | S:成员身份和侧栏可见位置是独立状态
+telegramStore.session.ts[AI6T]: F:封装活动设备管理和 Telegram 隐私规则的读取与提交 | R:code:src/telegram/transport.ts,code:src/store/telegramStore.ts | A:SessionController,createSessionController | S:-
+telegramStore.ts[AD9L]: F:建立 Telegram 主 Zustand Store，串接账户与运输事件、会话、历史、媒体、发送和缓存 | R:code:src/store/telegramStore.types.ts,code:src/telegram/transport.ts,code:src/store/conversationHistory.ts,code:src/store/telegramStore.cache.ts | A:createTelegramStore,telegramStore,useTelegramStore | S:切换账号使等待中的请求失效，已提交消息增量驱动文件索引和下游订阅
+telegramStore.types.ts[CD7L]: F:定义根 Store 状态、发送上下文、缓存快照和消息变化订阅契约 | R:code:src/store/telegramStore.ts,code:src/telegram/types.ts | A:TelegramState,MessageChangeEvent,ConversationSendContext,HistoryState | S:-
+
+===/<repository>/src/styles/===
+global.css[FU6L]: F:定义全局排版、响应式布局、消息、输入、覆盖层、子窗口和动效样式 | R:code:src/styles/themes.css,code:src/utils/motionTokens.ts,code:src/windows/mountWindow.tsx | A:@font-face,:root,prefers-reduced-motion | S:界面样式消费语义主题角色，布局与动效不得改变滚动的状态所有权
+themes.css[FC6S]: F:为浅色和深色主题定义完整语义颜色与浏览器色彩方案 | R:code:src/theme/theme.ts,code:src/styles/global.css,code:scripts/verify-theme-contract.mjs | A:notgram-light,notgram-dark,data-theme | S:主题颜色值集中在此，组件通过语义变量消费
+
+===/<repository>/src/telegram/===
+chatDraft.ts[DM6T]: F:判断草稿是否有非空白正文或回复目标 | R:code:src/store/telegramStore.drafts.ts,code:src/telegram/types.ts | A:hasChatDraftContent | S:纯回复草稿仍属于有效草稿
+chatEventSummary.ts[CL6T]: F:把 TDLib 群组审计动作转成用户可读本地化摘要 | R:code:src/telegram/chatManagement.ts,code:src/i18n/index.ts | A:chatEventSummary | S:-
+chatJoin.ts[IN6T]: F:规范化邀请预览、加入目标、TDLib 加入结果与失败提示 | R:code:src/telegram/tauriTransport.ts,code:src/components/ChatInviteDialog.tsx | A:chatJoinKey,mapChatInvitePreview,mapChatJoinResult,chatJoinError | S:加入请求可能等待批准，不能假定已取得会话成员身份
+chatListActions.ts[DI6T]: F:从聊天类型、成员状态与权限计算列表菜单的静音、删除和退出规则 | R:code:src/components/SidebarContextMenus.tsx,code:src/telegram/types.ts | A:chatListActions | S:-
+chatManagement.ts[DI7M]: F:定义群组治理权限和事件筛选，校验成员标签并映射 TDLib 管理模型 | R:code:src/components/ChatManagementDialog.tsx,code:src/telegram/tauriTransport.ts | A:canPostToChannel,CHAT_PERMISSION_FIELDS,CHAT_ADMIN_FIELDS,mapChatPermissionsFromTd | S:-
+chatReport.ts[IN6T]: F:校验举报范围与文本限额，构造请求并解释 TDLib 举报阶段 | R:code:src/telegram/tauriTransport.ts,code:src/telegram/mockChatReport.ts | A:validateChatReport,chatReportRequest,mapChatReportResult,REPORT_MESSAGE_LIMIT | S:-
+chatViewSession.ts[IN6T]: F:协调 UI 的会话切换与 TDLib 打开或关闭聊天的更新订阅 | R:code:src/telegram/tauriTransport.ts,code:src/store/telegramStore.ts | A:ChatViewSession | S:-
+connectionRecoveryMonitor.ts[IR6T]: F:从 WebView 前台、在线与定时器漂移信号发起限频恢复检查 | R:code:src-tauri/src/proxy/recovery.rs,code:src/telegram/tauriTransport.ts | A:installConnectionRecoveryMonitor | S:操作系统唤醒判定归原生，WebView 被节流不能单独判离线
+connectionState.ts[IN6T]: F:从 TDLib 连接更新派生客户端状态和呈现模型 | R:code:src/telegram/tauriTransport.ts,code:src/components/ConnectionStatusIndicator.tsx | A:connectionPresentation,mapTdConnectionStatus,tdConnectionState | S:-
+createTransport.ts[IN6T]: F:按 Vite 运行模式创建原生或 Mock 传输，并读取浏览器演示场景参数 | R:code:src/telegram/mockTransport.ts,code:src/telegram/tauriTransport.ts,code:src/vite-env.d.ts | A:createTelegramTransport | S:只有显式 tauri 运行模式选择原生传输
+deletedHistory.ts[DM6T]: F:按保留精度的 Telegram 消息 ID 判断是否位于已删除历史边界 | R:code:src/telegram/tauriTransport.ts,code:src/store/telegramStore.ts | A:isInDeletedHistory | S:-
+fileDataCenter.ts[IN6S]: F:解析 TDLib 远端文件标识或请求数据中心信息并转换名称 | R:code:src/telegram/tauriProfileService.ts,code:src/telegram/tdlibValues.ts | A:parseTdlibRemoteFileDataCenter,resolveTdlibDataCenter,getTdlibDataCenterLocation | S:-
+fileDownloadQueue.ts[IP7M]: F:对媒体下载去重、排优先级并协调取消、预览通道和预取配额 | R:code:src/telegram/tauriMessageMediaService.ts,code:src/hooks/useVisibleFile.ts | A:FileDownloadQueue,FILE_PREVIEW_PRIORITY | S:小型显示资源可绕过全文件预取槽，下载空间仍需可回收
+fileReferenceIndex.ts[CD5T]: F:维护单文件头像的双向引用，按文件定位受影响用户或会话 | R:code:src/telegram/tauriTransport.ts | A:FileReferenceIndex,set,forFile,clear | S:更换头像时同步清理旧文件的反向桶
+forumTopicPermissions.ts[DI5T]: F:根据群组成员状态、通用话题标志、管理员权限和创建归属判断可请求删除的话题 | R:code:src/telegram/types.ts | A:canDeleteForumTopic | S:创建者能否删除仍由服务端检查历史覆盖
+historyPager.ts[IN8S]: F:加载 TDLib 普通或论坛历史窗口，按方向推进游标并去重发出接受的消息 | R:code:src/telegram/tdlibRequests.ts,code:src/telegram/tauriForumTopicService.ts | A:loadHistoryWindow,LoadedHistoryWindow | S:空页需确认，重复或无进度页达到上限后报告 stalled 而非耗尽
+identityText.ts[CS5T]: F:规范化身份展示文字与输入字段，处理组合符、控制字符和长度 | R:code:src/store/preferencesStore.ts,code:src/telegram/tauriProfileService.ts | A:sanitizeIdentityText,identityTextField,setZalgoTextBlockingEnabled | S:按 Unicode 码点限长
+localReadState.ts[PD7S]: F:按账号、聊天和话题持久化本地阅读游标、未读数、提及和反应，并投影消息和计数 | R:code:src/telegram/localReadTransport.ts,code:src/store/accountMetadata.ts | A:LocalReadState,compareReadCursors,readCursor | S:纯数字消息 ID 按 BigInt 比较，反应签名用于区分同一消息后续反应
+localReadTransport.ts[MS8M]: F:包装 TelegramTransport，在请求、快照和事件边界投影本地已读设置和计数 | R:code:src/telegram/localReadState.ts,code:src/telegram/readReceiptPolicy.ts,code:src/telegram/transport.ts | A:withLocalReadState | S:底层 TDLib 保持自己报告的状态，投影只在传输边界面向上层
+mediaCopy.ts[IM6T]: F:将保留媒体转成按文件 ID 发送的 TDLib 输入，保留标题实体和支持的剧透属性 | R:code:src/telegram/tdlibRequests.ts,code:src/telegram/tauriMessageMediaService.ts | A:inputMediaCopy | S:复制保留媒体无需引用已删除的原服务器消息
+messageContent.ts[DM7S]: F:提取消息正文、媒体标题、服务事件摘要及回复预览，判定正文和标题可编辑性 | R:code:src/telegram/serviceMessages.ts,code:src/telegram/types.ts | A:messageContentText,messageReplyText,isEditableMessageContent | S:图像文档保留文件语义，回复摘要优先使用结构化预览元数据
+messageFileState.ts[DP7S]: F:递归映射消息正文和富媒体中的文件状态，分离运行进度和快照字段 | R:code:src/store/messageFileIndex.ts,code:src/telegram/types.ts | A:mapMessageFiles,messageFilesForCache,messageFileCacheChanged | S:无关文件更新保留消息对象身份，快照比较忽略临时文件句柄和传输进度
+messageLifecycle.ts[DS6T]: F:判定消息到期以及能否保存或写入普通缓存 | R:code:src/store/telegramStore.cache.ts,code:src/telegram/types.ts | A:messageExpired,messageCanBeCached,messageCanBeSaved | S:带到期时间的消息一律排除出普通缓存
+messageReplyTarget.ts[DM6T]: F:从当前消息集合解析回复目标并核对所属会话 | R:code:src/utils/composerMessageTarget.ts,code:src/telegram/types.ts | A:replyTargetMessage | S:消息 ID 在会话内有效，跨聊天同 ID 必须留给嵌入摘要回退
+messageSearch.ts[DB4T]: F:统一消息搜索关键词、无查询限制的未读过滤和本地日期边界转换 | R:code:src/telegram/tauriSearchService.ts,code:src/store/chatMessageSearchState.ts | A:normalizeMessageSearchQuery,localDateSearchRange,chatMessageSearchCriteriaActive | S:日期上界为次日当地零时前一秒
+mockChatReport.ts[LB4T]: F:模拟聊天举报的分步原因、补充文字和结果 | R:code:src/telegram/chatReport.ts,code:src/telegram/mockTransport.ts | A:mockChatReport | S:固定选项仅用于 Mock 测试
+mockData.ts[LB5L]: F:提供聊天、用户、消息和媒体预览的离线演示快照 | R:code:src/telegram/mockTransport.ts | A:mockSnapshot,mockProfilePhotoUrl,tallMediaPreviewUrl,wideMediaPreviewUrl | S:-
+mockTransport.ts[IB8L]: F:实现可在浏览器独立运行的 TelegramTransport，模拟账户、收发、历史、群组治理和媒体 | R:code:src/telegram/mockData.ts,code:src/telegram/transport.ts,code:src/telegram/mockChatReport.ts | A:MockTelegramTransport,connect,authenticate | S:业务回归可以注入确定性状态和事件，不连接真实 Telegram
+proxySettings.ts[DC5T]: F:提取可编辑代理偏好并合并系统探测结果和编辑草稿 | R:code:src/components/ProxySettingsEditor.tsx,code:src-tauri/src/proxy.rs | A:proxyPreferences,mergeProxySettingsDraft | S:刷新探测时保留未保存编辑和并发保存结果
+readReceiptPolicy.ts[DS7T]: F:在 TDLib 请求发送前检查当前已读回执偏好 | R:code:src/telegram/localReadTransport.ts,code:src/store/preferencesStore.ts | A:assertReadReceiptAllowed,ReadReceiptPolicyChanged | S:异步准备完成后重查设置，阻止已入队但已失效的读请求
+reportLabels.ts[CL3T]: F:将已知服务端举报原因显示为本地化标签 | R:code:src/telegram/chatReport.ts,code:src/components/ReportDialog.tsx | A:reportReasonLabel | S:-
+retainedMessages.ts[DM7T]: F:为本地保留删除消息规范化缓存和引用，合并删除快照与已水合文件 | R:code:src/telegram/messageFileState.ts,code:src/telegram/mediaCopy.ts | A:retainedMessageForCache,retainedMessageQuote,retainHydratedContent | S:旧删除快照可以保留已加载的同身份资源
+savedMessages.ts[CB3T]: F:构造收藏消息会话的标准头像模型 | R:code:src/telegram/types.ts | A:savedMessagesAvatar | S:-
+sendErrors.ts[DR7T]: F:区分发送被拒、结果未知和可安全重试的错误 | R:code:src/telegram/tdRequestBroker.ts,code:src/store/telegramStore.outboxController.ts | A:TdRequestError,RetryableSendError,classifySendError | S:IPC 超时无法证明发送未被接收，不能据此自动重放
+serviceMessageTypes.ts[DM5T]: F:定义服务消息的归一化事件、金额、人员、关联消息和展示片段 | R:code:src/telegram/tdlibServiceMessages.ts,code:src/telegram/serviceMessages.ts | A:ServiceMessageEvent,ServiceMessageMoney,ServiceMessagePresentation | S:领域层仅保留展示元数据，不存支付凭据或 Passport 负载
+serviceMessages.ts[DM7M]: F:将服务事件转成本地化正文、详情、人员和消息链接片段 | R:code:src/telegram/serviceMessageTypes.ts,code:src/components/ServiceMessageContent.tsx | A:presentServiceEvent,servicePersonIds,formatServiceMoney | S:Telegram Stars 和 TON 的金额换算独立于普通货币精度
+snapshotCache.ts[PP7T]: F:估算快照序列化容量和引用用户，按限制裁剪普通历史记录 | R:code:src/telegram/tauriAccountStorage.ts,code:src/store/telegramStore.cache.ts | A:prepareSnapshotCache,usersForSnapshot,SNAPSHOT_CACHE_CHUNK_SIZE | S:字节预算为原生附加的头部预留空间，超限时保留本地记录并报错
+stickerExport.ts[DB4T]: F:根据 MIME 和扩展名确定可导出贴纸格式并生成编号文件名 | R:code:src/components/StickerExportMenu.tsx,code:src-tauri/src/storage/sticker_export.rs | A:stickerExportExtension,stickerExportFileName | S:-
+syncRetryQueue.ts[CR5T]: F:按同步键去重调度可重试错误，支持取消、清理和有界退避 | R:code:src/telegram/tauriForumTopicService.ts,code:src/telegram/tauriTransport.ts | A:SyncRetryQueue,isRetryableSyncError | S:普通 4xx 停止排队，429 可重试
+tauriAccountStorage.ts[IP7T]: F:将账号和存储动作转成 Tauri IPC，并分块发送账号 UI 快照 | R:code:src-tauri/src/storage.rs,code:src/telegram/snapshotCache.ts | A:TauriAccountStorage,saveCachedSnapshot | S:分块写入异常需撤销原生暂存事务
+tauriForumTopicService.ts[IN7M]: F:同步话题列表、通知设置和分页历史，并执行论坛话题管理请求 | R:code:src/telegram/historyPager.ts,code:src/telegram/tdlibMapper.ts | A:TauriForumTopicService,applyForumTopicUpdate | S:响应以当前服务代际为准，历史游标按聊天和话题隔离
+tauriMentionService.ts[IN7S]: F:恢复文本提及所需的 TDLib 用户访问，按用户合并并发恢复 | R:code:src/telegram/tdlibRequests.ts,code:src/telegram/tauriTransport.ts | A:TauriMentionService | S:前端缓存可能比 TDLib 驻留更久，原生访问恢复不发布消息或改变历史窗口
+tauriMessageMediaService.ts[IN8L]: F:执行媒体发送、附件准备、文件下载、流租约和贴纸包相关 Telegram 请求 | R:code:src/telegram/fileDownloadQueue.ts,code:src/telegram/mediaCopy.ts,code:src/store/nativeBlobs.ts | A:TauriMessageMediaService | S:回执和文件请求受会话代际与流所有者约束
+tauriProfileService.ts[IN7L]: F:加载当前账户和他人资料、联系人、群成员与提及候选，并处理资料更新 | R:code:src/telegram/tdlibMapper.ts,code:src/utils/mentionSuggestions.ts | A:TauriProfileService,PROFILE_MEMBER_PAGE_SIZE | S:提及候选可用近期消息发送者补齐隐藏成员场景
+tauriSearchService.ts[IN7M]: F:将全局消息、聊天内消息和共享媒体搜索转成 TDLib 请求与可分页领域结果 | R:code:src/telegram/messageSearch.ts,code:src/telegram/tdlibRequests.ts | A:TauriSearchService | S:全局搜索、会话搜索和媒体搜索各自保留对应游标语义
+tauriTransport.ts[IN9L]: F:实现桌面 TelegramTransport，持有 TDLib 会话与原始对象缓存，并编排更新、历史及领域服务 | R:code:src/telegram/transport.ts,code:src/telegram/tdRequestBroker.ts,code:src/telegram/tdUpdateStream.ts,code:src/telegram/tdUpdateRouter.ts | A:TauriTelegramTransport,connect,request | S:会话更换使旧异步结果失效，历史缓存缺失不能推断服务器删除
+tdFileStateCache.ts[IP6T]: F:按原生接收顺序维护有界文件状态，并将最新文件状态投影到返回对象 | R:code:src/telegram/tauriTransport.ts,code:src/telegram/tdlibMapper.ts | A:TdFileStateCache,observe,resolve | S:异步消息水合不能逆转原生文件状态接收顺序
+tdRequestBroker.ts[IN8M]: F:用 extra 关联 TDLib 请求响应，管理超时、取消及受控原生附件准备 | R:code:src/telegram/tauriTransport.ts,code:src/telegram/sendErrors.ts,code:src/store/nativeBlobs.ts | A:TdRequestBroker | S:发送超时或 IPC 传输失败保持结果未知
+tdSession.ts[IR4T]: F:提供 TDLib 会话被替换时的显式取消错误 | R:code:src/telegram/tauriMessageMediaService.ts,code:src/telegram/tauriTransport.ts | A:TdSessionSupersededError | S:会话取消不构成远端文件缺失证据
+tdUpdateRouter.ts[IM7M]: F:按原生更新类型分发授权、连接、会话、话题、消息和文件事件 | R:code:src/telegram/tauriTransport.ts,code:src/telegram/tdUpdateStream.ts | A:TdUpdateHandlers | S:-
+tdUpdateStream.ts[IM8S]: F:订阅原生唤醒信号并拉取有序 TDLib 批次，保存确认进度与关闭状态 | R:code:src-tauri/src/telegram/update_delivery.rs,code:src/telegram/tauriTransport.ts | A:NativeUpdateBatch | S:确认序号跟随已消费的批次，停止或释放后不继续拉取
+tdlibMapper.ts[IM9L]: F:把 TDLib 原始聊天、用户、消息、富内容、文件和事件转换为领域数据 | R:code:src/telegram/types.ts,code:src/telegram/tdlibValues.ts,code:src/telegram/tdlibServiceMessages.ts,code:src/telegram/messageContent.ts | A:mapTdChat,mapTdUser,mapTdMessage,mapTdMessageContent | S:展示模型保留用于回复、下载与消息身份核对的结构化元数据
+tdlibRequests.ts[IN7M]: F:构造 TDLib 格式化文本、话题及代理参数并映射原生授权状态 | R:code:src/telegram/tdlibTextEntities.ts,code:src/telegram/tdlibMapper.ts | A:numericId,formattedTextObject,forumTopicObject | S:整数转换拒绝无法安全表示的值
+tdlibServiceMessages.ts[IM7M]: F:从原生消息中提取服务事件、参与者、金额和相关消息元数据 | R:code:src/telegram/serviceMessageTypes.ts,code:src/telegram/tdlibValues.ts | A:ServiceMessageEvent | S:原生消息仅投影展示所需的字段
+tdlibTextEntities.ts[IM5T]: F:将领域文本实体转换成 TDLib 输入，包括命名提及、自定义 Emoji 和日期精度 | R:code:src/telegram/tdlibRequests.ts,code:src/telegram/types.ts | A:inputTextEntityType | S:-
+tdlibValues.ts[CN3T]: F:从不可信结构读取对象、对象数组、标识及有限数值 | R:code:src/telegram/tdlibMapper.ts,code:src/telegram/tdlibServiceMessages.ts | A:TdObject,asTdObject,asTdObjects,tdId,tdNumber | S:-
+telegramLinks.ts[DN6S]: F:识别 Telegram 网页和 tg 协议链接并解析用户、邀请、Bot 和内部路由 | R:code:src/telegram/tauriTransport.ts,code:src/release/telegramLinkReceiver.ts | A:telegramInviteLink,telegramUrlDisplayText,telegramBotStartParameters | S:支持旧 Bot 启动链接参数分隔方式
+transport.ts[CN8M]: F:声明 Mock 与 Tauri 共享的授权、历史、会话治理、消息、媒体和事件接口 | R:code:src/telegram/types.ts,code:src/telegram/tauriTransport.ts,code:src/telegram/mockTransport.ts | A:TelegramTransport,TelegramEventListener | S:-
+types.ts[CD9L]: F:定义 Telegram 会话、身份、内容、事件、请求和快照领域类型 | R:code:src/telegram/transport.ts,code:src/telegram/tdlibMapper.ts,code:src/store/telegramStore.types.ts | A:Chat,Message,MessageContent,TelegramEvent,TelegramSnapshot,AuthorizationState | S:区分持久标识、临时发送身份和原生文件句柄
+
+===/<repository>/src/theme/===
+theme.ts[FC7S]: F:维护主题 ID、标签、颜色角色契约和 DOM 主题应用方式 | R:code:src/styles/themes.css,code:src/store/preferencesStore.ts,code:scripts/verify-theme-contract.mjs | A:THEME_IDS,THEME_DEFINITIONS,THEME_COLOR_TOKENS | S:同步写入 data-theme 和浏览器 color-scheme
+
+===/<repository>/src/utils/===
+adBlocking.ts[DS6S]: F:限制并匹配本地广告关键字与正则规则，判断消息展示过滤 | R:code:src/telegram/messageContent.ts,code:src/components/SafetySettings.tsx | A:AdBlockingRules,parseAdBlockRegex,messageMatchesAdBlockingRules | S:自定义匹配只处理入站消息，输入文本长度受限
+attachmentDrag.ts[EU6T]: F:发起消息媒体拖拽、校验自有令牌并将允许保存的资源转为附件 | R:code:src/utils/composerDrop.ts,code:src/hooks/useAttachmentDragSwitch.ts,code:src/telegram/messageLifecycle.ts | A:ownsAttachmentDrag | S:拖拽绑定账号和草稿，取消与失焦清理临时状态
+clipboard.ts[EU6S]: F:等待窗口重新获得焦点并分别实现文本和图像剪贴板写入 | R:code:src/telegram/messageLifecycle.ts,code:src/utils/composerDrop.ts,code:src/utils/messageClipboard.ts | A:waitForClipboardFocus,rasterImageAsPng | S:图像统一写入 PNG，受保护的消息内容不能复制
+composerDrop.ts[ES5T]: F:识别单图拖放来源，读取并转换允许的图片为附件 | R:code:src/utils/clipboard.ts,code:src/utils/attachmentDrag.ts | A:isComposerImageSource,readComposerDroppedImage | S:Blob 和网页 URL 必须同源，原生资产仍通过协议鉴权
+composerFormatting.ts[DM6T]: F:提供编辑器格式快捷键和 Telegram 文本实体到 Tiptap 文档的转换 | R:code:src/components/ComposerInput.tsx,code:src/utils/composerMentions.ts | A:composerDocument,composerFormatKeys,composerEntityKinds | S:使用单个预格式化节点保留 UTF-16 偏移和换行
+composerInsertion.ts[DU5S]: F:依据选区插入文本与提及，并识别输入中的提及和内联 Bot 查询 | R:code:src/utils/composerMentions.ts,code:src/components/ConversationComposer.tsx | A:ComposerTextInsertion,insertComposerMention | S:-
+composerMentions.ts[DM6T]: F:维护编辑文本中的提及、样式实体及 UTF-16 选区偏移 | R:code:src/utils/composerFormatting.ts,code:src/telegram/types.ts | A:ComposerFormattedText | S:普通样式可跨文本替换调整，受影响的不可编辑实体需失效
+composerMessageTarget.ts[DM6T]: F:从当前缓冲或快照解析回复和编辑目标并校验聊天、话题和权限 | R:code:src/hooks/useComposerMessageContext.ts,code:src/utils/localBlockedMessages.ts | A:composerMessageTarget,ComposerMessageScope | S:窗口分页或缓存淘汰允许使用同身份快照，真正删除与隐藏会撤销目标
+contextMenuLayout.ts[KU4T]: F:按视口尺寸摆放上下文菜单和子菜单并保持边距 | R:code:src/components/ContextMenuSurface.tsx,code:src/contextMenu/nativeContextMenuLayout.ts | A:ContextMenuPoint,ContextMenuViewport | S:-
+conversationHeaderStatus.ts[CU4T]: F:按输入状态、成员计数和对方在线信息生成本地化会话副标题 | R:code:src/components/Conversation.tsx,code:src/i18n/index.ts | A:conversationHeaderStatus,formatConversationCount | S:-
+conversationJumpMotion.ts[KU4T]: F:计算历史跳转的进出场关键帧和缓动曲线 | R:code:src/utils/motionTokens.ts,code:src/hooks/useConversationScroll.ts | A:conversationJumpMotion,ConversationJumpDirection | S:-
+conversationJumpSnapshot.ts[EU6T]: F:捕获会话跳转期间使用的静态列表图层并移除交互身份 | R:code:src/utils/conversationSnapshotUtils.ts,code:src/utils/conversationSnapshotStyles.ts | A:captureConversationJumpSnapshot,removeConversationJumpSnapshot | S:克隆层不能取得焦点或冒充正式消息行
+conversationNoticeAlignment.ts[KU4T]: F:测量实际时间线中心以对齐会话悬浮通知 | R:code:src/components/Conversation.tsx,code:src/styles/global.css | A:observeConversationNoticeAlignment | S:-
+conversationPresentation.ts[CO5T]: F:观察当前可见媒体和过渡图层以标记会话呈现及媒体稳定时点 | R:code:src/utils/performanceMonitor.ts,code:src/components/Conversation.tsx | A:observeConversationPresentation | S:观察器不得阻塞导航或下载
+conversationReadingAnchor.ts[KR6T]: F:从已挂载行捕获阅读位置和相册标题，按消息身份恢复视口候选 | R:code:src/hooks/useConversationScroll.ts,code:docs/conversation-state-model.md | A:ConversationReadingAnchor | S:锚点保留相对视口偏移和备用候选以承受列表变化
+conversationRowSizes.ts[KR5T]: F:观察真实虚拟行的边框高度差并在绘制前通知滚动协调器 | R:code:src/hooks/useConversationScroll.ts,code:docs/conversation-state-model.md | A:observeConversationRowSizes | S:不观察因滚动而变化的虚拟占位层
+conversationSnapshotStyles.ts[CU3T]: F:复制可读应用 CSS 到可供隔离会话快照复用的样式表 | R:code:src/utils/conversationJumpSnapshot.ts | A:getConversationSnapshotStyleSheet | S:-
+conversationSnapshotUtils.ts[EU6S]: F:克隆会话 DOM 并冻结图片、视频、画布的当前视觉内容 | R:code:src/utils/conversationJumpSnapshot.ts,code:src/hooks/useConversationScroll.ts | A:cloneConversationSnapshot,prepareConversationSnapshotClone | S:插入克隆前移除视频来源和自动播放，避免启动额外解码器
+conversationTrace.ts[CO7M]: F:缓冲会话滚动、测量、删除和输入诊断事件并生成有界采样记录 | R:code:src/utils/performanceMonitor.ts,code:src/utils/conversationViewportDiagnostics.ts,code:docs/conversation-state-model.md | A:createConversationTrace,conversationTraceKind | S:数字事件码是日志契约，空闲与短时密集采样各自限频
+conversationViewportDiagnostics.ts[CO6M]: F:采样视口、行布局与滚动几何并提供会话诊断关联 | R:code:src/utils/conversationTrace.ts,code:src/hooks/useConversationScroll.ts | A:ConversationDiagnosticModel | S:文档隐藏时暂停逐帧布局读取
+downloadManager.ts[PD7M]: F:按账号保存主动下载请求，利用消息文件反向索引合并下载状态 | R:code:src/store/accountMetadata.ts,code:src/store/messageFileIndex.ts,code:src/components/DownloadManagerDialog.tsx | A:ManagedDownloadIndex,subscribeDownloadMetadata | S:自动预取不登记为用户下载
+externalLinks.ts[ES6T]: F:筛选外部 URL，优先解析为应用内 Telegram 目标，否则委托原生或浏览器 | R:code:src/telegram/telegramLinks.ts,code:src-tauri/src/external_links.rs | A:safeExternalHref,openExternalLink | S:新请求使迟到的旧 Telegram 链接解析失效
+fileTransfer.ts[CS4T]: F:以字节数计算可读文件尺寸并依据扩展名或 MIME 标记可执行文件 | R:code:src/components/MessageBubble.tsx | A:formatFileSize,isExecutableFile | S:-
+focusPolicy.ts[CU4T]: F:判断 DOM 焦点目标可用性、未认领焦点、活动模态和文本选区 | R:code:src/hooks/useComposerFocus.ts,code:src/hooks/useModalFocus.ts | A:isAvailableFocusTarget,activeModal,isUnclaimedFocus,hasTextSelection | S:-
+folderChatSelection.ts[DB5T]: F:筛选和排序可加入文件夹的会话并识别 Bot 与未分类条件 | R:code:src/components/FolderManagerDialog.tsx,code:src/telegram/types.ts | A:isFolderChatEligible,folderChatKind,FOLDER_DIRECT_CHAT_LIMIT | S:收藏消息和不具备列表位置的会话不能直接加入
+formattedText.ts[DM5T]: F:比较格式化消息及其结构化实体，消除字段枚举顺序差异 | R:code:src/utils/composerMentions.ts,code:src/store/telegramStore.drafts.ts | A:textEntitySignature | S:比较保留 UTF-16 范围和语义参数
+formatters.ts[CL5S]: F:按当前语言和时区格式化日期、消息时间及未读徽章 | R:code:src/i18n/index.ts,code:src/utils/messageVirtualization.ts | A:formatMessageTime,localDateKey | S:语言或时区变化使格式缓存失效
+largeEmoji.ts[KL4T]: F:用字素分段与 Emoji 类型检查识别适合放大展示的单个表情 | R:code:src/telegram/messageContent.ts,code:src/components/MessageRichText.tsx | A:isLargeEmojiText | S:-
+layoutObservation.ts[CP5T]: F:共用 ResizeObserver 按元素登记测量并合并到动画帧 | R:code:src/hooks/useStableVisibility.ts,code:src/components/Conversation.tsx | A:ResizeObserver | S:移除订阅后不保留无主元素观察
+localBlockedMessages.ts[DS5T]: F:识别入站本地屏蔽消息，分组相邻隐藏项并提取回复发送方 | R:code:src/telegram/messageReplyTarget.ts,code:src/store/localUserBlocks.ts | A:isLocalHiddenMessage,LocalBlockedMessageGroup | S:发出的消息始终绕过本地隐藏规则
+localBlockedReactions.ts[DS6T]: F:从消息反应列表与未读状态中投影被本地屏蔽的反应发送方 | R:code:src/components/MessageReactions.tsx,code:src/store/localUserBlocks.ts | A:messageReactionTypeKey,visibleMessageReactions | S:先按表情、自定义表情或付费类型识别反应，再按发送方过滤
+markdownParseCache.ts[CP5T]: F:按条目数和字符数限制 Markdown 解析树缓存 | R:code:src/components/MarkdownText.tsx | A:createMarkdownParseCache | S:每个调用者得到解析树副本，允许后续插件修改自己的树
+mediaAlbumLayout.ts[KU6S]: F:根据照片与视频的宽高比对视觉相册分行并生成填满气泡的相对宽度 | R:code:src/utils/mediaAlbums.ts,code:src/utils/mediaLayout.ts | A:MediaAlbumLayoutItem | S:行拆分用候选成本计算，宽高比有独立兜底和上下界
+mediaAlbums.ts[DM6T]: F:把相邻可视媒体划为相册段，并保留独立消息与标题归属 | R:code:src/utils/messageVirtualization.ts,code:src/utils/messageSelection.ts | A:segmentMediaAlbums,belongsToSameAlbum | S:-
+mediaLayout.ts[KU5T]: F:按媒体类型、源宽高比和展示上界计算媒体卡片及内容尺寸 | R:code:src/utils/mediaAlbumLayout.ts,code:src/components/MessageBubble.tsx | A:fitMediaLayout,MediaLayout | S:-
+mediaPrefetch.ts[CP5T]: F:声明会话与讨论区同一滚动根的挂载及媒体预取区域 | R:code:src/hooks/useVisibleFile.ts,code:src/components/Conversation.tsx | A:MESSAGE_VIEWPORT_PREFETCH,MEDIA_PREFETCH_ROOT_MARGIN,MESSAGE_SCROLL_ROOT_SELECTOR | S:预取观察不能使用无法跨越嵌套裁剪边界的窗口根
+mediaViewerModel.ts[DU5T]: F:筛选可查看媒体并计算缩略图窗口和相邻导航目标 | R:code:src/components/MediaViewer.tsx,code:src/media/viewerImages.ts | A:ViewerMessage,photoThumbnailWindow,MAX_MEDIA_VIEWER_THUMBNAILS | S:-
+mentionSuggestions.ts[DB5S]: F:组合成员、近期发送者与提及历史，排序并限制昵称或用户名候选数 | R:code:src/telegram/tauriProfileService.ts,code:src/components/ConversationComposer.tsx | A:mentionSuggestionsFor,chatMentionAuthorsFor,MAX_MENTION_SUGGESTIONS | S:-
+menuKeyboard.ts[CU4T]: F:在当前菜单的可用按钮间处理方向键、首尾键、Escape 与指针模式切换 | R:code:src/components/ContextMenuSurface.tsx | A:enabledButtons | S:嵌套菜单按钮由各自菜单单独处理
+messageActionPermissions.ts[DI6T]: F:按消息修订加载动作权限并在对象确有变化时有界重试 | R:code:src/utils/messagePermissionRevision.ts,code:src/hooks/useMessageActionPermissions.ts | A:loadMessageActionPermissions | S:普通请求失败或纯表现层变化不触发循环重试
+messageClipboard.ts[DM5T]: F:将单选或多选消息的文字、引用、发送者与时间排成剪贴板文本 | R:code:src/utils/clipboard.ts,code:src/telegram/messageContent.ts | A:messageContentText | S:-
+messageEntrance.ts[EU5T]: F:给入站或出站消息登记有期限的一次性入场动画标记 | R:code:src/utils/motionTokens.ts,code:src/components/MessageBubble.tsx | A:markMessageEntrance,MESSAGE_ENTRANCE_LIFETIME_MS | S:标记按会话和消息身份领取，重挂载不能重复播放
+messageGrouping.ts[DM5T]: F:按发送者和时间等条件将相邻消息分组并派生组内位置 | R:code:src/utils/messageVirtualization.ts,code:src/components/MessageBubble.tsx | A:groupConsecutiveMessages,messageGroupPosition,isGroupLast | S:-
+messageMetadata.ts[DM5T]: F:派生消息组投递状态、频道讨论提示以及相册计数消息 | R:code:src/components/MessageMetadata.tsx,code:src/telegram/types.ts | A:messageDeliveryState,mediaAlbumMetadataMessage | S:频道浏览计数不等于收件人已读
+messagePermissionRevision.ts[DI5T]: F:为会话和消息的操作权限计算结构化版本键 | R:code:src/utils/messageActionPermissions.ts,code:src/hooks/useMessageActionPermissions.ts | A:messagePermissionRevision | S:已读、反应、缩略图和进度不使操作权限失效
+messageRemovalMotion.ts[EU6T]: F:测量消息删除前后的表面位置并动画下移受影响气泡或相册 | R:code:src/utils/motionTokens.ts,code:src/hooks/useConversationScroll.ts | A:Animation | S:只动画行内容，虚拟行和滚动锚点始终看到最终布局
+messageSelection.ts[DU5T]: F:从消息和相册派生可选组并按组更新选中集合 | R:code:src/utils/mediaAlbums.ts,code:src/hooks/useMessageDragSelection.ts | A:isSelectableMessage,messageSelectionGroups,toggleMessageSelectionGroup | S:-
+messageTextSelection.ts[EU6M]: F:将消息 DOM 选区映射回原文和格式实体并构造精确引用 | R:code:src/components/MessageBubble.tsx,code:src/telegram/types.ts | A:messageTextSurfaceAtPointer,SelectionPointerPosition | S:相同文本出现多次时按渲染起点选择最近的匹配位置
+messageVirtualization.ts[KP8M]: F:把消息分组、媒体相册和服务行投影成保持身份稳定的虚拟列表区块 | R:code:src/utils/messageGrouping.ts,code:src/utils/mediaAlbums.ts,code:src/components/Conversation.tsx | A:MAX_MESSAGES_PER_VIRTUAL_BLOCK | S:限制普通分组大小，同时保持相册原子性和头像粘附边界
+motionPreference.ts[CU4T]: F:合并系统与用户减少动效设置并推导自动播放和滚动模式 | R:code:src/store/preferencesStore.ts,code:src/components/MotionPresence.tsx | A:effectiveReduceMotion,autoplayAllowed,motionScrollBehavior | S:-
+motionTokens.ts[FU5T]: F:集中声明动效时长、位移、缓动以及会话跳转时序 | R:code:src/utils/conversationJumpMotion.ts,code:docs/motion-system.md | A:motionDuration,conversationJumpTiming,motionLifecycleTiming | S:只作为呈现时序，业务请求和存储不依赖动效延时
+performanceMonitor.ts[CO8L]: F:采集主线程停顿、显示刷新率、交互及会话切换阶段并维护诊断记录 | R:code:src/components/PerformanceMonitor.tsx,code:src/utils/conversationTrace.ts,code:src-tauri/src/display_metrics.rs | A:logPerformance,installPerformanceMonitoring,markConversationSwitch,PerformanceRecord | S:异步等待和不完整链路诊断不应计为同等主线程冻结
+textHighlight.tsx[EU4T]: F:将查询字面量匹配范围转换为 React 高亮并保留嵌套节点结构 | R:code:src/components/GlobalSearchView.tsx,code:src/components/MessageRichText.tsx | A:textHighlightRanges | S:-
+visibleResourceRequest.ts[CP5T]: F:在资源可见时调度加载与退避重试并抑制释放后的回调 | R:code:src/hooks/useVisibleResource.ts,code:src/hooks/useVisibleFile.ts | A:createVisibleResourceRequest,ResourceRetryState | S:原生文件下载去重由 TDLib 负责
+webviewGuards.ts[ES6T]: F:在 WebView 捕获键盘事件，阻止干扰应用的浏览器默认行为并保留自定义快捷键 | R:code:src/shortcuts/shortcuts.ts,code:src/utils/composerFormatting.ts,code:src/windows/mountWindow.tsx | A:installWebviewGuards | S:录制快捷键期间跳过拦截
+yieldToBackground.ts[CP4T]: F:在历史分页等后台工作之间让出绘制及输入时间 | R:code:src/store/telegramStore.ts | A:yieldToBackground | S:WebView 隐藏且动画帧暂停时使用定时器释放工作
+
+===/<repository>/src/windows/===
+contextMenuWindowEntry.tsx[EU4T]: F:将共享上下文菜单组件挂载到独立 WebView | R:code:src/windows/mountWindow.tsx,code:src/components/ContextMenuWindow.tsx,code:windows/context-menu-window.html | A:mountWindow,ContextMenuWindow | S:-
+mediaViewerWindowEntry.tsx[EP4T]: F:读取窗口身份并挂载原生共享媒体查看器 | R:code:src/windows/windowEntryId.ts,code:src/components/MediaViewerWindow.tsx,code:windows/media-viewer-window.html | A:MediaViewerWindow,windowEntryId | S:-
+mountWindow.tsx[EG6T]: F:统一挂载 React 窗口并安装主题、本地化、WebView 保护、性能及内存管理 | R:code:src/utils/webviewGuards.ts,code:src/utils/performanceMonitor.ts,code:src/media/memoryLifecycle.ts | A:mountWindow | S:Tauri 窗口监听应用重载事件
+notificationWindowEntry.tsx[EO4T]: F:添加通知专用页面样式标志并挂载桌面通知组件 | R:code:src/windows/mountWindow.tsx,code:src/components/DesktopNotificationWindow.tsx,code:windows/notification-window.html | A:DesktopNotificationWindow | S:-
+settingsWindow.ts[IU4T]: F:根据当前运行环境调用 Tauri 打开设置窗口 | R:code:src-tauri/src/settings_window.rs,code:src/app/App.tsx | A:openSettingsWindow | S:浏览器运行返回 false 让调用者选择替代界面
+settingsWindowEntry.tsx[EC4T]: F:为设置窗口注册 Store 内存缓存并挂载 React 设置视图 | R:code:src/components/SettingsWindow.tsx,code:src/windows/mountWindow.tsx,code:src/store/telegramStore.ts | A:SettingsWindow,registerMemoryCaches | S:热重载注销旧的缓存注册
+videoWindowEntry.tsx[EP4T]: F:读取窗口身份并挂载专用视频窗口视图 | R:code:src/components/VideoWindow.tsx,code:src/windows/windowEntryId.ts,code:windows/video-window.html | A:VideoWindow,windowEntryId | S:-
+windowEntryId.ts[EU4T]: F:从当前页面查询字符串解析子窗口身份 | R:code:src/windows/mediaViewerWindowEntry.tsx,code:src/windows/videoWindowEntry.tsx | A:windowEntryId | S:缺失 id 时立即报错
+
+===/<repository>/windows/===
+context-menu-window.html[EU3T]: F:提供独立上下文菜单的 HTML 根和模块入口 | R:code:src/windows/contextMenuWindowEntry.tsx,code:vite.config.ts | A:#root | S:-
+media-viewer-window.html[EP3T]: F:提供共享媒体查看器的独立 HTML 根和模块入口 | R:code:src/windows/mediaViewerWindowEntry.tsx,code:vite.config.ts | A:#root | S:-
+notification-window.html[EO3T]: F:提供可复用桌面通知窗口的 HTML 根和模块入口 | R:code:src/windows/notificationWindowEntry.tsx,code:vite.config.ts | A:#root | S:-
+settings-window.html[EC3T]: F:提供原生设置窗口的独立 HTML 根和模块入口 | R:code:src/windows/settingsWindowEntry.tsx,code:vite.config.ts | A:#root | S:-
+video-window.html[EP3T]: F:提供专用视频窗口的独立 HTML 根和模块入口 | R:code:src/windows/videoWindowEntry.tsx,code:vite.config.ts | A:#root | S:-
