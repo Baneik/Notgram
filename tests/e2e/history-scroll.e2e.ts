@@ -251,6 +251,81 @@ test("the first small upward wheel keeps its reading anchor through a late resiz
   )).toBeLessThanOrEqual(1);
 });
 
+test("live history settles within the anchor measurement and frame budgets", { tag: "@performance" }, async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await historyFixture(page, true, { manualHistory: true });
+  await awaitIdleHistoryPage(page);
+  const result = await page.locator(".message-list").evaluate(async (list) => {
+    const history = window as unknown as { releaseHistoryPage: () => void };
+    const nextFrame = () => new Promise<number>(resolve => requestAnimationFrame(resolve));
+    const idleGaps: number[] = [];
+    let previous = await nextFrame();
+    for (let index = 0; index < 20; index++) {
+      const time = await nextFrame();
+      idleGaps.push(time - previous);
+      previous = time;
+    }
+
+    const querySelector = list.querySelector;
+    let settleQueries = 0;
+    // Count only mounted-anchor lookups in the settlement loop. Input and
+    // virtual range changes legitimately perform their own geometry reads.
+    list.querySelector = ((selector: string) => {
+      if (/^\[data-(?:caption-)?message-id=/.test(selector) && new Error().stack?.includes("at settle (")) {
+        settleQueries++;
+      }
+      return querySelector.call(list, selector);
+    }) as typeof querySelector;
+
+    const gaps: number[] = [];
+    let movedFrames = 0;
+    const wheelUp = () => list.dispatchEvent(new WheelEvent("wheel", { deltaY: -3, bubbles: true }));
+    try {
+      wheelUp();
+      history.releaseHistoryPage();
+      for (let frame = 0; gaps.length < 24 && frame < 90; frame++) {
+        const time = await nextFrame();
+        if (list.getAttribute("aria-busy") === "false") {
+          gaps.push(time - previous);
+          // A small applied scroll every frame keeps the captured rows mounted.
+          // Playwright's separate wheel events can leave several idle frames.
+          wheelUp();
+          const before = list.scrollTop;
+          list.scrollTop = before - 3;
+          if (list.scrollTop < before) movedFrames++;
+        }
+        previous = time;
+      }
+    } finally {
+      Reflect.deleteProperty(list, "querySelector");
+    }
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    return {
+      idleGaps, gaps, movedFrames, settleQueries,
+      messageCount: telegramStore.getState().messages.get("chat-product")?.length,
+    };
+  });
+
+  await test.info().attach("history-pagination-performance", {
+    body: JSON.stringify(result), contentType: "application/json",
+  });
+  const evidence = JSON.stringify(result);
+  expect(result.messageCount, evidence).toBe(120);
+  expect(result.gaps, evidence).toHaveLength(24);
+  expect(result.movedFrames, evidence).toBeGreaterThanOrEqual(20);
+  expect(result.settleQueries, evidence).toBeGreaterThan(0);
+  expect(result.settleQueries, evidence).toBeLessThanOrEqual(36);
+
+  const idleFrame = [...result.idleGaps].sort((a, b) => a - b)[10];
+  // The first two gaps include the existing React development-mode prepend
+  // commit. Gate the following frames so a prolonged slowdown cannot hide
+  // behind the initial render cost.
+  const followingGaps = result.gaps.slice(2).sort((a, b) => a - b);
+  const p95 = followingGaps[Math.ceil(followingGaps.length * 0.95) - 1];
+  expect(p95, evidence).toBeLessThanOrEqual(Math.max(1000 / 60, idleFrame * 2.5));
+  expect(followingGaps.at(-1), evidence).toBeLessThanOrEqual(Math.max(50, idleFrame * 3));
+});
+
 for (const media of [false, true]) {
   test(`continuous upward pagination never reverses visible content under slow rendering (media: ${media})`, async ({ page }) => {
     test.setTimeout(60_000);

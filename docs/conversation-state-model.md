@@ -314,7 +314,10 @@ their own paths.
 Wheel/key scrolling translates expected offsets by actual scroll movement (accounting for interface
 scale and boundary clamping). Application writes update that movement checkpoint. Additional upward
 wheel input during a structural update removes the snapshot and advances the live anchor, so the
-coordinator can finish measuring without recapturing a partially positioned viewport. Navigation,
+coordinator can finish measuring without recapturing a partially positioned viewport. A live
+prepend settles against the remaining offset of its selected content anchor and the measured
+geometry, so ordinary upward motion does not reset the stability counter. A settlement pass
+reuses its mounted geometry when it has no scroll correction to apply. Navigation,
 pointer dragging and middle autoscroll retain their own cancellation and ownership rules. A first
 upward gesture leaves bottom following immediately, even inside the 32px proximity threshold.
 After departure, resuming following through user scrolling requires reaching the actual bottom.

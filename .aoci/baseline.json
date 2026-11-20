@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-20T00:33:55Z",
-  "updated_at": "2026-11-20T12:28:09Z",
+  "updated_at": "2026-11-20T13:22:34Z",
   "files": {
     ".env.example": {
       "role": "index",
@@ -47,9 +47,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "21a25d5d1659061752ece3023251dc56cb05f80a13a19cd3f789f1a782e06e1f",
-      "size": 129213,
-      "normalized_sha256": "21a25d5d1659061752ece3023251dc56cb05f80a13a19cd3f789f1a782e06e1f"
+      "sha256": "5f3e430c057e3d1d7978aa238ed3de162cf9f6d37624aab2f2c5ea8b5e16ec69",
+      "size": 129362,
+      "normalized_sha256": "5f3e430c057e3d1d7978aa238ed3de162cf9f6d37624aab2f2c5ea8b5e16ec69"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -89,9 +89,9 @@
     },
     "docs/conversation-state-model.md": {
       "role": "index",
-      "sha256": "54f94f9e4f7452feb2cfb7fc67ccd931f00c244bcac29ac10259d0f2a8ec5c78",
-      "size": 71880,
-      "normalized_sha256": "54f94f9e4f7452feb2cfb7fc67ccd931f00c244bcac29ac10259d0f2a8ec5c78"
+      "sha256": "17f47154a73e47d342c95c5dc21bf38084304bf87b250701793a50eb91429bb1",
+      "size": 72143,
+      "normalized_sha256": "17f47154a73e47d342c95c5dc21bf38084304bf87b250701793a50eb91429bb1"
     },
     "docs/development-pitfalls.md": {
       "role": "index",
@@ -1667,9 +1667,9 @@
     },
     "src/hooks/useConversationScroll.ts": {
       "role": "index",
-      "sha256": "58cec9a11067dd5ae6d903311519d55f5bdd881455261239110a2c197101336d",
-      "size": 158400,
-      "normalized_sha256": "58cec9a11067dd5ae6d903311519d55f5bdd881455261239110a2c197101336d"
+      "sha256": "61058785f53bb6039aa993ded6d11604cb2e748f6c15af2a6123379a20a7ec90",
+      "size": 159131,
+      "normalized_sha256": "61058785f53bb6039aa993ded6d11604cb2e748f6c15af2a6123379a20a7ec90"
     },
     "src/hooks/useDiscussionRead.ts": {
       "role": "index",
@@ -4295,9 +4295,9 @@
     },
     "tests/e2e/history-scroll.e2e.ts": {
       "role": "observe",
-      "sha256": "d5c9b47f854302cf71dab35f261b97bd2b3ce2172b1e6bbebe5e19d8d7028e9b",
-      "size": 18568,
-      "normalized_sha256": "d5c9b47f854302cf71dab35f261b97bd2b3ce2172b1e6bbebe5e19d8d7028e9b"
+      "sha256": "af47fb1ce30727f7883d24072e94d59aabb6cc4b245fa3cdddd141c772d77d92",
+      "size": 22026,
+      "normalized_sha256": "af47fb1ce30727f7883d24072e94d59aabb6cc4b245fa3cdddd141c772d77d92"
     },
     "tests/e2e/history-windows.e2e.ts": {
       "role": "observe",

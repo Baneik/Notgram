@@ -105,6 +105,22 @@ const NAVIGATION_RECONCILE_STABLE_FRAMES = 6;
 const HISTORY_SNAPSHOT_MAX_MS = 750;
 const ENTRY_ANCHOR_LOAD_TIMEOUT_MS = 10_000;
 
+const measureMountedAnchor = (
+  element: HTMLElement,
+  messageId: string,
+  expectedOffset: number,
+  reading?: ConversationReadingAnchor,
+) => {
+  const points = reading ? measureConversationReadingAnchor(element, reading) : undefined;
+  const point = points?.[0];
+  if (point) {
+    return { actualOffset: point.actualOffset, remainingOffset: point.actualOffset - point.expectedOffset, points };
+  }
+  const row = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+  if (!row) return;
+  const actualOffset = row.getBoundingClientRect().top - element.getBoundingClientRect().top;
+  return { actualOffset, remainingOffset: actualOffset - expectedOffset, points };
+};
 const bottomScrollTop = (element: HTMLElement) =>
   Math.max(0, element.scrollHeight - element.clientHeight);
 
@@ -1249,6 +1265,7 @@ export const useConversationScroll = ({
     correction: number,
     reading?: ConversationReadingAnchor,
   ) => {
+    let wroteScrollTop = false;
     if (Math.abs(correction) > 0.5) {
       // DOM rects include interface zoom; scrollTop uses unscaled CSS pixels.
       const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
@@ -1257,10 +1274,12 @@ export const useConversationScroll = ({
       if (Math.abs(nextTop - scrollTop) > 0.5) {
         anchorCorrectionUntilRef.current = performance.now() + 120;
         writeConversationScrollTop(element, nextTop, scrollWriter.anchor);
+        wroteScrollTop = true;
       }
     }
     const checkpoint = readingMemoryRef.current;
     if (reading && checkpoint?.reading === reading) checkpoint.scrollTop = element.scrollTop;
+    return wroteScrollTop;
   }, []);
 
   const restoreMountedAnchor = useCallback((
@@ -1286,16 +1305,10 @@ export const useConversationScroll = ({
       expectedOffset = owner.offset;
       checkpoint.scrollTop = scrollTop;
     }
-    const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
-    if (point) {
-      applyReadingCorrection(element, point.actualOffset - point.expectedOffset, reading);
-      return true;
-    }
-    const anchor = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
-    if (!anchor) return false;
-    const actualOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
-    applyReadingCorrection(element, actualOffset - expectedOffset, reading);
-    return true;
+    const measurement = measureMountedAnchor(element, messageId, expectedOffset, reading);
+    if (!measurement) return;
+    const wroteScrollTop = applyReadingCorrection(element, measurement.remainingOffset, reading);
+    return { measurement, wroteScrollTop };
   }, [applyReadingCorrection]);
 
   const restoreAnchor = useCallback((
@@ -1304,7 +1317,8 @@ export const useConversationScroll = ({
     expectedOffset: number,
     reading?: ConversationReadingAnchor,
   ) => {
-    if (restoreMountedAnchor(element, messageId, expectedOffset, reading)) return;
+    const mounted = restoreMountedAnchor(element, messageId, expectedOffset, reading);
+    if (mounted) return mounted;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (itemIndex === undefined) return;
     const generation = scrollControlRef.current.generation;
@@ -1503,26 +1517,27 @@ export const useConversationScroll = ({
         contentAnchorOwnerRef.current !== owner ||
         scrollControlRef.current.generation !== owner.generation
       ) return;
-      restoreAnchor(element, messageId, owner.offset, reading);
-      const points = reading ? measureConversationReadingAnchor(element, reading) : undefined;
-      const anchor = element.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(messageId)}"]`,
-      );
-      const actualOffset = points?.[0]?.actualOffset ?? (anchor
-        ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
-        : undefined);
-      const signature = actualOffset === undefined
-        ? "missing"
-        : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}:${points?.map(point =>
-          `${point.messageId}:${point.actualOffset.toFixed(1)}:${point.width.toFixed(1)}:${point.height.toFixed(1)}`).join(";") ?? ""}`;
-      const aligned = points?.length ? points.every(point => Math.abs(point.actualOffset - point.expectedOffset) <= 1)
-        : actualOffset !== undefined && Math.abs(actualOffset - owner.offset) <= 1;
-      if (aligned) {
+      const restored = restoreAnchor(element, messageId, owner.offset, reading);
+      const measured = restored?.wroteScrollTop
+        ? measureMountedAnchor(element, messageId, owner.offset, reading)
+        : restored?.measurement;
+      const readingMovesWithInput = preserveUserMotion && userScrollDirectionRef.current === "up" &&
+        performance.now() <= userIntentUntilRef.current;
+      if (measured && Math.abs(measured.remainingOffset) <= 1 && (readingMovesWithInput ||
+        measured.points?.every(point => Math.abs(point.actualOffset - point.expectedOffset) <= 1) !== false)) {
+        // A wheel moves both the expected and measured offsets. Only changes
+        // to the layout or surviving anchor should restart a live prepend.
+        const position = readingMovesWithInput ? "" : `${element.scrollTop.toFixed(1)}:${measured.actualOffset.toFixed(1)}`;
+        const points = measured.points?.map(point =>
+          `${point.index}:${point.width.toFixed(1)}:${point.height.toFixed(1)}` +
+          (readingMovesWithInput ? "" : `:${point.actualOffset.toFixed(1)}`),
+        ).join(";");
+        const signature = `${element.scrollHeight}:${position}:${points ?? ""}`;
         stableFrames = signature === previousSignature ? stableFrames + 1 : 1;
+        previousSignature = signature;
       } else {
         stableFrames = 0;
       }
-      previousSignature = signature;
       remainingFrames -= 1;
       if (stableFrames < CONTENT_ANCHOR_RECONCILE_STABLE_FRAMES && remainingFrames > 0) {
         contentAnchorFrameRef.current = requestAnimationFrame(settle);
