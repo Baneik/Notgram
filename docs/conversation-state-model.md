@@ -305,12 +305,19 @@ content checkpoint after settlement for delayed image decoding, video metadata a
 Ordinary saved row memory remains separate. Passive corrections update its scroll position without
 re-capturing the content checkpoint, so pixel rounding cannot accumulate with each media completion.
 Media geometry commits notify the existing batched layout coordinator before paint; row-size and
-total-height callbacks use the same content points. Wheel/key scrolling translates expected offsets
-by actual scroll movement (accounting for interface scale and boundary clamping); application writes
-update that movement checkpoint. Explicit input cancels the bounded settlement and snapshot while
-the next layout still preserves the user's new reading position. Navigation and view generations
-invalidate the content checkpoint. Pointer dragging and middle autoscroll keep their exclusive input
-ownership and yield detached anchor writes for the full interaction.
+total-height callbacks use the same content points. Route Virtuoso's relative size corrections
+through that measured anchor while a detached content point is mounted. Otherwise its estimate can
+repeat a correction the coordinator already applied. Keep the virtualizer's fallback when there is
+no mounted reference, and leave programmatic navigation and direct pointer scrolling in control of
+their own paths.
+
+Wheel/key scrolling translates expected offsets by actual scroll movement (accounting for interface
+scale and boundary clamping). Application writes update that movement checkpoint. Additional upward
+wheel input during a structural update removes the snapshot and advances the live anchor, so the
+coordinator can finish measuring without recapturing a partially positioned viewport. Navigation,
+pointer dragging and middle autoscroll retain their own cancellation and ownership rules. A first
+upward gesture leaves bottom following immediately, even inside the 32px proximity threshold.
+After departure, resuming following through user scrolling requires reaching the actual bottom.
 
 Upward intent requests the next history page within one viewport of the loaded boundary, with a
 64px minimum. Passive scroll/measurement events and a list shorter than the viewport never start
@@ -409,9 +416,10 @@ Collection policy:
 `writerKind`: `1` bottom pin, `2` latest animation, `3` latest approach,
 `4` anchor correction, `5` resized-row correction, `6` jump animation, `7` target reveal,
 `8` selection autoscroll, `9` selection return. Index commands are separately recorded as kind 6.
-Browser anchoring, focus scrolling, and Virtuoso's internal corrections do not pass through the
-application's scrollTop helper. They remain observable as kind 5 / frame changes without a matching
-kind 4. Do not label an unattributed movement as a definite browser or library write.
+When a relative virtualizer correction is resolved through a measured anchor, its resulting
+application write is recorded as kind 4. Browser anchoring, focus scrolling, and fallback virtualizer
+writes remain observable as kind 5 / frame changes without a matching kind 4. Do not label an
+unattributed movement as a definite browser or library write.
 
 `inputKind`: wheel, keydown, pointerdown, pointerup, pointercancel = 1..5.
 `keyKind`: ArrowUp, ArrowDown, PageUp, PageDown, Home, End, Space = 1..7; all other keys = 0.

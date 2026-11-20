@@ -305,6 +305,7 @@ export const useConversationScroll = ({
   const contentAnchorOwnerRef = useRef<{
     key: string; generation: number; messageId: string; offset: number;
     reading?: ConversationReadingAnchor;
+    preserveUserMotion: boolean;
   } | undefined>(undefined);
   const positioningAnchorFrameRef = useRef<number | undefined>(undefined);
   const positioningFrameRef = useRef<number | undefined>(undefined);
@@ -1243,38 +1244,67 @@ export const useConversationScroll = ({
     return true;
   }, [currentScrollKey, scheduleBottomPin, searchActive]);
 
+  const applyReadingCorrection = useCallback((
+    element: HTMLElement,
+    correction: number,
+    reading?: ConversationReadingAnchor,
+  ) => {
+    if (Math.abs(correction) > 0.5) {
+      // DOM rects include interface zoom; scrollTop uses unscaled CSS pixels.
+      const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+      const scrollTop = element.scrollTop;
+      const nextTop = Math.max(0, Math.min(bottomScrollTop(element), scrollTop + correction / scale));
+      if (Math.abs(nextTop - scrollTop) > 0.5) {
+        anchorCorrectionUntilRef.current = performance.now() + 120;
+        writeConversationScrollTop(element, nextTop, scrollWriter.anchor);
+      }
+    }
+    const checkpoint = readingMemoryRef.current;
+    if (reading && checkpoint?.reading === reading) checkpoint.scrollTop = element.scrollTop;
+  }, []);
+
+  const restoreMountedAnchor = useCallback((
+    element: HTMLElement,
+    messageId: string,
+    expectedOffset: number,
+    reading?: ConversationReadingAnchor,
+  ) => {
+    const owner = contentAnchorOwnerRef.current;
+    const checkpoint = readingMemoryRef.current;
+    if (reading && owner?.preserveUserMotion && owner.reading === reading && checkpoint?.reading === reading &&
+      performance.now() <= userIntentUntilRef.current && userScrollDirectionRef.current === "up") {
+      // During a prepend the visual anchor survives new upward wheel events.
+      // Move its expected offset with the input that the browser applied.
+      const scrollTop = element.scrollTop;
+      const movement = Math.min(0, scrollTop - checkpoint.scrollTop);
+      if (movement) {
+        const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
+        const offset = movement * scale;
+        reading.points = reading.points.map(point => ({ ...point, offset: point.offset - offset }));
+        owner.offset -= offset;
+      }
+      expectedOffset = owner.offset;
+      checkpoint.scrollTop = scrollTop;
+    }
+    const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
+    if (point) {
+      applyReadingCorrection(element, point.actualOffset - point.expectedOffset, reading);
+      return true;
+    }
+    const anchor = element.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!anchor) return false;
+    const actualOffset = anchor.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    applyReadingCorrection(element, actualOffset - expectedOffset, reading);
+    return true;
+  }, [applyReadingCorrection]);
+
   const restoreAnchor = useCallback((
     element: HTMLElement,
     messageId: string,
     expectedOffset: number,
     reading?: ConversationReadingAnchor,
   ) => {
-    const markControlledCorrection = () => {
-      anchorCorrectionUntilRef.current = performance.now() + 120;
-    };
-    const correctMountedAnchor = () => {
-      const point = reading ? measureConversationReadingAnchor(element, reading)[0] : undefined;
-      const anchor = element.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(messageId)}"]`,
-      );
-      if (!point && !anchor) return false;
-      const actualOffset = point?.actualOffset ?? anchor!.getBoundingClientRect().top -
-        element.getBoundingClientRect().top;
-      const correction = actualOffset - (point?.expectedOffset ?? expectedOffset);
-      if (Math.abs(correction) > 0.5) {
-        markControlledCorrection();
-        // DOM rects include interface zoom; scrollTop uses unscaled CSS pixels.
-        const scale = element.getBoundingClientRect().height / element.offsetHeight || 1;
-        const nextTop = Math.max(0, Math.min(bottomScrollTop(element), element.scrollTop + correction / scale));
-        if (Math.abs(nextTop - element.scrollTop) > 0.5) {
-          writeConversationScrollTop(element, nextTop, scrollWriter.anchor);
-        }
-      }
-      const checkpoint = readingMemoryRef.current;
-      if (reading && checkpoint?.reading === reading) checkpoint.scrollTop = element.scrollTop;
-      return true;
-    };
-    if (correctMountedAnchor()) return;
+    if (restoreMountedAnchor(element, messageId, expectedOffset, reading)) return;
     const itemIndex = messageItemIndexesRef.current.get(messageId);
     if (itemIndex === undefined) return;
     const generation = scrollControlRef.current.generation;
@@ -1285,7 +1315,7 @@ export const useConversationScroll = ({
       pending.key === key && pending.generation === generation &&
       pending.messageId === messageId && pending.offset === expectedOffset) return;
     indexRestoreRequestRef.current = { element, key, generation, messageId, offset: expectedOffset };
-    markControlledCorrection();
+    anchorCorrectionUntilRef.current = performance.now() + 120;
     if (reading) {
       // scrollToIndex retries when measurements arrive, even after a wheel has
       // cancelled our transaction. Seek once using the existing size cache;
@@ -1321,9 +1351,9 @@ export const useConversationScroll = ({
         scrollControlRef.current.generation !== generation) return;
       if (reading && (userInputSequenceRef.current !== inputSequence ||
         readingMemoryRef.current?.reading !== reading)) return;
-      correctMountedAnchor();
+      restoreMountedAnchor(element, messageId, expectedOffset, reading);
     });
-  }, []);
+  }, [restoreMountedAnchor]);
 
   const reconcileReadingPosition = useCallback((element: HTMLElement, includeUserScroll: boolean) => {
     const control = scrollControlRef.current;
@@ -1342,14 +1372,47 @@ export const useConversationScroll = ({
         points: checkpoint.reading.points.map(point => ({ ...point, offset: point.offset - movement })) };
       memory.anchorOffset -= movement;
     }
-    if (!measureConversationReadingAnchor(element, checkpoint.reading).length) {
+    const point = measureConversationReadingAnchor(element, checkpoint.reading)[0];
+    if (!point) {
       readingMemoryRef.current = undefined;
       return false;
     }
-    restoreAnchor(element, memory.anchorMessageId, memory.anchorOffset, checkpoint.reading);
-    memory.scrollTop = element.scrollTop;
+    applyReadingCorrection(element, point.actualOffset - point.expectedOffset, checkpoint.reading);
+    memory.scrollTop = checkpoint.scrollTop;
     return true;
-  }, [currentScrollKey, restoreAnchor]);
+  }, [applyReadingCorrection, currentScrollKey]);
+
+  useLayoutEffect(() => {
+    const element = messageListElement;
+    if (!element || !currentScrollKey || searchActive) return;
+    const ownScrollBy = Object.getOwnPropertyDescriptor(element, "scrollBy");
+    const nativeScrollBy = element.scrollBy.bind(element);
+    const scrollBy: typeof element.scrollBy = (options?: ScrollToOptions | number, y?: number) => {
+      if (typeof options === "number") {
+        nativeScrollBy(options, y ?? 0);
+        return;
+      }
+      const control = scrollControlRef.current;
+      if (options?.top && !options.left && options.behavior !== "smooth" &&
+        messageListRef.current === element && control.mode === "detached" &&
+        !removalRef.current && !revealTargetTokenRef.current && !pointerActiveRef.current && !middleAutoScrollRef.current) {
+        // Virtuoso uses relative scroll writes to correct its size estimates.
+        // Once a mounted anchor specifies the actual offset, applying the
+        // estimate as well can move the same pixels a second time.
+        const owner = contentAnchorOwnerRef.current;
+        if (owner && owner.key === element.dataset.conversationVirtuosoKey && owner.generation === control.generation) {
+          if (restoreMountedAnchor(element, owner.messageId, owner.offset, owner.reading)) return;
+        } else if (reconcileReadingPosition(element, performance.now() <= userIntentUntilRef.current)) return;
+      }
+      nativeScrollBy(options);
+    };
+    element.scrollBy = scrollBy;
+    return () => {
+      if (element.scrollBy !== scrollBy) return;
+      if (ownScrollBy) Object.defineProperty(element, "scrollBy", ownScrollBy);
+      else Reflect.deleteProperty(element, "scrollBy");
+    };
+  }, [currentScrollKey, messageListElement, reconcileReadingPosition, restoreMountedAnchor, searchActive]);
 
   const settleAnchorPosition = useCallback((
     element: HTMLElement,
@@ -1415,6 +1478,7 @@ export const useConversationScroll = ({
     expectedVirtuosoKey: string,
     onSettled?: (timedOut: boolean) => void,
     reading?: ConversationReadingAnchor,
+    preserveUserMotion = false,
   ) => {
     if (contentAnchorFrameRef.current !== undefined) {
       cancelAnimationFrame(contentAnchorFrameRef.current);
@@ -1425,6 +1489,7 @@ export const useConversationScroll = ({
       messageId,
       offset: expectedOffset,
       reading,
+      preserveUserMotion,
     };
     contentAnchorOwnerRef.current = owner;
     let remainingFrames = CONTENT_ANCHOR_RECONCILE_MAX_FRAMES;
@@ -1438,7 +1503,7 @@ export const useConversationScroll = ({
         contentAnchorOwnerRef.current !== owner ||
         scrollControlRef.current.generation !== owner.generation
       ) return;
-      restoreAnchor(element, messageId, expectedOffset, reading);
+      restoreAnchor(element, messageId, owner.offset, reading);
       const points = reading ? measureConversationReadingAnchor(element, reading) : undefined;
       const anchor = element.querySelector<HTMLElement>(
         `[data-message-id="${CSS.escape(messageId)}"]`,
@@ -1451,7 +1516,7 @@ export const useConversationScroll = ({
         : `${element.scrollHeight}:${element.scrollTop.toFixed(1)}:${actualOffset.toFixed(1)}:${points?.map(point =>
           `${point.messageId}:${point.actualOffset.toFixed(1)}:${point.width.toFixed(1)}:${point.height.toFixed(1)}`).join(";") ?? ""}`;
       const aligned = points?.length ? points.every(point => Math.abs(point.actualOffset - point.expectedOffset) <= 1)
-        : actualOffset !== undefined && Math.abs(actualOffset - expectedOffset) <= 1;
+        : actualOffset !== undefined && Math.abs(actualOffset - owner.offset) <= 1;
       if (aligned) {
         stableFrames = signature === previousSignature ? stableFrames + 1 : 1;
       } else {
@@ -1673,7 +1738,7 @@ export const useConversationScroll = ({
                 element.getBoundingClientRect().top - anchor.offset) : undefined,
           });
         }
-      }, reading);
+      }, reading, structuralChange && Boolean(reading));
     };
   }, [cancelRemovalMotion, reduceMotion, restoreAnchor, clearHistorySnapshot, currentScrollKey, initialLocationIdentity, matchingEntryRequest?.serverMessageId,
     matchingMessageRequest?.loading, liveReadingInput, reconcileBottomViewport, scheduleBottomPin, searchActive, settleContentAnchorPosition, virtuosoKey, writeMemory]);
@@ -3081,6 +3146,13 @@ export const useConversationScroll = ({
       return;
     }
     if (event.deltaY !== 0) {
+      const readingOwner = contentAnchorOwnerRef.current;
+      if (event.deltaY < 0 && readingOwner?.preserveUserMotion &&
+        readingOwner.generation === scrollControlRef.current.generation &&
+        readingOwner.key === element.dataset.conversationVirtuosoKey) {
+        clearHistorySnapshot();
+        return;
+      }
       if (contentAnchorFrameRef.current !== undefined) {
         cancelAnimationFrame(contentAnchorFrameRef.current);
         contentAnchorFrameRef.current = undefined;
@@ -3307,14 +3379,21 @@ export const useConversationScroll = ({
       }
       return;
     }
-    if (!pointerInitiated && contentAnchorOwnerRef.current) return;
+    const readingOwner = contentAnchorOwnerRef.current;
+    if (!pointerInitiated && readingOwner) {
+      if (readingOwner.preserveUserMotion && userScrollDirectionRef.current === "up") {
+        restoreMountedAnchor(element, readingOwner.messageId, readingOwner.offset, readingOwner.reading);
+      }
+      return;
+    }
     if (!pointerInitiated && scrollControlRef.current.mode === "detached" &&
       performance.now() <= anchorCorrectionUntilRef.current) {
       writeMemory(currentScrollKey, element, false, current?.pendingNewCount ?? 0, true, false);
       return;
     }
     reconcileReadingPosition(element, true);
-    const atBottom = !hasNewerMessages && distanceFromBottom(element) <= BOTTOM_PROXIMITY_PX;
+    const bottomDistance = distanceFromBottom(element);
+    const atBottom = !hasNewerMessages && bottomDistance <= BOTTOM_PROXIMITY_PX;
     const previousScrollTop = userScrollTopRef.current;
     const measuredDirection = previousScrollTop === undefined
       ? undefined
@@ -3353,7 +3432,11 @@ export const useConversationScroll = ({
       interruptControlledPositioning(atBottom ? "following" : "detached");
       control = scrollControlRef.current;
     }
-    const followLatest = atBottom || (
+    // The proximity threshold is useful for an existing follower. Only the
+    // actual end of the list can reacquire following after a departure.
+    const followLatest = (atBottom && direction !== "up" && (
+      current?.followLatest !== false || bottomDistance <= BOTTOM_WHEEL_GUARD_PX
+    )) || (
       !pointerInitiated &&
       direction === "down" &&
       current?.followLatest === true
@@ -3386,7 +3469,7 @@ export const useConversationScroll = ({
       }
     }
     if (followLatest && !atBottom) scheduleBottomPin();
-    if (atBottom) publishJumpHistory(currentScrollKey, []);
+    if (atBottom && followLatest) publishJumpHistory(currentScrollKey, []);
     if (
       element.scrollTop <= historyTriggerDistance(element) &&
       userInitiated &&

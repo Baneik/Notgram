@@ -215,6 +215,42 @@ test("upward intent loads before the boundary and stopping never chains pages", 
   expect(await requests()).toHaveLength(1);
 });
 
+test("the first small upward wheel keeps its reading anchor through a late resize", async ({ page }) => {
+  await historyFixture(page, true);
+  const list = page.locator(".message-list");
+  await list.hover();
+  await page.mouse.wheel(0, -24);
+  await expect(list).toHaveClass(/is-detached/);
+
+  const result = await list.evaluate(async (element) => {
+    const latest = element.querySelector('[data-message-id="1800"]')!;
+    const above = [...element.querySelectorAll<HTMLElement>(".message-list-content > [data-index]")]
+      .find(row => row.getBoundingClientRect().bottom <= element.getBoundingClientRect().top);
+    if (!above) throw new Error("No mounted virtual row above the viewport");
+    const baseline = latest.getBoundingClientRect().top;
+    const height = element.scrollHeight;
+    const offsets: number[] = [];
+    // Deliver a late height change after the first wheel event leaves the tail.
+    await new Promise<void>(resolve => requestAnimationFrame(() => {
+      above.style.paddingBottom = "160px";
+      setTimeout(resolve, 0);
+    }));
+    for (let frame = 0; frame < 12; frame++) {
+      offsets.push(latest.getBoundingClientRect().top - baseline);
+      await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    }
+    return { growth: element.scrollHeight - height, offsets };
+  });
+  expect(result.growth).toBeGreaterThanOrEqual(159);
+  expect(Math.max(...result.offsets.map(Math.abs)), JSON.stringify(result)).toBeLessThanOrEqual(1);
+
+  await page.mouse.wheel(0, 120);
+  await expect(list).not.toHaveClass(/is-detached/);
+  await expect.poll(() => list.evaluate(element =>
+    element.scrollHeight - element.clientHeight - element.scrollTop,
+  )).toBeLessThanOrEqual(1);
+});
+
 for (const media of [false, true]) {
   test(`continuous upward pagination never reverses visible content under slow rendering (media: ${media})`, async ({ page }) => {
     test.setTimeout(60_000);
