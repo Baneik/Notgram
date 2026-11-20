@@ -739,8 +739,6 @@ function MessageBubbleComponent({
       onSearchHashtag={onSearchHashtag}
     />
   ) : null;
-  const usesRichTextFlow = content.kind === "rich" && !channelPost && !content.isRtl &&
-    content.isFull && content.blocks.at(-1)?.kind === "paragraph";
 
   return (
     <article
@@ -906,15 +904,14 @@ function MessageBubbleComponent({
               {!showReactionFooter && messageMeta}
             </MessageTextFlow>
           ) : content.kind === "rich" ? (
-            usesRichTextFlow ? (
-              <MessageTextFlow
-                layoutSource={content}
-                layoutVersion={textLayoutVersion}
-              >
-                {richContent}
-                {!showReactionFooter && messageMeta}
-              </MessageTextFlow>
-            ) : richContent
+            <MessageTextFlow
+              forceWrapped={channelPost || content.isRtl || !content.isFull}
+              layoutSource={content}
+              layoutVersion={textLayoutVersion}
+            >
+              {richContent}
+              {!showReactionFooter && messageMeta}
+            </MessageTextFlow>
           ) : content.kind === "service" || content.kind === "unsupported" ? (
             <ServiceMessageContent message={message} people={serviceMembers ?? servicePersonIds(content).map(id => ({
               id, name: blockedReactionSenderIds?.has(id) ? translate("Telegram 用户")
@@ -1236,7 +1233,7 @@ function MessageBubbleComponent({
               )}
             </div>
           )}
-          {content.kind !== "text" && !usesRichTextFlow && !(isVisual && hasCaption) && !showReactionFooter && !inlineVoiceMeta && messageMeta}
+          {content.kind !== "text" && content.kind !== "rich" && !(isVisual && hasCaption) && !showReactionFooter && !inlineVoiceMeta && messageMeta}
           {showReactionFooter && (
             <div className="message-reaction-footer">
               <MessageReactions

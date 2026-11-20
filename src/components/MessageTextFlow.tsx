@@ -3,10 +3,31 @@ import { observeLayout } from "../utils/layoutObservation";
 import { useConversationGeometry } from "./ConversationSurface";
 
 const INLINE_META_LOWERING_PX = 2.5;
-interface TextLayout { wrapped: boolean; offset: number }
+interface TextLayout { wrapped: boolean; offset: number; overlaid?: boolean; inset?: number }
 interface CachedLayout { layout: TextLayout; fingerprint: string }
 const layouts = new WeakMap<object, Map<string, CachedLayout>>();
 const inlineLayout: TextLayout = { wrapped: false, offset: 0 };
+
+// These surfaces own their geometry or controls. A timestamp must not enter
+// them, even when their last visible descendant happens to be ordinary text.
+const metadataBoundary = "pre, table, figure, details, hr, blockquote, .rich-blockquote, .rich-math-block, .rich-streaming-indicator";
+const trailingText = (root: Node): Node | null | undefined => {
+  for (let child = root.lastChild; child; child = child.previousSibling) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if (child.textContent?.trim()) return child;
+    } else if (child instanceof Element) {
+      if (!child.getClientRects().length) continue;
+      if (child.matches(metadataBoundary)) return null;
+      if (child.matches(".rich-math-inline")) return child;
+      const tail = trailingText(child);
+      if (tail !== undefined) return tail;
+      // Ignore invisible anchors, but never skip a visible terminal object to
+      // attach metadata to text that precedes it.
+      const bounds = child.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) return null;
+    }
+  }
+};
 
 interface Measurement {
   prepare: () => void;
@@ -90,7 +111,9 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
     const flow = textFlowRef.current;
     if (!flow || forceWrapped || largeEmoji) return;
     const commit = (next: TextLayout) => setState(current => current.key === cacheKey &&
-      current.layout.wrapped === next.wrapped && Math.abs(current.layout.offset - next.offset) < 0.25
+      current.layout.wrapped === next.wrapped && current.layout.overlaid === next.overlaid &&
+      current.layout.inset === next.inset &&
+      Math.abs(current.layout.offset - next.offset) < 0.25
       ? current : { key: cacheKey, layout: next });
     const measure = (): Measurement | undefined => {
       if (!flow.isConnected) return;
@@ -101,6 +124,7 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
         ? flow.closest<HTMLElement>(".message-row") ?? flow : flow;
       const width = getComputedStyle(source).width;
       const textStyle = getComputedStyle(text);
+      const blockLayout = textStyle.display !== "inline";
       const groupWidth = flow.closest<HTMLElement>(".message-group")?.clientWidth;
       const quoteState = [...text.querySelectorAll<HTMLElement>(".rich-blockquote")].map(quote => quote.dataset.quoteState).join(":");
       const fingerprint = `${cacheKey}:${width}:${groupWidth}:${flow.clientWidth}:${textStyle.font}:${textStyle.lineHeight}:${textStyle.direction}:${text.dataset.richText}:${text.innerHTML}:${quoteState}:${meta?.innerHTML ?? ""}`;
@@ -114,12 +138,15 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
         ? { wrapped: true, offset: 0 } : undefined;
       return {
         prepare: () => {
-          if (fixedLayout || !flow.classList.contains("is-meta-wrapped")) return;
+          if (fixedLayout || (!blockLayout && !flow.classList.contains("is-meta-wrapped"))) return;
           // Never unwrap the live row: shortening it can clamp the user's
           // scrollTop even when the original class is restored before paint.
           probe = source.cloneNode(true) as HTMLElement;
           const measuredFlow = source === flow ? probe : probe.querySelector<HTMLElement>(".message-text-flow")!;
-          measuredFlow.classList.remove("is-meta-wrapped");
+          measuredFlow.classList.remove("is-meta-wrapped", "is-meta-overlaid");
+          // Let the browser resolve nested margins and padding without a footer
+          // row. The live flow must never be shortened to obtain this geometry.
+          if (blockLayout) measuredFlow.querySelector<HTMLElement>(".message-meta")!.style.position = "absolute";
           probe.removeAttribute("id");
           probe.querySelectorAll("[id]").forEach(element => element.removeAttribute("id"));
           probe.setAttribute("aria-hidden", "true");
@@ -133,7 +160,10 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
           const measuredText = probe?.querySelector<HTMLElement>(".message-rich-text") ?? text;
           const measuredMeta = probe?.querySelector<HTMLElement>(".message-meta") ?? meta!;
           const range = document.createRange();
-          range.selectNodeContents(measuredText);
+          const tail = blockLayout ? trailingText(measuredText) : measuredText;
+          if (!tail) return { wrapped: true, offset: 0 };
+          if (tail instanceof Element && tail.matches(".rich-math-inline")) range.selectNode(tail);
+          else range.selectNodeContents(tail);
           let lastLine: DOMRect | undefined;
           for (const rect of range.getClientRects()) {
             if (rect.width > 0 && rect.height > 0 && (!lastLine || rect.top > lastLine.top ||
@@ -141,6 +171,17 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
           }
           if (!lastLine) return inlineLayout;
           const bounds = measuredMeta.getBoundingClientRect();
+          if (blockLayout) {
+            const measuredFlow = measuredText.parentElement!;
+            const flowBounds = measuredFlow.getBoundingClientRect();
+            const scale = flowBounds.width / measuredFlow.offsetWidth;
+            const flowStyle = getComputedStyle(measuredFlow);
+            const right = flowBounds.right - Number.parseFloat(flowStyle.paddingRight) * scale;
+            const wrapped = getComputedStyle(measuredText).direction === "rtl" ||
+              right - lastLine.right < bounds.width + 8 * scale;
+            return { wrapped, overlaid: !wrapped, inset: Number.parseFloat(flowStyle.paddingRight),
+              offset: wrapped ? 0 : (flowBounds.bottom - lastLine.bottom) / scale - INLINE_META_LOWERING_PX };
+          }
           const transform = getComputedStyle(measuredMeta).transform;
           const translatedY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
           const wrapped = bounds.top - translatedY > lastLine.top + 4;
@@ -172,8 +213,9 @@ export function MessageTextFlow({ children, className = "", style, largeEmoji = 
   }, [children, cacheKey, forceWrapped, largeEmoji, layoutSource]);
 
   return <div {...props} ref={textFlowRef}
-    className={`message-text-flow ${className} ${largeEmoji ? "is-large-emoji" : ""} ${layout.wrapped ? "is-meta-wrapped" : ""}`}
-    style={{ ...style, "--message-meta-inline-offset": `${layout.offset}px` } as CSSProperties}>
+    className={`message-text-flow ${className} ${largeEmoji ? "is-large-emoji" : ""} ${layout.wrapped ? "is-meta-wrapped" : ""} ${layout.overlaid ? "is-meta-overlaid" : ""}`}
+    style={{ ...style, "--message-meta-inline-offset": `${layout.offset}px`,
+      "--message-meta-inline-inset": `${layout.inset ?? 0}px` } as CSSProperties}>
     {children}
   </div>;
 }

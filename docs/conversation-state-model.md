@@ -239,12 +239,21 @@ This rule applies to text, photo captions, album captions, and discussion messag
 including readers detached just above the bottom. Never compensate for a probing
 mutation by adding another scroll writer.
 
-Completed left-to-right structured rich messages ending in a paragraph also use
-the shared text flow. Only the final paragraph joins metadata's inline formatting
-context; preceding code, media and other blocks retain their full reading width.
-The shared measurement decides whether metadata fits and rechecks after width or
-delivery changes. Channel posts, reaction footers, streaming content, right-to-left
-messages and non-paragraph endings retain their dedicated metadata placement.
+Completed left-to-right structured rich messages and Markdown share metadata's
+text-flow measurement regardless of their outermost block type. Inline content
+keeps its natural float layout. For block content, the flow walks the rendered
+tail through containers such as nested lists and checks the actual final text
+line against metadata's measured width and an 8px gap. If it fits, metadata is
+positioned at the flow's trailing edge using a bottom-relative baseline offset;
+otherwise it gets a separate row. This leaves preceding blocks at full reading
+width and avoids stale vertical placement when text rewraps. Padding and zoom
+are included in the measurement. Invisible anchors do not block a text tail.
+Code, tables, media, details, block quotes and display math own their geometry,
+so the tail walk stops at those boundaries rather than overlaying their text or
+controls. Channel posts, reaction footers, streaming structured content and
+right-to-left messages retain their dedicated metadata placement. Width,
+content and delivery changes invalidate the cached layout; probes remain
+isolated from the live scroll extent.
 
 Text metadata measurements share a phased queue: collect live geometry, insert all
 necessary probes, read all line rectangles, remove all probes, then publish results.

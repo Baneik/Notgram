@@ -3,10 +3,15 @@ import type { Message, MessageContent } from "../../src/telegram/types";
 
 const metrics = "ttft:1.64s  tps:46.9t/s  token:6.2k";
 
-async function showRichMessage(page: Page, tail = metrics) {
+async function openProductChat(page: Page) {
   await page.goto("/");
   await page.locator('.chat-list[data-active=true] [data-chat-id="chat-product"]').click();
   await expect(page.locator('[data-message-id="p-video"]')).toBeVisible();
+  await expect(page.locator(".message-list")).toHaveAttribute("aria-busy", "false");
+}
+
+async function showRichMessage(page: Page, tail = metrics) {
+  await openProductChat(page);
   await page.evaluate(async tail => {
     const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
     const { mapTdMessageContent } = await import("/src/telegram/tdlibMapper.ts" as string) as typeof import("../../src/telegram/tdlibMapper");
@@ -33,9 +38,48 @@ async function showRichMessage(page: Page, tail = metrics) {
   return row;
 }
 
-async function geometry(row: Locator) {
-  return row.evaluate(element => {
-    const text = element.querySelector(".rich-message-content > p:last-child")!;
+test("block captions preserve padding and baseline through font and zoom changes", async ({ page }) => {
+  await openProductChat(page);
+  await page.evaluate(async () => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const state = telegramStore.getState();
+    const source = state.messages.get("chat-product")!.find(message => message.id === "p-video")!;
+    if (source.content.kind !== "media") throw new Error("Expected the video fixture");
+    telegramStore.setState({ messages: new Map(state.messages).set(source.chatId, [{ ...source,
+      outgoing: false, replyTo: undefined, editedAt: undefined, interaction: undefined,
+      content: { ...source.content, caption: "- Earlier item\n- **末行保留空间**", captionEntities: undefined },
+    }]) });
+  });
+  const row = page.locator('[data-message-id="p-video"]');
+  await expect(row.locator("li").last()).toHaveText("末行保留空间");
+  for (const zoom of ["1", "1.25", "1.5"]) {
+    await row.evaluate((element, zoom) => {
+      document.documentElement.style.zoom = zoom;
+      element.querySelector<HTMLElement>(".message-bubble-shell")!.style.width = "400px";
+      element.querySelector<HTMLElement>(".message-bubble")!.style.setProperty("--chat-font-size", "18px");
+    }, zoom);
+    await expect.poll(async () => (await geometry(row, "li")).sameLine).toBe(true);
+    const captionGeometry = () => row.evaluate(element => {
+      const flow = element.querySelector<HTMLElement>(".photo-caption-flow")!;
+      const bounds = flow.getBoundingClientRect();
+      const scale = bounds.width / flow.offsetWidth;
+      const meta = flow.querySelector(".message-meta")!.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(flow.querySelector("li:last-child")!);
+      const line = [...range.getClientRects()].at(-1)!;
+      return { rightGap: (bounds.right - meta.right) / scale, baseline: (meta.bottom - line.bottom) / scale };
+    });
+    await expect.poll(async () => (await captionGeometry()).baseline).toBeCloseTo(2.5, 0);
+    const result = await captionGeometry();
+    expect(result.rightGap).toBeCloseTo(9, 0);
+    expect(result.baseline).toBeCloseTo(2.5, 0);
+    expect((await geometry(row, "li")).overflow).toBeLessThanOrEqual(1);
+  }
+});
+
+async function geometry(row: Locator, tailSelector = ".rich-message-content > p:last-child") {
+  return row.evaluate((element, tailSelector) => {
+    const text = [...element.querySelectorAll(tailSelector)].at(-1)!;
     const range = document.createRange();
     range.selectNodeContents(text);
     const line = [...range.getClientRects()].filter(rect => rect.width > 0).at(-1)!;
@@ -49,7 +93,7 @@ async function geometry(row: Locator) {
       contained: meta.right <= bounds.right + 0.5 && meta.left >= bounds.left,
       overflow: bubble.scrollWidth - bubble.clientWidth,
     };
-  });
+  }, tailSelector);
 }
 
 async function updateMessage(page: Page, changes: Partial<Message>) {
@@ -117,7 +161,7 @@ test("rich metadata reflows after delivery changes and moves once into a reactio
   await expect.poll(async () => (await geometry(row)).sameLine).toBe(true);
 });
 
-for (const ending of ["preformatted", "divider", "streaming", "rtl"] as const) {
+for (const ending of ["preformatted", "divider", "streaming", "rtl", "quote", "table", "math"] as const) {
   test(`rich ${ending} endings retain a separate metadata row`, async ({ page }) => {
     const row = await showRichMessage(page);
     const content = await page.evaluate(async () => {
@@ -128,6 +172,16 @@ for (const ending of ["preformatted", "divider", "streaming", "rtl"] as const) {
     if (ending === "divider") content.blocks[content.blocks.length - 1] = { kind: "divider" };
     if (ending === "streaming") content.isFull = false;
     if (ending === "rtl") content.isRtl = true;
+    if (ending === "quote") content.blocks[content.blocks.length - 1] = {
+      kind: "quote", blocks: [{ kind: "paragraph", text: [{ text: "Final quotation" }] }], pull: false,
+    };
+    if (ending === "table") content.blocks[content.blocks.length - 1] = {
+      kind: "table", bordered: true, striped: false, rows: [[{
+        text: [{ text: "Final cell" }], header: false, colspan: 1, rowspan: 1,
+        align: "left", valign: "top", visible: true,
+      }]],
+    };
+    if (ending === "math") content.blocks[content.blocks.length - 1] = { kind: "mathematicalExpression", expression: "x^2" };
     await updateMessage(page, { content });
     await expect(row.locator(".message-meta")).toHaveCount(1);
     await expect.poll(() => row.evaluate(element => {
@@ -135,5 +189,50 @@ for (const ending of ["preformatted", "divider", "streaming", "rtl"] as const) {
       const meta = element.querySelector(".message-meta")!.getBoundingClientRect();
       return meta.top - tail.bottom;
     })).toBeGreaterThanOrEqual(0);
+  });
+}
+
+for (const format of ["rich", "markdown"] as const) {
+  for (const depth of [1, 4]) test(`${format} list tails use available space through ${depth} levels and recover after resizing`, async ({ page }) => {
+    const row = await showRichMessage(page);
+    const tail = "末行保留空间";
+    const content: MessageContent = format === "markdown"
+      ? { kind: "text", text: Array.from({ length: depth }, (_, index) => `${"  ".repeat(index)}- ${index === depth - 1 ? tail : "Nested item"}`).join("\n") }
+      : { kind: "rich", isFull: true, isRtl: false, text: tail, blocks: [] };
+    if (content.kind === "rich") {
+      let blocks: typeof content.blocks = [{ kind: "paragraph", text: [{ text: tail, bold: true }] }];
+      for (let level = 0; level < depth; level++) blocks = [{ kind: "list", ordered: level % 2 === 1,
+        items: [{ label: level % 2 ? "1." : "•", hasCheckbox: false, checked: false, value: 1, blocks }] }];
+      // Invisible anchors must not disable a usable terminal text line.
+      content.blocks = [...blocks, { kind: "anchor", name: "end" }];
+    }
+    await updateMessage(page, { content });
+    const selector = format === "rich" ? ".rich-list-item-content p" : "li";
+    await expect(row.locator(selector).last()).toHaveText(tail);
+    const resize = async (width: number) => row.evaluate((element, width) => {
+      element.querySelector<HTMLElement>(".message-bubble-shell")!.style.width = `${width}px`;
+    }, width);
+    await resize(440);
+    await expect.poll(async () => (await geometry(row, selector)).sameLine).toBe(true);
+    let result = await geometry(row, selector);
+    expect(result.gap).toBeGreaterThanOrEqual(7);
+    expect(result.contained).toBe(true);
+    expect(result.overflow).toBeLessThanOrEqual(1);
+    await resize(depth === 4 ? 210 : 150);
+    await expect.poll(async () => (await geometry(row, selector)).sameLine).toBe(false);
+    result = await geometry(row, selector);
+    expect(result.wrappedGap).toBeGreaterThanOrEqual(1);
+    expect(result.contained).toBe(true);
+    expect(result.overflow).toBeLessThanOrEqual(1);
+    await resize(440);
+    await expect.poll(async () => (await geometry(row, selector)).sameLine).toBe(true);
+    await updateMessage(page, { interaction: {
+      viewCount: 0, forwardCount: 0, replyCount: 0,
+      reactions: [{ type: { kind: "emoji", emoji: "👍" }, totalCount: 1, chosen: false, recentSenderIds: [] }],
+    } });
+    await expect(row.locator(".message-meta")).toHaveCount(1);
+    await expect(row.locator(".message-reaction-footer .message-meta")).toBeVisible();
+    await updateMessage(page, { interaction: undefined });
+    await expect.poll(async () => (await geometry(row, selector)).sameLine).toBe(true);
   });
 }

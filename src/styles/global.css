@@ -1527,7 +1527,8 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-bubble button, .message-bubble input, .message-bubble textarea, .message-bubble .message-meta { user-select: none; -webkit-user-select: none; }
 .message-text-flow.is-large-emoji { line-height: 1; }
 .message-text-flow.is-large-emoji > .message-rich-text { font-size: calc(var(--chat-font-size) * 2.35); line-height: 1.08; }
-.message-text-flow { min-width: 0; display: flow-root; }
+.message-text-flow { position: relative; min-width: 0; display: flow-root; }
+.message-text-flow > .message-meta { width: max-content; max-width: 100%; }
 .pending-message-caret { width: 7px; height: 16px; margin-left: 2px; display: inline-flex; align-items: flex-end; vertical-align: text-bottom; }
 .pending-message-caret > span { width: 2px; height: 14px; background: var(--accent); border-radius: 2px; animation: rich-streaming-caret var(--motion-duration-attention) ease-in-out infinite; }
 .pending-message-thinking { min-height: 22px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
@@ -1537,20 +1538,16 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) > p {
   display: inline;
 }
-/* Only the trailing paragraph shares a line with metadata; preceding rich
-   blocks retain their own formatting contexts and full reading width. */
-.message-text-flow > .rich-message-content:has(> p:last-child):has(+ .message-meta),
-.message-text-flow > .rich-message-content:has(+ .message-meta) > p:last-child {
-  display: inline;
-}
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="entities"] + .message-meta,
 .message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="loading"] + .message-meta,
-.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta,
-.message-text-flow > .rich-message-content:has(> p:last-child) + .message-meta {
+.message-text-flow:not(.is-large-emoji) > .message-rich-text[data-rich-text="markdown"]:has(> p:only-child) + .message-meta {
   margin: 1px 0 0 8px; display: flex; float: right;
 }
-.message-text-flow:not(.is-large-emoji):not(.is-meta-wrapped) > .message-rich-text + .message-meta {
+.message-text-flow:not(.is-large-emoji):not(.is-meta-wrapped):not(.is-meta-overlaid) > .message-rich-text + .message-meta {
   transform: translateY(var(--message-meta-inline-offset, 0px));
+}
+.message-text-flow.is-meta-overlaid > .message-meta {
+  position: absolute; bottom: var(--message-meta-inline-offset); right: var(--message-meta-inline-inset); margin: 0; float: none; transform: none;
 }
 .message-text-flow.is-meta-wrapped > .message-rich-text + .message-meta,
 .message-text-flow.is-meta-wrapped > .message-meta {
