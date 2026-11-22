@@ -107,15 +107,25 @@ describe("native context menu layout", () => {
       measureLabel,
     );
     const anchor = { x: 920, y: 240 };
-    const position = calculateNativeContextMenuPosition(
-      anchor,
-      geometry,
-      { position: { x: 0, y: 0 }, size: { width: 1000, height: 700 } },
-      1,
-      "cursor",
-    );
+    const position = calculateNativeContextMenuPosition({
+      point: anchor,
+      workArea: { position: { x: 0, y: 0 }, size: { width: 1000, height: 700 } },
+      scale: 1,
+      placement: "cursor",
+    }, geometry);
 
     expect(geometry.expandedWidth).toBeGreaterThan(geometry.width);
     expect(position.x + geometry.width).toBe(anchor.x - 4);
+  });
+
+  it("keeps the lower rows beside the cursor when the menu reaches the bottom edge", () => {
+    const position = calculateNativeContextMenuPosition({
+      point: { x: -600, y: 480 },
+      workArea: { position: { x: -1000, y: -200 }, size: { width: 1000, height: 700 } },
+      scale: 1.5,
+      placement: "cursor",
+    }, { width: 144, height: 194 });
+
+    expect(position).toEqual({ x: -594, y: 200 });
   });
 });

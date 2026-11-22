@@ -62,6 +62,23 @@ fn menu_size(width: f64, height: f64) -> Result<(f64, f64), String> {
     ))
 }
 
+fn place_menu_window(
+    window: &WebviewWindow,
+    position: PhysicalPosition<i32>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let (width, height) = menu_size(width, height)?;
+    if window.outer_position().map_err(|error| error.to_string())? != position {
+        window
+            .set_position(position)
+            .map_err(|error| error.to_string())?;
+    }
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| error.to_string())
+}
+
 fn validate_id(id: &str) -> Result<(), String> {
     if id.is_empty()
         || id.len() > 64
@@ -117,25 +134,14 @@ pub async fn notgram_open_context_menu_window(
     app: AppHandle,
     state: State<'_, ContextMenuWindowState>,
     id: String,
-    width: f64,
-    height: f64,
-    x: i32,
-    y: i32,
 ) -> Result<bool, String> {
     validate_id(&id)?;
-    let (width, height) = menu_size(width, height)?;
     let mut session = state.session.lock().map_err(|error| error.to_string())?;
     if session.is_cancelled(&id) {
         return Ok(false);
     }
     let window = context_menu_window(&app)?;
     window.hide().map_err(|error| error.to_string())?;
-    window
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|error| error.to_string())?;
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|error| error.to_string())?;
     session.activate(id);
     Ok(true)
 }
@@ -147,9 +153,10 @@ pub async fn notgram_show_context_menu_window(
     id: String,
     width: f64,
     height: f64,
+    x: i32,
+    y: i32,
 ) -> Result<bool, String> {
     validate_id(&id)?;
-    let (width, height) = menu_size(width, height)?;
     let session = state.session.lock().map_err(|error| error.to_string())?;
     if !session.is_active(&id) {
         return Ok(false);
@@ -157,9 +164,7 @@ pub async fn notgram_show_context_menu_window(
     let window = app
         .get_webview_window(CONTEXT_MENU_WINDOW_LABEL)
         .ok_or_else(|| "context menu window not found".to_string())?;
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|error| error.to_string())?;
+    place_menu_window(&window, PhysicalPosition::new(x, y), width, height)?;
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(true)
@@ -172,9 +177,10 @@ pub async fn notgram_resize_context_menu_window(
     id: String,
     width: f64,
     height: f64,
+    x: i32,
+    y: i32,
 ) -> Result<bool, String> {
     validate_id(&id)?;
-    let (width, height) = menu_size(width, height)?;
     let session = state.session.lock().map_err(|error| error.to_string())?;
     if !session.is_active(&id) {
         return Ok(false);
@@ -182,9 +188,7 @@ pub async fn notgram_resize_context_menu_window(
     let window = app
         .get_webview_window(CONTEXT_MENU_WINDOW_LABEL)
         .ok_or_else(|| "context menu window not found".to_string())?;
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|error| error.to_string())?;
+    place_menu_window(&window, PhysicalPosition::new(x, y), width, height)?;
     Ok(true)
 }
 

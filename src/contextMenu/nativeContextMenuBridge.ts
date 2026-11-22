@@ -3,12 +3,7 @@ import { currentMonitor, getCurrentWindow, monitorFromPoint } from "@tauri-apps/
 import { useEffect, useRef, useState } from "react";
 import type { Avatar } from "../telegram/types";
 import type { ContextMenuPoint } from "../utils/contextMenuLayout";
-import {
-  calculateNativeContextMenuGeometry,
-  calculateNativeContextMenuPosition,
-  measureNativeContextMenuLabel,
-  type NativeContextMenuGeometry,
-} from "./nativeContextMenuLayout";
+import type { NativeContextMenuAnchor } from "./nativeContextMenuLayout";
 
 export type NativeContextMenuIcon =
   | "cut" | "paste" | "format" | "spoiler" | "strikethrough" | "underline" | "bold" | "blockquote" | "link" | "file"
@@ -69,7 +64,7 @@ export type NativeContextMenuMessage =
   | { type: "ready" }
   | { type: "prepared" }
   | { type: "probe" }
-  | { type: "init"; id: string; descriptor: NativeContextMenuDescriptor }
+  | { type: "init"; id: string; descriptor: NativeContextMenuDescriptor; anchor: NativeContextMenuAnchor }
   | { type: "shown"; id: string }
   | { type: "failed"; id: string }
   | { type: "dismiss"; id: string }
@@ -119,21 +114,21 @@ const menuId = () => {
   return random ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 };
 
-type NativeContextMenuPlacement = "cursor" | "anchor";
+type NativeContextMenuPlacement = NativeContextMenuAnchor["placement"];
 
 const menuPlacement = async (
   point: ContextMenuPoint,
-  geometry: Pick<NativeContextMenuGeometry, "width" | "height">,
   placement: NativeContextMenuPlacement,
-) => {
+): Promise<NativeContextMenuAnchor> => {
   const currentWindow = getCurrentWindow();
+  const { innerWidth, innerHeight } = globalThis;
   const [origin, sourceScale, innerSize] = await Promise.all([
     currentWindow.innerPosition(),
     currentWindow.scaleFactor(),
     currentWindow.innerSize(),
   ]);
-  const xScale = globalThis.innerWidth > 0 ? innerSize.width / globalThis.innerWidth : sourceScale;
-  const yScale = globalThis.innerHeight > 0 ? innerSize.height / globalThis.innerHeight : sourceScale;
+  const xScale = innerWidth > 0 ? innerSize.width / innerWidth : sourceScale;
+  const yScale = innerHeight > 0 ? innerSize.height / innerHeight : sourceScale;
   const anchor = {
     x: origin.x + point.x * xScale,
     y: origin.y + point.y * yScale,
@@ -141,14 +136,7 @@ const menuPlacement = async (
   const monitor = await monitorFromPoint(anchor.x, anchor.y).catch(() => null)
     ?? await currentMonitor().catch(() => null);
   if (!monitor) throw new Error("context menu monitor unavailable");
-  const targetScale = monitor.scaleFactor;
-  return calculateNativeContextMenuPosition(
-    anchor,
-    geometry,
-    monitor.workArea,
-    targetScale,
-    placement,
-  );
+  return { point: anchor, workArea: monitor.workArea, scale: monitor.scaleFactor, placement };
 };
 
 type DescriptorUpdater = (descriptor: NativeContextMenuDescriptor) => void;
@@ -162,14 +150,9 @@ const showNativeContextMenu = async (
   onKeepOpenAction: (actionId: string) => void,
 ) => {
   const id = menuId();
-  const geometry = calculateNativeContextMenuGeometry(
-    initialDescriptor.items,
-    undefined,
-    measureNativeContextMenuLabel,
-  );
   const channel = new BroadcastChannel(NATIVE_CONTEXT_MENU_CHANNEL);
   let descriptor = initialDescriptor;
-  let opened = false;
+  let openedAnchor: NativeContextMenuAnchor | undefined;
   let settled = false;
   let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
   let finishResult: ((actionId?: string) => void) | undefined;
@@ -179,8 +162,8 @@ const showNativeContextMenu = async (
     failResult = reject;
   });
   const publishDescriptor = () => {
-    if (!opened || settled) return;
-    channel.postMessage({ type: "init", id, descriptor } satisfies NativeContextMenuMessage);
+    if (!openedAnchor || settled) return;
+    channel.postMessage({ type: "init", id, descriptor, anchor: openedAnchor } satisfies NativeContextMenuMessage);
   };
   registerUpdater((nextDescriptor) => {
     descriptor = nextDescriptor;
@@ -234,24 +217,18 @@ const showNativeContextMenu = async (
   // The watchdog also covers placement/preparation IPC. Returning result now
   // lets a stalled native command fall back without waiting for that command.
   void (async () => {
-    const [menuPosition] = await Promise.all([
-      menuPlacement(point, geometry, placement),
+    const [anchor] = await Promise.all([
+      menuPlacement(point, placement),
       prepareNativeContextMenuWindow(),
     ]);
     if (settled || signal.aborted) return;
-    const applied = await invoke<boolean>("notgram_open_context_menu_window", {
-      id,
-      width: geometry.width,
-      height: geometry.height,
-      x: menuPosition.x,
-      y: menuPosition.y,
-    });
+    const applied = await invoke<boolean>("notgram_open_context_menu_window", { id });
     if (!applied) { if (!settled) fail(); return; }
-    opened = true;
     if (settled || signal.aborted) {
       await invoke("notgram_close_context_menu_window", { id }).catch(() => undefined);
       return;
     }
+    openedAnchor = anchor;
     publishDescriptor();
   })().catch(() => { if (!settled) fail(); });
   if (signal.aborted) abort();

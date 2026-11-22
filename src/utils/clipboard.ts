@@ -3,12 +3,12 @@ import { messageCanBeSaved } from "../telegram/messageLifecycle";
 import { messageContentText } from "../telegram/messageContent";
 import type { Message } from "../telegram/types";
 
-export const waitForClipboardFocus = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+export const waitForClipboardFocus = (signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
   const cleanup = () => {
     clearTimeout(timeout);
     window.removeEventListener("focus", ready);
     document.removeEventListener("visibilitychange", ready);
-    signal.removeEventListener("abort", cancel);
+    signal?.removeEventListener("abort", cancel);
   };
   const cancel = () => { cleanup(); reject(new DOMException("Clipboard action cancelled", "AbortError")); };
   const ready = () => {
@@ -19,8 +19,8 @@ export const waitForClipboardFocus = (signal: AbortSignal) => new Promise<void>(
   const timeout = setTimeout(() => { cleanup(); reject(new Error("Clipboard window did not regain focus")); }, 5_000);
   window.addEventListener("focus", ready);
   document.addEventListener("visibilitychange", ready);
-  signal.addEventListener("abort", cancel, { once: true });
-  if (signal.aborted) cancel();
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) cancel();
   else ready();
 });
 
@@ -52,6 +52,9 @@ export const readClipboardContent = async (): Promise<{ text: string; files: Fil
 };
 
 export const writeClipboardText = async (text: string) => {
+  if (typeof document !== "undefined" && !document.hasFocus()) {
+    await waitForClipboardFocus();
+  }
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -123,7 +126,7 @@ export const writeClipboardImage = async (source: string) => {
   if (!response.ok) throw new Error(`Unable to read image (${response.status})`);
   const png = await imageBlobAsPng(await response.blob());
   if (typeof document !== "undefined" && !document.hasFocus()) {
-    await waitForClipboardFocus(new AbortController().signal);
+    await waitForClipboardFocus();
   }
   // A text representation makes paste targets prefer the caption over the image.
   await clipboard.write([new ClipboardItemConstructor({ "image/png": png })]);

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-20T00:33:55Z",
-  "updated_at": "2026-11-20T23:50:55Z",
+  "updated_at": "2026-11-22T04:57:16Z",
   "files": {
     ".env.example": {
       "role": "index",
@@ -47,9 +47,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "d954e12eec1baef8d48270b47f10d72d24a89ebd249c42bdedc018b36ad12419",
-      "size": 130012,
-      "normalized_sha256": "d954e12eec1baef8d48270b47f10d72d24a89ebd249c42bdedc018b36ad12419"
+      "sha256": "fb2f7e1d8812a834147c9e53d7fee463a12f90e4cfcf168dc55cea5263b17611",
+      "size": 130845,
+      "normalized_sha256": "fb2f7e1d8812a834147c9e53d7fee463a12f90e4cfcf168dc55cea5263b17611"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -480,9 +480,9 @@
     },
     "src-tauri/src/context_menu_window.rs": {
       "role": "index",
-      "sha256": "675a4625fa72d5876dc40f5a5d5c22c71a4cf12e042f0e95e421e2ff6832d30c",
-      "size": 7821,
-      "normalized_sha256": "7767523d559b9035a014b15a556470f2b765b708313808e0901f86ca6048a2c6"
+      "sha256": "b10dfa46a19638ab1c729ed3961a99536d383083319bf4e4e166d6f7c3aa03d9",
+      "size": 7618,
+      "normalized_sha256": "b10dfa46a19638ab1c729ed3961a99536d383083319bf4e4e166d6f7c3aa03d9"
     },
     "src-tauri/src/desktop_lifecycle.rs": {
       "role": "index",
@@ -1013,9 +1013,9 @@
     },
     "src/components/ContextMenuWindow.tsx": {
       "role": "index",
-      "sha256": "5bb36d2b9ae10422d7e11950cbcaf0284bb30211fa567ed8cd712f6fc1f27d98",
-      "size": 15712,
-      "normalized_sha256": "b40bd9fef3c4f7bb3d2da5c7776f6dac423a6c4f7cccd2bb59dd8ba66ac1abab"
+      "sha256": "b5b0746d0b61106e2df84b0aaebb4a130c99bd0e9cc10aaf73c5b8a373201413",
+      "size": 15786,
+      "normalized_sha256": "b5b0746d0b61106e2df84b0aaebb4a130c99bd0e9cc10aaf73c5b8a373201413"
     },
     "src/components/Conversation.tsx": {
       "role": "index",
@@ -1523,21 +1523,21 @@
     },
     "src/contextMenu/nativeContextMenuBridge.ts": {
       "role": "index",
-      "sha256": "553df6494981e8bda86bee8a94958aa0df0bbc195c98679d422fefdd98a0fe7c",
-      "size": 11177,
-      "normalized_sha256": "e1858e5380eb8de7f843b34376426c70159b23eb1d592d75a3fbb364f2c9dac8"
+      "sha256": "cf87e75af65dbaf37f74f98bb101f23fa74a2778851d298edd2d1d743870b8e5",
+      "size": 10544,
+      "normalized_sha256": "cf87e75af65dbaf37f74f98bb101f23fa74a2778851d298edd2d1d743870b8e5"
     },
     "src/contextMenu/nativeContextMenuLayout.test.ts": {
       "role": "observe",
-      "sha256": "fede67d6b98c1dc1df2b9d381e8dadb4a52d8d37c8b6dc9e6ad5d78ef87d537b",
-      "size": 4491,
-      "normalized_sha256": "fede67d6b98c1dc1df2b9d381e8dadb4a52d8d37c8b6dc9e6ad5d78ef87d537b"
+      "sha256": "6893b943a8e51321e2fcb98ef9ab0ddb612aab4737481926fa1dfd9465b1263f",
+      "size": 4937,
+      "normalized_sha256": "6893b943a8e51321e2fcb98ef9ab0ddb612aab4737481926fa1dfd9465b1263f"
     },
     "src/contextMenu/nativeContextMenuLayout.ts": {
       "role": "index",
-      "sha256": "491023d8c800d693c88e05362b1d961bed9adb6d6c4fcc570cb7243f931c1302",
-      "size": 6002,
-      "normalized_sha256": "491023d8c800d693c88e05362b1d961bed9adb6d6c4fcc570cb7243f931c1302"
+      "sha256": "9bc9ff97e12ed71debc5bca262a3c679c1671b1d77adc7b761c92f781019d500",
+      "size": 6084,
+      "normalized_sha256": "9bc9ff97e12ed71debc5bca262a3c679c1671b1d77adc7b761c92f781019d500"
     },
     "src/hooks/conversationBottomState.test.ts": {
       "role": "observe",
@@ -3449,9 +3449,9 @@
     },
     "src/utils/clipboard.ts": {
       "role": "index",
-      "sha256": "11437205f5d0028a55b7cb5b7a36bdea6cc922d798276abeba704e119b132d96",
-      "size": 7037,
-      "normalized_sha256": "73ca474bfa4cf22739f52d00997c1767f2563b489f05a3f73b5019c8bc93d446"
+      "sha256": "de9c050d0ba74af967a78930bab0fe3aceef644e2a0fa570d42279e7edb5c753",
+      "size": 6958,
+      "normalized_sha256": "de9c050d0ba74af967a78930bab0fe3aceef644e2a0fa570d42279e7edb5c753"
     },
     "src/utils/composerDrop.test.ts": {
       "role": "observe",
@@ -4175,9 +4175,9 @@
     },
     "tests/e2e/context-menu-permissions.e2e.ts": {
       "role": "observe",
-      "sha256": "2b95587b7d76023c5752652730f69a586372879ad081fc0e75c314cb12362567",
-      "size": 34985,
-      "normalized_sha256": "2b95587b7d76023c5752652730f69a586372879ad081fc0e75c314cb12362567"
+      "sha256": "35305fc8d82b393527372b87c3d58bfeffc15f471cea5ea4660f1487722d7772",
+      "size": 38247,
+      "normalized_sha256": "35305fc8d82b393527372b87c3d58bfeffc15f471cea5ea4660f1487722d7772"
     },
     "tests/e2e/conversation-entry.e2e.ts": {
       "role": "observe",

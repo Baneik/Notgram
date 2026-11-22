@@ -84,7 +84,7 @@ notification-window.json[FS5T]: F:为桌面通知窗口提供基础 Tauri 能力
 video-window.json[FS5T]: F:限制视频窗口的关闭、全屏、尺寸、焦点、拖动和主题权限 | R:code:src-tauri/src/video_window.rs,code:windows/video-window.html | A:identifier,windows,fullscreen,size,focus,theme | S:能力只匹配 video-player-* 窗口
 
 ===/<repository>/src-tauri/src/===
-context_menu_window.rs[IU7M]: F:管理共享上下文菜单窗口的创建、准备、显示、尺寸约束和关闭命令 | R:code:src-tauri/src/lib.rs,code:src/components/ContextMenuWindow.tsx,code:src/contextMenu/nativeContextMenuBridge.ts | A:state,size,validate,open,resize,close | S:窗口尺寸和菜单标识在原生边界校验
+context_menu_window.rs[IU7M]: F:管理共享上下文菜单窗口的准备、会话切换、定位缩放与隐藏 | R:code:src-tauri/src/lib.rs,code:src/components/ContextMenuWindow.tsx,code:src/contextMenu/nativeContextMenuBridge.ts | A:prepare,open,show,resize,close | S:打开时只激活隐藏会话，显示与调整按活动 ID 一并应用位置和限幅尺寸；取消记录拦截迟到打开
 desktop_lifecycle.rs[OH8M]: F:实现 Windows 桌面生命周期、托盘菜单、开机启动、窗口隐藏和通知区域恢复 | R:code:src-tauri/src/lib.rs,code:src/components/DesktopStartupSettings.tsx,code:src-tauri/tauri.conf.json | A:tray,autostart,window-event,Run-key,notify-icon | S:开机启动只在 Windows 注册表边界内变更
 desktop_notification.rs[OH8L]: F:构建脱敏桌面通知模型、通知窗口、声音资源和点击路由 | R:code:src/notifications/desktopNotifications.ts,code:src/notifications/notificationRouting.ts,code:src-tauri/src/lib.rs,code:windows/notification-window.html | A:route,item,avatar,window,sound | S:通知标题、正文、头像和路由 ID 均有长度上限
 development.rs[XR3T]: F:在调试构建中加载环境文件并提供环境变量读取入口 | R:code:src-tauri/src/lib.rs,code:.env.example | A:load_environment,environment_value,debug_assertions | S:发布构建不读取调试环境文件
@@ -181,7 +181,7 @@ ConfirmActionDialog.tsx[EU4T]: F:呈现可复用确认、取消和危险操作�
 ConnectionStatusIndicator.tsx[ER5T]: F:显示授权、连接和代理恢复状态及重试提示 | R:code:src/store/telegramStore.session.ts,code:src/telegram/connectionState.ts | A:authorization,connection,proxy,retry | S:显示状态来自 Store，不直接推断 TDLib 状态
 ContactsView.tsx[EI7S]: F:分页展示联系人、搜索、资料入口和新聊天操作 | R:code:src/store/telegramStore.profile.ts,code:src/telegram/tauriProfileService.ts | A:contacts,search,paging,profile | S:联系人分页游标由 Store 管理
 ContextMenuSurface.tsx[EU6S]: F:渲染可定位、可键盘操作和可关闭的上下文菜单表面 | R:code:src/components/ChatActionMenu.tsx,code:src/hooks/useContextMenuDismiss.ts,code:src/contextMenu/nativeContextMenuLayout.ts | A:surface,anchor,keyboard,dismiss | S:-
-ContextMenuWindow.tsx[EU7M]: F:连接 WebView 上下文菜单与 Tauri 窗口桥并处理尺寸和关闭 | R:code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuBridge.ts | A:window,bridge,resize,close | S:原生窗口尺寸约束在 Rust 边界再次校验
+ContextMenuWindow.tsx[EU7L]: F:渲染独立 WebView 的上下文菜单并以实测主菜单尺寸定位原生窗口 | R:code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuBridge.ts,code:src/contextMenu/nativeContextMenuLayout.ts,code:src/utils/menuKeyboard.ts | A:ContextMenuWindow,init,shown,action,close | S:同一会话的权限更新以原始物理锚点重新定位；子菜单展开不参与主面板定位
 Conversation.tsx[EB9L]: F:编排会话头部、消息虚拟列表、历史、定位、操作、媒体和服务提示 | R:code:src/components/ConversationSurface.tsx,code:src/components/ConversationComposer.tsx,code:src/store/telegramStore.ts,code:src/hooks/useConversationScroll.ts | A:history,messages,viewport,actions,composer,media | S:活动会话由 Store 选择，视口命令只通过协调器提交
 ConversationComposer.tsx[EU9L]: F:协调会话编辑器、回复编辑状态、附件、提及、发送和焦点恢复 | R:code:src/components/ComposerInput.tsx,code:src/store/telegramStore.drafts.ts,code:src/store/telegramStore.outbox.ts | A:composer,draft,reply,send,attachments,focus | S:草稿与回复目标按当前会话和话题隔离
 ConversationOverlays.tsx[EU8L]: F:承载会话中的搜索、跳转、置顶、选择、媒体和状态覆盖层 | R:code:src/components/Conversation.tsx,code:src/store/globalSearchState.ts,code:src/store/chatMessageSearchState.ts | A:search,jump,pin,selection,media,status | S:覆盖层不拥有会话或消息事实
@@ -262,8 +262,8 @@ phoneCountries.ts[EI3T]: F:提供电话国家和区号选择数据 | R:code:src/
 searchMessagePresentation.ts[EA4T]: F:把搜索命中消息转换为摘要和高亮模型 | R:code:src/components/GlobalSearchView.tsx,code:src/utils/textHighlight.tsx | A:search,summary,highlight | S:-
 
 ===/<repository>/src/contextMenu/===
-nativeContextMenuBridge.ts[IM7M]: F:连接前端上下文菜单模型与 Tauri 原生窗口命令 | R:code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuLayout.ts | A:prepare,open,show,resize,close | S:请求包含菜单和窗口身份
-nativeContextMenuLayout.ts[IM6S]: F:计算原生上下文菜单尺寸、位置和边界 | R:code:src/contextMenu/nativeContextMenuBridge.ts,code:src-tauri/src/context_menu_window.rs | A:layout,size,position,bounds | S:两侧都校验尺寸边界
+nativeContextMenuBridge.ts[IM7M]: F:换算上下文菜单的物理锚点并桥接原生窗口准备、描述更新和操作结果 | R:code:src/components/ContextMenuWindow.tsx,code:src-tauri/src/context_menu_window.rs,code:src/contextMenu/nativeContextMenuLayout.ts | A:useNativeContextMenu,prepareNativeContextMenuWindow,NativeContextMenuMessage | S:按客户区物理尺寸与 WebView 视口比例换算并保留负坐标；三秒看门狗覆盖定位到显示确认
+nativeContextMenuLayout.ts[KU6S]: F:测算原生菜单的主面板与展开尺寸，并按物理锚点和显示器工作区计算窗口位置 | R:code:src/components/ContextMenuWindow.tsx,code:src/contextMenu/nativeContextMenuBridge.ts | A:calculateNativeContextMenuGeometry,calculateNativeContextMenuPosition,measureNativeContextMenuLabel | S:右侧不足时换到锚点左侧，纵向贴工作区边界；定位使用收起尺寸，展开尺寸只供原生窗口容纳子面板
 
 ===/<repository>/src/hooks/===
 conversationBottomState.ts[CR4T]: F:派生会话是否贴底、跟随或脱离的纯状态 | R:code:src/hooks/useConversationScroll.ts,code:docs/conversation-state-model.md | A:bottom,following,detached,viewport | S:被动位移不能重置用户脱离状态
@@ -473,7 +473,7 @@ theme.ts[FC7S]: F:维护主题 ID、标签、颜色角色契约和 DOM 主题应
 ===/<repository>/src/utils/===
 adBlocking.ts[DS6S]: F:限制并匹配本地广告关键字与正则规则，判断消息展示过滤 | R:code:src/telegram/messageContent.ts,code:src/components/SafetySettings.tsx | A:AdBlockingRules,parseAdBlockRegex,messageMatchesAdBlockingRules | S:自定义匹配只处理入站消息，输入文本长度受限
 attachmentDrag.ts[EU6T]: F:发起消息媒体拖拽、校验自有令牌并将允许保存的资源转为附件 | R:code:src/utils/composerDrop.ts,code:src/hooks/useAttachmentDragSwitch.ts,code:src/telegram/messageLifecycle.ts | A:ownsAttachmentDrag | S:拖拽绑定账号和草稿，取消与失焦清理临时状态
-clipboard.ts[EU6S]: F:等待窗口重新获得焦点并分别实现文本和图像剪贴板写入 | R:code:src/telegram/messageLifecycle.ts,code:src/utils/composerDrop.ts,code:src/utils/messageClipboard.ts | A:waitForClipboardFocus,rasterImageAsPng | S:图像统一写入 PNG，受保护的消息内容不能复制
+clipboard.ts[EU6S]: F:读取文本与图片剪贴板载荷，等待窗口焦点并写入消息文本或 PNG | R:code:src/telegram/messageLifecycle.ts,code:src/telegram/messageContent.ts,code:src/utils/composerDrop.ts,code:src/components/Conversation.tsx | A:waitForClipboardFocus,readClipboardContent,writeClipboardText,writeClipboardImage,copyMessageContent | S:原生菜单跨窗返回时，写入等主文档恢复焦点；图片只写 PNG，消息图片与文本都受保存权限校验
 composerDrop.ts[ES5T]: F:识别单图拖放来源，读取并转换允许的图片为附件 | R:code:src/utils/clipboard.ts,code:src/utils/attachmentDrag.ts | A:isComposerImageSource,readComposerDroppedImage | S:Blob 和网页 URL 必须同源，原生资产仍通过协议鉴权
 composerFormatting.ts[DM6T]: F:提供编辑器格式快捷键和 Telegram 文本实体到 Tiptap 文档的转换 | R:code:src/components/ComposerInput.tsx,code:src/utils/composerMentions.ts | A:composerDocument,composerFormatKeys,composerEntityKinds | S:使用单个预格式化节点保留 UTF-16 偏移和换行
 composerInsertion.ts[DU5S]: F:依据选区插入文本与提及，并识别输入中的提及和内联 Bot 查询 | R:code:src/utils/composerMentions.ts,code:src/components/ConversationComposer.tsx | A:ComposerTextInsertion,insertComposerMention | S:-

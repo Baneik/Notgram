@@ -46,7 +46,9 @@ import {
 } from "../contextMenu/nativeContextMenuBridge";
 import {
   calculateNativeContextMenuGeometry,
+  calculateNativeContextMenuPosition,
   measureNativeContextMenuLabel,
+  type NativeContextMenuAnchor,
   NATIVE_CONTEXT_MENU_SUBMENU_MAX_VISIBLE_ROWS,
 } from "../contextMenu/nativeContextMenuLayout";
 import {
@@ -89,6 +91,7 @@ const icons: Record<NativeContextMenuIcon, typeof Pin> = {
 interface ContextMenuSession {
   id: string;
   descriptor: NativeContextMenuDescriptor;
+  anchor: NativeContextMenuAnchor;
 }
 
 export function ContextMenuWindow() {
@@ -178,7 +181,7 @@ export function ContextMenuWindow() {
       }
       activeIdRef.current = message.id;
       closingRef.current = false;
-      setSession({ id: message.id, descriptor: message.descriptor });
+      setSession({ id: message.id, descriptor: message.descriptor, anchor: message.anchor });
       applyThemeToDocument(themeIdForColorTheme(message.descriptor.colorTheme));
       if (isTauri()) {
         void getCurrentWindow().setTheme(message.descriptor.colorTheme).catch(() => undefined);
@@ -217,8 +220,14 @@ export function ContextMenuWindow() {
     const command = firstShow
       ? "notgram_show_context_menu_window"
       : "notgram_resize_context_menu_window";
+    // Submenus expand around the primary panel without moving it away from the pointer.
+    const position = calculateNativeContextMenuPosition(session.anchor, {
+      width: geometry.width,
+      height: geometry.collapsedHeight,
+    });
     void invoke<boolean>(command, {
       id: session.id,
+      ...position,
       width: expandedId ? geometry.expandedWidth : geometry.width,
       height: geometry.height,
     }).then((applied) => {

@@ -10,13 +10,14 @@ declare global {
       releases: Array<() => void>;
     };
     __menuCommands: string[];
-    __menuPlacement?: { x: number; y: number };
+    __menuPlacement?: { x: number; y: number; height: number };
     __menuClick?: { x: number; y: number };
     __menuShowReleases?: Array<(applied: boolean) => void>;
     __menuNativeProbe?: {
       origin: { x: number; y: number };
       scale: number;
       zoom?: number;
+      workAreaHeight?: number;
       monitorMissing: boolean;
       stall: "none" | "placement" | "preparation" | "open";
       releases: Array<() => void>;
@@ -69,8 +70,11 @@ const nativeMenu = async (page: Page) => {
       window.__menuCommands = [];
       mockWindows("context-menu-shared");
       mockConvertFileSrc("windows");
-      mockIPC((command) => {
+      mockIPC((command, args) => {
         window.__menuCommands.push(command);
+        if (command === "notgram_show_context_menu_window" || command === "notgram_resize_context_menu_window") {
+          window.__menuPlacement = args;
+        }
         if (command === "notgram_show_context_menu_window" && window.__menuShowReleases) {
           return new Promise(resolve => window.__menuShowReleases.push(resolve));
         }
@@ -106,10 +110,9 @@ const nativeMenu = async (page: Page) => {
       if (command === "plugin:window|current_monitor" && probe?.monitorMissing) return null;
       if (command === "plugin:window|monitor_from_point" || command === "plugin:window|current_monitor") return {
         name: "test", scaleFactor: probe?.scale ?? 1, position: probe?.origin ?? { x: 0, y: 0 }, size: { width: 2560, height: 2440 },
-        workArea: { position: probe?.origin ?? { x: 0, y: 0 }, size: { width: 2560, height: 2400 } },
+        workArea: { position: probe?.origin ?? { x: 0, y: 0 }, size: { width: 2560, height: probe?.workAreaHeight ?? 2400 } },
       };
       if (command === "notgram_open_context_menu_window") {
-        window.__menuPlacement = args as { x: number; y: number };
         if (probe?.stall === "open") return new Promise(resolve => probe.releases.push(() => resolve(true)));
       }
       return true;
@@ -196,12 +199,75 @@ test("native menu keeps negative monitor coordinates and accounts for source zoo
   });
   await target.click({ button: "right", position: { x: 20, y: 10 } });
   await expect(surface.getByRole("menu", { name: "消息操作", exact: true })).toBeVisible();
-  const placement = await page.evaluate(() => window.__menuPlacement!);
+  const placement = await surface.evaluate(() => window.__menuPlacement!);
   const click = await page.evaluate(() => window.__menuClick!);
   expect(placement.x).toBeCloseTo(Math.round(-2560 + click.x * 1.875 + 6), 0);
   expect(placement.y).toBeCloseTo(Math.round(-100 + click.y * 1.875 - 49.5), 0);
   await surface.close();
 });
+
+test("native menu stays within the same work area when permissions expand it", async ({ page }) => {
+  await prepare(page);
+  const surface = await nativeMenu(page);
+  await page.evaluate(() => {
+    window.__menuProbe.mode = "deferred";
+    window.__menuNativeProbe = { origin: { x: 0, y: 0 }, scale: 1, workAreaHeight: 700,
+      monitorMissing: false, stall: "none", releases: [] };
+  });
+  const target = page.locator('[data-message-id="p-4"] .message-bubble-shell').first();
+  await target.evaluate(element => element.dispatchEvent(new MouseEvent("contextmenu", {
+    bubbles: true, cancelable: true, button: 2, clientX: 800, clientY: 590,
+  })));
+  const menu = surface.getByRole("menu", { name: "消息操作", exact: true });
+  await expect(menu.getByRole("status")).toHaveText("正在读取操作权限");
+  await expect.poll(() => surface.evaluate(() => window.__menuPlacement?.y)).toBe(557);
+  await expect.poll(() => calls(page)).toBe(1);
+  await page.evaluate(() => { window.__menuProbe.releases.shift()!(); });
+  await expect(menu.getByRole("menuitem", { name: "回复", exact: true })).toBeEnabled();
+  await expect.poll(() => surface.evaluate(() => {
+    const { x, y, height } = window.__menuPlacement!;
+    return { x, bottom: y + height };
+  })).toEqual({ x: 804, bottom: 694 });
+  await surface.close();
+});
+
+for (const [id, label, text] of [
+  ["p-4", "复制", "我把交互稿更新到最新版本了，下午可以直接走查。"],
+  ["p-5", "复制文本", "新的媒体预览样式"],
+]) {
+  test(`native message ${label} waits for the main window to regain focus`, async ({ page }) => {
+    await prepare(page);
+    const surface = await nativeMenu(page);
+    await page.evaluate(() => {
+      document.body.dataset.clipboardWrites = "0";
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+        writeText: async (text: string) => {
+          document.body.dataset.clipboardWrites = String(Number(document.body.dataset.clipboardWrites) + 1);
+          if (!document.hasFocus()) throw new DOMException("Document is not focused", "NotAllowedError");
+          document.body.dataset.clipboardText = text;
+        },
+      } });
+    });
+    await openMenu(page, id);
+    const menu = surface.getByRole("menu", { name: "消息操作", exact: true });
+    const copy = menu.getByRole("menuitem", { name: label, exact: true });
+    await expect(copy).toBeEnabled();
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+    });
+    await copy.click();
+    await expect(menu).toHaveCount(0);
+    await expect(page.locator("body")).toHaveAttribute("data-clipboard-writes", "0");
+    await page.bringToFront();
+    await page.evaluate(() => {
+      Reflect.deleteProperty(document, "hasFocus");
+      window.dispatchEvent(new Event("focus"));
+    });
+    await expect(page.locator("body")).toHaveAttribute("data-clipboard-text", text);
+    await expect(page.locator("body")).toHaveAttribute("data-clipboard-writes", "1");
+    await surface.close();
+  });
+}
 
 for (const failure of ["placement", "preparation", "open", "shown", "monitor"] as const) {
   test(`native menu falls back after ${failure} failure and ignores late completion`, async ({ page }) => {

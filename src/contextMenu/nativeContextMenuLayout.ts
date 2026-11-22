@@ -1,3 +1,5 @@
+import type { ContextMenuPoint } from "../utils/contextMenuLayout";
+
 export const NATIVE_CONTEXT_MENU_ROW_HEIGHT = 42;
 export const NATIVE_CONTEXT_MENU_PANEL_OFFSET = 0;
 export const NATIVE_CONTEXT_MENU_WINDOW_INSET = 12;
@@ -36,6 +38,7 @@ const windowHeightForRows = (rowCount: number) =>
 export interface NativeContextMenuGeometry {
   width: number;
   height: number;
+  collapsedHeight: number;
   expandedWidth: number;
   maximumExpandedHeight: number;
   primaryPanelWidth: number;
@@ -44,25 +47,24 @@ export interface NativeContextMenuGeometry {
   submenuOffsetY: number;
 }
 
-interface NativeContextMenuScreenPoint {
-  x: number;
-  y: number;
-}
-
 interface NativeContextMenuScreenArea {
-  position: NativeContextMenuScreenPoint;
+  position: ContextMenuPoint;
   size: {
     width: number;
     height: number;
   };
 }
 
+export interface NativeContextMenuAnchor {
+  point: ContextMenuPoint;
+  workArea: NativeContextMenuScreenArea;
+  scale: number;
+  placement: "cursor" | "anchor";
+}
+
 export const calculateNativeContextMenuPosition = (
-  anchor: NativeContextMenuScreenPoint,
-  menu: Pick<NativeContextMenuGeometry, "width" | "height">,
-  workArea: NativeContextMenuScreenArea,
-  scale: number,
-  placement: "cursor" | "anchor",
+  { point, workArea, scale, placement }: NativeContextMenuAnchor,
+  menu: { width: number; height: number },
 ) => {
   const width = menu.width * scale;
   const height = menu.height * scale;
@@ -71,13 +73,12 @@ export const calculateNativeContextMenuPosition = (
   const panelInset = NATIVE_CONTEXT_MENU_WINDOW_INSET * scale;
   const right = workArea.position.x + workArea.size.width;
   const bottom = workArea.position.y + workArea.size.height;
-  let x = anchor.x + (placement === "cursor" ? gap : -panelInset);
-  let y = anchor.y - (placement === "cursor"
+  let x = point.x + (placement === "cursor" ? gap : -panelInset);
+  let y = point.y - (placement === "cursor"
     ? NATIVE_CONTEXT_MENU_FIRST_ITEM_CENTER_OFFSET * scale
     : panelInset);
 
-  if (x + width + margin > right) x = anchor.x - width - gap;
-  if (y + height + margin > bottom) y = anchor.y - height - gap;
+  if (x + width + margin > right) x = point.x - width - gap;
   x = Math.max(workArea.position.x + margin, Math.min(x, right - width - margin));
   y = Math.max(workArea.position.y + margin, Math.min(y, bottom - height - margin));
 
@@ -150,6 +151,7 @@ export const calculateNativeContextMenuGeometry = (
   return {
     width,
     height: windowHeightForRows(expandedRows),
+    collapsedHeight: windowHeightForRows(primaryRows),
     expandedWidth,
     maximumExpandedHeight: windowHeightForRows(maximumExpandedRows),
     primaryPanelWidth,
