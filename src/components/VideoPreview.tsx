@@ -23,6 +23,8 @@ interface Props {
   round?: boolean;
   canDownload?: boolean;
   onOpen?: (windowed?: boolean) => void;
+  onPosterReady?: () => void;
+  onPosterError?: () => void;
   onDownload?: () => void | Promise<void>;
   onRequestStream: (fileId: number, size: number, mimeType?: string) => Promise<string | undefined>;
   onSuspendStream: (fileId: number, source?: string) => Promise<void>;
@@ -52,7 +54,8 @@ export function VideoPreview(props: Props) {
   useEffect(() => listenForVideoWindowRequest(props.playbackId, () => openRef.current(true)), [props.playbackId]);
   return <button type="button" className={`video-preview ${props.round ? "is-round" : ""}`} onClick={() => open()}
     aria-label={translate("播放 {{value0}}", { value0: props.label })}>
-    {props.poster && <StableImage src={props.poster} alt="" loading="lazy" decoding="async" />}
+    {props.poster && <StableImage key={props.playbackId} retainWhileLoading src={props.poster} alt="" loading="lazy"
+      onReady={props.onPosterReady} onError={props.onPosterError} />}
     <span className="video-preview-play"><Play size={25} fill="currentColor" /></span>
     <span className="video-preview-duration">{formatPlaybackTime(props.duration ?? 0)}</span>
   </button>;

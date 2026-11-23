@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-20T00:33:55Z",
-  "updated_at": "2026-11-22T04:57:16Z",
+  "updated_at": "2026-11-23T00:23:33Z",
   "files": {
     ".env.example": {
       "role": "index",
@@ -47,9 +47,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "fb2f7e1d8812a834147c9e53d7fee463a12f90e4cfcf168dc55cea5263b17611",
-      "size": 130845,
-      "normalized_sha256": "fb2f7e1d8812a834147c9e53d7fee463a12f90e4cfcf168dc55cea5263b17611"
+      "sha256": "9c7dce0d6947e46e9c7032188c6dec7bace204a2b74e5151bf664105945fe8c1",
+      "size": 131457,
+      "normalized_sha256": "9c7dce0d6947e46e9c7032188c6dec7bace204a2b74e5151bf664105945fe8c1"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -1181,9 +1181,9 @@
     },
     "src/components/MessageBubble.tsx": {
       "role": "index",
-      "sha256": "2fca05679b3f39f335c1ed5bcb7018d6355d85242f85f36426f010d81e1cdd4b",
-      "size": 66724,
-      "normalized_sha256": "aae9c0e53579056d052b1ca5a22ed16add7133de8ccae3d9430b746cc7e1e3bd"
+      "sha256": "d7f832b9cab2c5a9cd56ebdc7fc6ce99326bd702305868edd71ad1ea3bc8b7c7",
+      "size": 65589,
+      "normalized_sha256": "d7f832b9cab2c5a9cd56ebdc7fc6ce99326bd702305868edd71ad1ea3bc8b7c7"
     },
     "src/components/MessageDeliveryStatus.tsx": {
       "role": "index",
@@ -1319,9 +1319,9 @@
     },
     "src/components/RichMessageContent.tsx": {
       "role": "index",
-      "sha256": "ac013f46b3c3d22e86691731dfb1a8ee2c036d9acaf974fb116fd8b48324e361",
-      "size": 20670,
-      "normalized_sha256": "ac013f46b3c3d22e86691731dfb1a8ee2c036d9acaf974fb116fd8b48324e361"
+      "sha256": "c1b36ed45cfdd6608b2085ea882e87aaadb68cd18396917b42a2e827427f7fb0",
+      "size": 20880,
+      "normalized_sha256": "c1b36ed45cfdd6608b2085ea882e87aaadb68cd18396917b42a2e827427f7fb0"
     },
     "src/components/SafetySettings.test.ts": {
       "role": "observe",
@@ -1439,9 +1439,9 @@
     },
     "src/components/VideoPreview.tsx": {
       "role": "index",
-      "sha256": "e09763784246619568a9d8e8d8d3bae2f8a630fb6c4ba542bb1f50295626e4e1",
-      "size": 3076,
-      "normalized_sha256": "e09763784246619568a9d8e8d8d3bae2f8a630fb6c4ba542bb1f50295626e4e1"
+      "sha256": "9d7f6a6a67203c9a246e6537149536d9ba91f6d8298dfe99fd54c9d53332f449",
+      "size": 3227,
+      "normalized_sha256": "9d7f6a6a67203c9a246e6537149536d9ba91f6d8298dfe99fd54c9d53332f449"
     },
     "src/components/VideoWindow.tsx": {
       "role": "index",
@@ -2771,9 +2771,9 @@
     },
     "src/styles/global.css": {
       "role": "index",
-      "sha256": "05240795429282a1a8ee68d6d315a433a804812cd382b6c94e413af2443864a4",
-      "size": 324615,
-      "normalized_sha256": "56e3833399bb9354f7b28489f9a4dae2864bca2e98425d0dc0a23ea8c4a1f8f5"
+      "sha256": "1da341e91f94729e7044d7942cbf4d28c4a6cff2dc890208d1ed936800a3221d",
+      "size": 320621,
+      "normalized_sha256": "1da341e91f94729e7044d7942cbf4d28c4a6cff2dc890208d1ed936800a3221d"
     },
     "src/styles/themes.css": {
       "role": "index",
@@ -4325,15 +4325,15 @@
     },
     "tests/e2e/incoming-media-geometry.e2e.ts": {
       "role": "observe",
-      "sha256": "4a69333f1841231e0de3636fa1871c82cbdba0e6dcef24395158c722eb7f8902",
-      "size": 9623,
-      "normalized_sha256": "4a69333f1841231e0de3636fa1871c82cbdba0e6dcef24395158c722eb7f8902"
+      "sha256": "10a814636d11325b89c16e1fc9cfa503eadaad387c11eca4469a702e41907345",
+      "size": 10007,
+      "normalized_sha256": "10a814636d11325b89c16e1fc9cfa503eadaad387c11eca4469a702e41907345"
     },
     "tests/e2e/incoming-message-layout.e2e.ts": {
       "role": "observe",
-      "sha256": "95be57d9f32d87021784ad5a30a1a2dc475f3dd658a27e83185baf93aff7853d",
-      "size": 9184,
-      "normalized_sha256": "95be57d9f32d87021784ad5a30a1a2dc475f3dd658a27e83185baf93aff7853d"
+      "sha256": "16919e4b4d4597ad2a7e35f8bf687a9b101142695923049629c20e7c75600c48",
+      "size": 14588,
+      "normalized_sha256": "16919e4b4d4597ad2a7e35f8bf687a9b101142695923049629c20e7c75600c48"
     },
     "tests/e2e/keyboard.e2e.ts": {
       "role": "observe",

@@ -328,9 +328,8 @@ function MessageBubbleComponent({
   const localPreviewSource = content.kind === "media"
     ? localMediaSource(content.thumbnailPath)
     : undefined;
-  const previewSource = content.kind === "media"
-    ? localPreviewSource ?? content.previewDataUrl
-    : undefined;
+  const embeddedPreviewSource = content.kind === "media" ? content.previewDataUrl : undefined;
+  const previewSource = localPreviewSource ?? embeddedPreviewSource;
   const usableFullMediaSource = fullMediaSource && failedMediaSources.has(fullMediaSource)
     ? undefined
     : fullMediaSource;
@@ -940,7 +939,10 @@ function MessageBubbleComponent({
                 {["video", "videoNote"].includes(content.mediaType) ? (
                   <VideoPreview
                     source={usableFullMediaSource}
-                    poster={usablePreviewSource}
+                    poster={usablePreviewSource ?? embeddedPreviewSource}
+                    onPosterReady={() => markMediaSourceReady(usablePreviewSource)}
+                    onPosterError={localPreviewSource && usablePreviewSource === localPreviewSource
+                      ? () => markMediaSourceFailed(localPreviewSource) : undefined}
                     playbackId={`${message.chatId}:${message.id}`}
                     label={content.fileName}
                     fileId={content.fileId}

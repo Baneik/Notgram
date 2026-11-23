@@ -4,9 +4,12 @@ import type { Message, TelegramEvent } from "../../src/telegram/types";
 interface ArrivalSample { top: number; height: number; preparing: boolean; entering: boolean }
 interface ArrivalAudit { writes: number[]; samples: ArrivalSample[]; startTop: number; interrupted?: boolean }
 interface ArrivalOptions { animateEntrance?: boolean; burst?: boolean; interrupt?: boolean }
+interface PosterFrame { top: number; rowHeight: number; width: number; height: number; hasPoster: boolean }
 type ArrivalWindow = Window & {
   arrivalTransport: { snapshot: { messages: Message[] }; listener: (event: TelegramEvent) => void };
   arrivalAudit: ArrivalAudit;
+  posterAudit: { frame: number; samples: PosterFrame[] };
+  posterRecoveryIds: number[];
 };
 
 const seedHistory = async (page: Page) => {
@@ -88,7 +91,84 @@ const openHistory = async (page: Page, width: number) => {
   return list;
 };
 
+const embeddedPoster = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='23'%3E%3Crect width='40' height='23' fill='blue'/%3E%3C/svg%3E";
+const posterFileId = 9301;
+
+const receiveVideoWithPoster = async (page: Page, thumbnailPath?: string) => {
+  await page.evaluate(async ({ embeddedPoster, posterFileId, thumbnailPath }) => {
+    const { telegramStore } = await import("/src/store/telegramStore.ts" as string) as typeof import("../../src/store/telegramStore");
+    const state = window as unknown as ArrivalWindow;
+    state.posterRecoveryIds = [];
+    telegramStore.setState({ recoverFile: async (fileId) => { state.posterRecoveryIds.push(fileId); return false; } });
+    const message: Message = {
+      id: "arrival-video", chatId: "chat-product", senderId: "u-jules", outgoing: false,
+      sentAt: new Date(1700000031000).toISOString(), delivery: "sent",
+      replyTo: { kind: "message", messageId: "arrival-history-29", chatId: "chat-product",
+        content: { kind: "text", text: "Synthetic reply target" } },
+      content: { kind: "media", mediaType: "video", fileName: "arrival.mp4", sizeLabel: "1 MB",
+        width: 1280, height: 720, duration: 202, caption: "视频的三行说明\n\n源链接",
+        captionEntities: [{ kind: "bold", offset: 0, length: 7 }],
+        thumbnailFileId: posterFileId, thumbnailPath, previewDataUrl: embeddedPoster },
+    };
+    state.arrivalTransport.snapshot.messages.push(message);
+    state.arrivalTransport.listener({ type: "message.upsert", message, animateEntrance: true });
+  }, { embeddedPoster, posterFileId, thumbnailPath });
+};
+
 for (const width of [1366, 390]) {
+  test(`incoming captioned reply video keeps its poster and geometry during upgrade (${width}px)`, async ({ page }) => {
+    const list = await openHistory(page, width);
+    const posterPath = "/received-video-poster.jpg";
+    let releasePoster!: () => void;
+    const pendingPoster = new Promise<void>(resolve => { releasePoster = resolve; });
+    await page.route(`**${posterPath}`, async route => {
+      await pendingPoster;
+      await route.fulfill({ path: "tests/fixtures/public/mock-video-poster.jpg" });
+    });
+    try {
+      await receiveVideoWithPoster(page);
+      const row = list.locator('[data-message-id="arrival-video"]');
+      await expect(row.locator(".message-reply-preview")).toBeVisible();
+      await expect(row.locator(".video-preview img")).toHaveCSS("opacity", "1");
+      await expect(row).not.toHaveClass(/is-entering|is-preparing-entrance/);
+      await list.evaluate((host, { posterFileId, posterPath }) => {
+        const state = window as unknown as ArrivalWindow;
+        const row = host.querySelector<HTMLElement>('[data-message-id="arrival-video"]')!;
+        const preview = row.querySelector<HTMLElement>(".photo-preview")!;
+        const audit: ArrivalWindow["posterAudit"] = state.posterAudit = { frame: 0, samples: [] };
+        const sample = () => {
+          audit.samples.push({ top: host.scrollTop, rowHeight: row.offsetHeight,
+            width: preview.offsetWidth, height: preview.offsetHeight,
+            hasPoster: [...preview.querySelectorAll<HTMLImageElement>(".video-preview img")].some(image =>
+              image.naturalWidth > 0 && Number(getComputedStyle(image).opacity) === 1) });
+          audit.frame = requestAnimationFrame(sample);
+        };
+        sample();
+        state.arrivalTransport.listener({ type: "file.updated", file: { fileId: posterFileId,
+          localPath: posterPath, isDownloaded: true, sizeLabel: "12 KB" } });
+      }, { posterFileId, posterPath });
+
+      const newPoster = row.locator(`.video-preview img[src="${posterPath}"]`);
+      await expect(newPoster).toHaveAttribute("data-image-state", "decoding");
+      await expect(row.locator('.video-preview img[src^="data:"]')).toHaveCSS("opacity", "1");
+      releasePoster();
+      await expect(newPoster).toHaveCSS("opacity", "1");
+      await expect(row.locator(".video-preview img")).toHaveCount(1);
+      const samples = await page.evaluate(() => {
+        const { frame, samples } = (window as unknown as ArrivalWindow).posterAudit;
+        cancelAnimationFrame(frame);
+        return samples;
+      });
+      expect(samples.length).toBeGreaterThan(1);
+      expect(samples[0].hasPoster).toBe(true);
+      expect(samples.every(sample => sample.hasPoster && sample.rowHeight === samples[0].rowHeight &&
+        sample.width === samples[0].width && sample.height === samples[0].height &&
+        Math.abs(sample.top - samples[0].top) <= 1), JSON.stringify(samples)).toBe(true);
+    } finally {
+      releasePoster();
+    }
+  });
+
   for (const scenario of ["text", "video caption", "scaled static video", "consecutive videos"] as const) {
     test(`incoming folded ${scenario} commits its final layout before following (${width}px)`, async ({ page }) => {
       const list = await openHistory(page, width);
@@ -149,3 +229,13 @@ for (const width of [1366, 390]) {
     expect(Math.abs(result.finalTop - result.startTop), JSON.stringify(result)).toBeLessThanOrEqual(1);
   });
 }
+
+test("incoming captioned reply video falls back when its cached poster is unreadable", async ({ page }) => {
+  const list = await openHistory(page, 1366);
+  await page.route("**/missing-video-poster.jpg", route => route.fulfill({ status: 404 }));
+  await receiveVideoWithPoster(page, "/missing-video-poster.jpg");
+  const row = list.locator('[data-message-id="arrival-video"]');
+  await expect(row.locator('.video-preview img[src^="data:"]')).toHaveCSS("opacity", "1");
+  await expect.poll(() => page.evaluate(() => (window as unknown as ArrivalWindow).posterRecoveryIds))
+    .toEqual([posterFileId]);
+});

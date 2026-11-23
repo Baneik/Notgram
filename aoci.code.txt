@@ -209,7 +209,7 @@ MarkdownText.tsx[EL4T]: F:解析并渲染受支持 Markdown 和 GFM 文本 | R:c
 MediaProgressRing.tsx[EP3T]: F:显示媒体加载、下载和失败进度环 | R:code:src/components/CachedMediaPreview.tsx,code:src/utils/downloadManager.ts | A:progress,loading,error | S:-
 MediaViewer.tsx[EP7M]: F:渲染照片、视频和混合媒体查看器的导航、缩放、下载和错误恢复 | R:code:src/media/mediaPlayback.ts,code:src/media/mediaViewerWindowBridge.ts,code:src/components/ViewerImage.tsx | A:viewer,navigation,zoom,download,recovery | S:媒体所有权由共享播放和查看器模型协调
 MediaViewerWindow.tsx[EP7M]: F:连接媒体查看器页面与独立 Tauri 查看器窗口 | R:code:src-tauri/src/media_viewer_window.rs,code:src/media/mediaViewerWindowBridge.ts,code:src/components/MediaViewer.tsx | A:window,bridge,theme,close | S:窗口 owner 和媒体身份必须匹配
-MessageBubble.tsx[EB9L]: F:编排消息气泡布局、文本、媒体、操作、回复、反应和选择状态 | R:code:src/components/Conversation.tsx,code:src/components/MessageRichText.tsx,code:src/components/MessageTextFlow.tsx,code:src/store/telegramStore.messages.ts | A:message,content,actions,reply,media,selection | S:消息身份和聊天上下文必须同时传递。结构化富文本统一进入文本流，不按最外层末块类型决定时间位置；频道、流式和从右向左内容强制独立时间行，反应底栏独占元数据
+MessageBubble.tsx[EB9L]: F:编排消息气泡布局、文本、媒体、操作、回复、反应和选择状态 | R:code:src/components/Conversation.tsx,code:src/components/MessageRichText.tsx,code:src/components/MessageTextFlow.tsx,code:src/components/VideoPreview.tsx,code:src/store/telegramStore.messages.ts | A:message,content,actions,reply,media,selection | S:消息身份和聊天上下文必须同时传递。结构化富文本统一进入文本流，按实际末行决定时间位置；频道、流式和从右向左内容强制独立时间行，反应底栏独占元数据。视频封面故障按缩略图文件身份恢复，等待恢复时使用消息内嵌小图
 MessageDeliveryStatus.tsx[EM4T]: F:显示消息发送中、成功、失败和已读状态 | R:code:src/store/telegramStore.pendingSends.ts,code:src/telegram/types.ts | A:sending,sent,failed,read | S:-
 MessageMetadata.tsx[EM4T]: F:渲染消息时间、发送者、编辑和来源元数据 | R:code:src/utils/messageMetadata.ts,code:src/components/MessageBubble.tsx | A:time,author,edited,forwarded | S:-
 MessagePreformatted.tsx[EL4T]: F:渲染代码块和预格式化消息并提供复制入口 | R:code:src/components/MessageRichText.tsx,code:src/utils/messageClipboard.ts | A:preformatted,code,copy | S:-
@@ -231,7 +231,7 @@ ProxySettingsEditor.tsx[IN7M]: F:编辑系统和自定义 Telegram 代理模式�
 ReportDialog.tsx[IS7M]: F:选择举报原因、附加说明和目标消息并提交举报 | R:code:src/telegram/chatReport.ts,code:src/components/ReportMessagePicker.tsx | A:report,reason,message,submit | S:举报目标和文本受长度与权限校验
 ReportMessagePicker.tsx[IS5T]: F:在消息列表中选择举报目标并显示当前选择 | R:code:src/components/ReportDialog.tsx,code:src/store/telegramStore.messages.ts | A:message,select,target | S:-
 RichMathExpression.tsx[EL3T]: F:用 KaTeX 渲染行内或块级数学表达式并通知文本布局协调器 | R:code:src/components/MessageTextFlow.tsx,code:src/components/MessageRichText.tsx,code:package.json | A:RichMathExpression,displayMode | S:KaTeX 禁止 trusted 扩展，解析错误由渲染器容错
-RichMessageContent.tsx[EB8L]: F:渲染富消息内容中的媒体、文件、投票、联系人和服务对象 | R:code:src/components/MessageBubble.tsx,code:src/telegram/messageContent.ts,code:src/components/MessageRichText.tsx | A:rich-content,media,file,poll,service | S:内容类型由领域模型决定，不能从本地文件名猜测
+RichMessageContent.tsx[EB8L]: F:渲染富消息内容中的媒体、文件、投票、联系人和服务对象 | R:code:src/components/MessageBubble.tsx,code:src/telegram/messageContent.ts,code:src/components/MessageRichText.tsx,code:src/components/VideoPreview.tsx | A:rich-content,media,file,poll,service | S:渲染按领域模型的内容类型分派。视频封面故障使用缩略图的文件身份发起恢复，并回退内嵌小图
 SafetySettings.tsx[IS7M]: F:管理广告过滤、屏蔽用户、隐私和安全相关偏好 | R:code:src/utils/adBlocking.ts,code:src/store/localUserBlocks.ts,code:src/telegram/chatManagement.ts | A:ad-block,blocked-users,privacy,safety | S:安全设置按账号隔离并在输入边界校验
 ServiceMessageContent.tsx[EB4T]: F:渲染 Telegram 服务消息 | R:code:src/telegram/serviceMessages.ts,code:src/components/MessageBubble.tsx | A:service,participants,call,payment | S:服务消息由领域类型决定
 SettingsDialog.tsx[EC9L]: F:编排主题、隐私、代理、通知、备份、诊断、更新和账户设置 | R:code:src/store/preferencesStore.ts,code:src/components/SettingsWindow.tsx,code:src/app/App.tsx | A:settings,sections,account,privacy,updates | S:敏感设置通过专用原生桥接
@@ -250,7 +250,7 @@ TgsSticker.tsx[EP6S]: F:加载和渲染 TGS 动画贴纸并处理资源回退 | 
 UnauthenticatedSettingsDialog.tsx[EI5S]: F:在未授权状态展示可用设置和登录入口 | R:code:src/components/SettingsDialog.tsx,code:src/components/AuthorizationScreen.tsx | A:settings,login,unauthenticated | S:未授权界面不读取私有数据
 UpdateSettings.tsx[OV6S]: F:展示更新渠道、检查状态、下载和重启安装操作 | R:code:src/release/appUpdater.ts,code:src-tauri/tauri.conf.json | A:update,channel,check,download,restart | S:更新结果须通过签名和渠道校验
 VideoPlaybackView.tsx[EP7M]: F:渲染视频播放、缓冲、控制、全屏和错误恢复 | R:code:src/media/videoPlayback.ts,code:src/components/VideoPreview.tsx | A:video,playback,buffer,fullscreen,recovery | S:播放和下载进度由共享媒体状态协调
-VideoPreview.tsx[EP5T]: F:显示视频海报、加载状态和播放入口 | R:code:src/media/videoPlayback.ts,code:src/components/AutoplayVideo.tsx | A:video,poster,preview,play | S:-
+VideoPreview.tsx[EP5T]: F:渲染视频和视频便笺的封面、时长及播放入口，并对接共享媒体查看器 | R:code:src/components/StableImage.tsx,code:src/media/mediaPlayback.ts,code:src/media/mediaViewerWindowBridge.ts | A:VideoPreview,playbackId,poster,onPosterReady,onPosterError | S:同一播放身份的封面替换在新图解码完成前保留旧图，身份变更会重置已解码图像。调用方管理封面回退及恢复
 VideoWindow.tsx[EP3T]: F:把旧视频子窗口入口映射到共享媒体查看器 | R:code:src/components/MediaViewerWindow.tsx,code:src/windows/videoWindowEntry.tsx | A:VideoWindow | S:保留独立入口以兼容升级时已存在的原生窗口
 ViewerImage.tsx[EP4T]: F:渲染查看器中的可缩放图片和加载回退 | R:code:src/components/MediaViewer.tsx,code:src/media/imageViewport.ts | A:image,zoom,viewport,loading | S:-
 VoiceWaveform.tsx[EP4T]: F:渲染语音消息波形和播放进度 | R:code:src/media/voiceWaveform.ts,code:src/components/AudioPlayer.tsx | A:waveform,voice,progress | S:-
@@ -403,7 +403,7 @@ telegramStore.ts[AD9L]: F:建立 Telegram 主 Zustand Store，串接账户与运
 telegramStore.types.ts[CD7L]: F:定义根 Store 状态、发送上下文、缓存快照和消息变化订阅契约 | R:code:src/store/telegramStore.ts,code:src/telegram/types.ts | A:TelegramState,MessageChangeEvent,ConversationSendContext,HistoryState | S:-
 
 ===/<repository>/src/styles/===
-global.css[FU6L]: F:定义全局排版、响应式布局、消息、输入、覆盖层、子窗口和动效样式 | R:code:src/styles/themes.css,code:src/utils/motionTokens.ts,code:src/windows/mountWindow.tsx,code:src/components/MessageTextFlow.tsx | A:@font-face,:root,prefers-reduced-motion | S:界面样式消费语义主题角色，布局与动效不得改变滚动的状态所有权
+global.css[FU6L]: F:定义全局排版、响应式布局、消息、输入、覆盖层、子窗口和动效样式 | R:code:src/styles/themes.css,code:src/utils/motionTokens.ts,code:src/windows/mountWindow.tsx,code:src/components/MessageTextFlow.tsx,code:src/components/VideoPreview.tsx | A:@font-face,:root,prefers-reduced-motion | S:界面样式消费语义主题角色，布局与动效保留滚动协调器的状态所有权。封面图层填充既定比例的视频预览框，外框独立决定消息占位尺寸
 themes.css[FC6S]: F:为浅色和深色主题定义完整语义颜色与浏览器色彩方案 | R:code:src/theme/theme.ts,code:src/styles/global.css,code:scripts/verify-theme-contract.mjs | A:notgram-light,notgram-dark,data-theme | S:主题颜色值集中在此，组件通过语义变量消费
 
 ===/<repository>/src/telegram/===

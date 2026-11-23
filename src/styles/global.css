@@ -1954,7 +1954,7 @@ button.message-forward-label:focus-visible { outline: 2px solid var(--color-bord
 .conversation-photo > img { position: absolute; inset: 0; }
 .video-preview { position: relative; width: 100%; height: 100%; min-height: inherit; display: block; padding: 0; overflow: hidden; color: var(--color-on-media); background: var(--color-bg-media); border: 0; cursor: pointer; }
 .video-preview.is-round { border-radius: 50%; }
-.video-preview > img { width: 100%; height: 100%; object-fit: cover; }
+.video-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .video-preview-play { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 52px; height: 52px; transform: translate(-50%, -50%); border: 1px solid color-mix(in srgb, var(--color-on-media) 35%, transparent); border-radius: 50%; background: color-mix(in srgb, var(--color-bg-media) 65%, transparent); }
 .video-preview:hover .video-preview-play, .video-preview:focus-visible .video-preview-play { background: color-mix(in srgb, var(--color-bg-media) 90%, transparent); }
 .video-preview:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }

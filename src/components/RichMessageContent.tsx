@@ -200,7 +200,8 @@ function RichMediaBlock({ media, context, blockKey }: {
     state,
   ));
   const source = localMediaSource(media.localPath);
-  const poster = localMediaSource(media.thumbnailPath) ?? media.previewDataUrl;
+  const localPoster = localMediaSource(media.thumbnailPath);
+  const poster = localPoster ?? media.previewDataUrl;
   const fileIdForSource = (candidate: string | undefined) => candidate === poster
     ? media.thumbnailFileId ?? media.fileId
     : media.fileId;
@@ -289,7 +290,9 @@ function RichMediaBlock({ media, context, blockKey }: {
     content = (
       <VideoPreview
         source={usableSource}
-        poster={usablePoster}
+        poster={usablePoster ?? media.previewDataUrl}
+        onPosterError={localPoster && usablePoster === localPoster
+          ? () => markSourceFailed(localPoster, media.thumbnailFileId) : undefined}
         playbackId={`${context.messageId}:${blockKey}`}
         label={media.fileName}
         fileId={media.fileId}

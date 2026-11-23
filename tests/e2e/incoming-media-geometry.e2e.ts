@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { scrollAwayFromBottom } from "./helpers";
+import { revealVirtualMessage, scrollAwayFromBottom } from "./helpers";
 import type { Message, MessageRichMedia } from "../../src/telegram/types";
 
 interface Scenario {
@@ -130,7 +130,6 @@ for (const scenario of scenarios) {
       const video = host.querySelector<HTMLVideoElement>('[data-message-id="incoming-geometry"] video');
       return { before, samples, imageReady: Boolean(image?.complete && image.naturalWidth > 0) || Boolean(video && video.readyState >= 2), mediaType, detached };
     }, scenario);
-    expect(report.imageReady).toBe(true);
     expect(report.before.frameHeight).toBeGreaterThan(100);
     const error = (key: "frameTop" | "frameHeight" | "frameWidth" | "top") =>
       Math.max(...report.samples.map(sample => Math.abs(sample[key] - report.before[key])));
@@ -138,7 +137,15 @@ for (const scenario of scenarios) {
     expect(error("frameWidth"), JSON.stringify(report)).toBeLessThanOrEqual(0.5);
     expect(error("frameTop"), JSON.stringify(report)).toBeLessThanOrEqual(0.5);
     expect(error("top"), JSON.stringify(report)).toBeLessThanOrEqual(1);
-    if (!scenario.detached) expect(Math.max(...report.samples.map(sample => sample.distance)), JSON.stringify(report)).toBeLessThanOrEqual(1);
+    if (scenario.detached) {
+      // The browser can defer an offscreen poster even when Virtuoso has mounted the row.
+      // Verify the reader's position before scrolling to check the poster itself.
+      await revealVirtualMessage(page, "incoming-geometry");
+      await expect(row.locator('.rich-media-visual img[data-image-state="ready"]')).toBeVisible();
+    } else {
+      expect(report.imageReady).toBe(true);
+      expect(Math.max(...report.samples.map(sample => sample.distance)), JSON.stringify(report)).toBeLessThanOrEqual(1);
+    }
     if (scenario.spoiler) {
       const before = await row.locator(".rich-media-visual").boundingBox();
       await row.getByRole("button", { name: "显示遮罩媒体" }).click();
